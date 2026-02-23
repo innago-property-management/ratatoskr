@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -43,4 +45,4 @@ class ToolDefinition:
     name: str
     description: str
     parameters: dict  # JSON Schema object
-    function: object  # the callable (sync or async)
+    function: Callable[..., Any]  # the callable (sync or async)

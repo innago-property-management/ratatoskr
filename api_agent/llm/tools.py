@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import inspect
 import re
-from typing import Any, Callable, get_type_hints
+from collections.abc import Callable
+from typing import Any, get_type_hints
 
 from .types import ToolDefinition
 
@@ -40,7 +41,7 @@ def _parse_docstring_params(doc: str | None) -> dict[str, str]:
     return descriptions
 
 
-def tool(fn: Callable) -> ToolDefinition:
+def tool(fn: Callable[..., Any]) -> ToolDefinition:
     """Decorator that converts a Python function into a ToolDefinition.
 
     Usage:
@@ -81,7 +82,8 @@ def tool(fn: Callable) -> ToolDefinition:
         properties[name] = prop
 
     # Extract first line of docstring as description
-    description = doc.split("\n")[0].strip() if doc else fn.__name__
+    fn_name = getattr(fn, "__name__", "unknown")
+    description = doc.split("\n")[0].strip() if doc else fn_name
 
     parameters = {
         "type": "object",
@@ -91,7 +93,7 @@ def tool(fn: Callable) -> ToolDefinition:
         parameters["required"] = required
 
     return ToolDefinition(
-        name=fn.__name__,
+        name=fn_name,
         description=description,
         parameters=parameters,
         function=fn,

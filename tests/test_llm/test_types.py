@@ -38,6 +38,7 @@ class TestLLMResponse:
 
     def test_with_usage(self):
         r = LLMResponse(content="ok", usage={"prompt_tokens": 10, "completion_tokens": 5})
+        assert r.usage is not None
         assert r.usage["prompt_tokens"] == 10
 
     def test_defaults(self):
