@@ -19,15 +19,16 @@ Point at any GraphQL or REST API. Ask questions in natural language. The agent f
 **1. Run (choose one):**
 
 ```bash
-# Direct run (no clone needed)
-OPENAI_API_KEY=your_key uvx --from git+https://github.com/agoda-com/api-agent api-agent
+# OpenAI (default)
+OPENAI_API_KEY=your_key uv run api-agent
 
-# Or clone & run
-git clone https://github.com/agoda-com/api-agent.git && cd api-agent
-uv sync && OPENAI_API_KEY=your_key uv run api-agent
+# Anthropic (Claude)
+uv run api-agent --provider anthropic --api-key sk-ant-your_key
 
-# Or Docker
-git clone https://github.com/agoda-com/api-agent
+# Local model (Ollama, LM Studio, vLLM)
+uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 --model llama3
+
+# Or Docker (OpenAI)
 docker build -t api-agent .
 docker run -p 3000:3000 -e OPENAI_API_KEY=your_key api-agent
 ```
@@ -123,17 +124,41 @@ Tool names auto-generated from URL (e.g., `example_query`). Override with `X-API
 
 Cached pipelines, no LLM reasoning. Appear after successful queries. Clients notified via `tools/list_changed`.
 
-### Configuration
+### CLI Arguments
 
-| Variable                      | Required | Default                   | Description                        |
-| ----------------------------- | -------- | ------------------------- | ---------------------------------- |
-| `OPENAI_API_KEY`              | **Yes**  | -                         | OpenAI API key (or custom LLM key) |
-| `OPENAI_BASE_URL`             | No       | https://api.openai.com/v1 | Custom LLM endpoint                |
-| `API_AGENT_MODEL_NAME`        | No       | gpt-5.2                   | Model (e.g., gpt-5.2)              |
-| `API_AGENT_PORT`              | No       | 3000                      | Server port                        |
-| `API_AGENT_ENABLE_RECIPES`    | No       | true                      | Enable recipe learning & caching   |
-| `API_AGENT_RECIPE_CACHE_SIZE` | No       | 64                        | Max cached recipes (LRU eviction)  |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | No       | -                         | OpenTelemetry tracing endpoint     |
+| Argument       | Description                                              |
+| -------------- | -------------------------------------------------------- |
+| `--provider`   | LLM provider: `openai`, `anthropic`, or `openai-compat`  |
+| `--model`      | Model name (default: provider-specific)                  |
+| `--api-key`    | API key (overrides env vars)                             |
+| `--base-url`   | Custom LLM endpoint (required for `openai-compat`)       |
+| `--port`       | Server port (default: 3000)                              |
+| `--host`       | Server host (default: 0.0.0.0)                           |
+| `--transport`  | MCP transport: `http`, `streamable-http`, `sse`           |
+| `--debug`      | Enable debug logging                                     |
+
+CLI arguments override environment variables.
+
+### Configuration (env vars)
+
+| Variable                       | Required | Default                   | Description                        |
+| ------------------------------ | -------- | ------------------------- | ---------------------------------- |
+| `API_AGENT_PROVIDER`           | No       | `openai`                  | LLM provider (`openai`, `anthropic`, `openai-compat`) |
+| `API_AGENT_API_KEY`            | **Yes**  | -                         | API key (also accepts `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) |
+| `API_AGENT_BASE_URL`           | No*      | -                         | Custom LLM endpoint (*required for `openai-compat`) |
+| `API_AGENT_MODEL_NAME`         | No       | (provider default)        | Model name                         |
+| `API_AGENT_PORT`               | No       | 3000                      | Server port                        |
+| `API_AGENT_ENABLE_RECIPES`     | No       | true                      | Enable recipe learning & caching   |
+| `API_AGENT_RECIPE_CACHE_SIZE`  | No       | 64                        | Max cached recipes (LRU eviction)  |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`  | No       | -                         | OpenTelemetry tracing endpoint     |
+
+**Provider defaults:**
+
+| Provider        | Default model               | API key env var     |
+| --------------- | --------------------------- | ------------------- |
+| `openai`        | `gpt-4o`                    | `OPENAI_API_KEY`    |
+| `anthropic`     | `claude-sonnet-4-20250514`  | `ANTHROPIC_API_KEY` |
+| `openai-compat` | `gpt-4o`                    | (optional)          |
 
 ---
 
@@ -171,7 +196,7 @@ flowchart TB
         R["r_{recipe} (dynamic)"]
     end
 
-    subgraph Agent["Agents (OpenAI Agents SDK)"]
+    subgraph Agent["Agents (Polyglot LLM)"]
         GA["GraphQL Agent"]
         RA["REST Agent"]
     end
@@ -194,7 +219,7 @@ flowchart TB
     HTTP --> API[Target API]
 ```
 
-**Stack:** [FastMCP](https://github.com/jlowin/fastmcp) • [OpenAI Agents SDK](https://openai.github.io/openai-agents-python/) • [DuckDB](https://duckdb.org)
+**Stack:** [FastMCP](https://github.com/jlowin/fastmcp) • [OpenAI](https://platform.openai.com/docs) / [Anthropic](https://docs.anthropic.com) / OpenAI-compatible • [DuckDB](https://duckdb.org)
 
 ---
 
@@ -230,6 +255,53 @@ flowchart LR
 ```
 
 Recipes auto-expire on schema changes. Disable with `API_AGENT_ENABLE_RECIPES=false`.
+
+---
+
+## Providers
+
+This fork supports multiple LLM providers through a thin abstraction layer.
+
+### OpenAI (default)
+
+```bash
+OPENAI_API_KEY=sk-... uv run api-agent
+```
+
+### Anthropic (Claude)
+
+```bash
+# Via CLI
+uv run api-agent --provider anthropic --api-key sk-ant-...
+
+# Via env vars
+API_AGENT_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... uv run api-agent
+
+# Custom model
+uv run api-agent --provider anthropic --model claude-opus-4-20250514
+```
+
+### Local Models (Ollama, LM Studio, vLLM)
+
+```bash
+# Ollama
+uv run api-agent --provider openai-compat \
+  --base-url http://localhost:11434/v1 \
+  --model llama3
+
+# LM Studio
+uv run api-agent --provider openai-compat \
+  --base-url http://localhost:1234/v1 \
+  --model local-model
+
+# vLLM
+uv run api-agent --provider openai-compat \
+  --base-url http://gpu-server:8000/v1 \
+  --model mistral-7b
+```
+
+> **Note:** Local models must support tool/function calling for full functionality.
+> If an endpoint doesn't support tools, the agent will retry without them (graceful degradation).
 
 ---
 

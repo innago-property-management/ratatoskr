@@ -7,8 +7,6 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
-from agents import Agent, MaxTurnsExceeded, Runner, function_tool
-
 from ..config import settings
 from ..context import RequestContext
 from ..executor import (
@@ -16,11 +14,13 @@ from ..executor import (
     extract_tables_from_response,
     truncate_for_context,
 )
+from ..llm.provider import MaxTurnsExceeded
+from ..llm.tools import tool
+from ..llm.types import ToolDefinition
 from ..recipe import (
     RECIPE_STORE,
     _return_directly_flag,
     _set_return_directly,
-    _tools_to_final_output,
     build_api_id,
     build_partial_result,
     build_recipe_docstring,
@@ -38,7 +38,7 @@ from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
 from ..tracing import trace_metadata
 from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
-from .model import get_run_config, model
+from .model import get_inject_instructions, provider
 from .progress import get_turn_context, reset_progress
 from .prompts import (
     CONTEXT_SECTION,
@@ -209,10 +209,9 @@ Path param: rest_call("GET", "/users/{{{{id}}}}", path_params='{{"id": "123"}}')
 """
 
 
-def _create_rest_call_tool(ctx: RequestContext, base_url: str):
+def _create_rest_call_tool(ctx: RequestContext, base_url: str) -> ToolDefinition:
     """Create rest_call tool with bound context."""
 
-    @function_tool
     async def rest_call(
         method: str,
         path: str,
@@ -329,13 +328,12 @@ def _create_rest_call_tool(ctx: RequestContext, base_url: str):
 
         return json.dumps(result, indent=2)
 
-    return rest_call
+    return tool(rest_call)
 
 
-def _create_poll_tool(ctx: RequestContext, base_url: str):
+def _create_poll_tool(ctx: RequestContext, base_url: str) -> ToolDefinition:
     """Create poll_until_done tool with bound context."""
 
-    @function_tool
     async def poll_until_done(
         method: str,
         path: str,
@@ -470,10 +468,9 @@ def _create_poll_tool(ctx: RequestContext, base_url: str):
             }
         )
 
-    return poll_until_done
+    return tool(poll_until_done)
 
 
-@function_tool
 def sql_query(sql: str, return_directly: bool = False) -> str:
     """Run DuckDB SQL on stored REST API results.
 
@@ -519,6 +516,9 @@ def sql_query(sql: str, return_directly: bool = False) -> str:
             )
 
     return json.dumps(result, indent=2)
+
+
+sql_query_tool = tool(sql_query)
 
 
 def _create_individual_recipe_tools(
@@ -647,7 +647,7 @@ def _create_individual_recipe_tools(
 
             dynamic_recipe_tool.__name__ = tname
             dynamic_recipe_tool.__doc__ = doc
-            return function_tool(dynamic_recipe_tool)
+            return tool(dynamic_recipe_tool)
 
         tools.append(make_tool(s["recipe_id"], params_spec, docstring, tool_name))
 
@@ -713,7 +713,7 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
 
         # Only include poll tool if user specified poll_paths header
         include_polling = bool(ctx.poll_paths)
-        tools = [rest_tool, sql_query, search_schema]
+        tools = [rest_tool, sql_query_tool, search_schema]
         if include_polling:
             poll_tool = _create_poll_tool(ctx, base_url)
             tools.insert(1, poll_tool)
@@ -721,31 +721,31 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
             recipe_tools = _create_individual_recipe_tools(ctx, base_url, suggestions)
             tools = [*recipe_tools, *tools]
 
-        # Create fresh agent with dynamic tools
-        agent = Agent(
-            name="rest-agent",
-            model=model,
-            instructions=_build_system_prompt(
-                poll_paths=ctx.poll_paths, recipe_context=recipe_context
-            ),
-            tools=tools,
-            tool_use_behavior=_tools_to_final_output,
+        # Build system prompt and user message
+        instructions = _build_system_prompt(
+            poll_paths=ctx.poll_paths, recipe_context=recipe_context
         )
-
-        # Inject schema into query
         augmented_query = f"{schema_ctx}\n\nQuestion: {question}" if schema_ctx else question
 
-        # Run agent with MaxTurnsExceeded handling for partial results
+        def _should_stop(results):
+            try:
+                return bool(_return_directly_flag.get())
+            except LookupError:
+                return False
+
+        # Run tool-calling loop
         api_calls = []
         last_data = None
         turn_info = ""
         try:
             with trace_metadata({"mcp_name": settings.MCP_SLUG, "agent_type": "rest"}):
-                result = await Runner.run(
-                    agent,
-                    augmented_query,
+                result = await provider.run_tool_loop(
+                    instructions=instructions,
+                    user_message=augmented_query,
+                    tool_defs=tools,
                     max_turns=settings.MAX_AGENT_TURNS,
-                    run_config=get_run_config(),
+                    should_stop=_should_stop,
+                    inject_instructions=get_inject_instructions(),
                 )
 
             api_calls = _rest_calls.get()

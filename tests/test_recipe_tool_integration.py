@@ -56,13 +56,13 @@ def test_graphql_create_tools_basic(mock_context, sample_recipe_suggestions):
         assert len(tools) == 1
         tool = tools[0]
 
-        # Verify tool has correct name (FunctionTool has .name attribute)
+        # Verify tool has correct name
         assert tool.name == "list_managers_starting_with_b"
 
-        # Verify tool is a FunctionTool
-        from agents import FunctionTool
+        # Verify tool is a ToolDefinition
+        from api_agent.llm.types import ToolDefinition
 
-        assert isinstance(tool, FunctionTool)
+        assert isinstance(tool, ToolDefinition)
 
 
 def test_create_multiple_recipe_tools(mock_context):
@@ -127,9 +127,9 @@ def test_recipe_tool_has_correct_signature(mock_context, sample_recipe_suggestio
         tools = graphql_create_tools(mock_context, sample_recipe_suggestions)
         tool = tools[0]
 
-        # Verify tool has strict JSON schema enabled
-        # This ensures OpenAI Agents SDK compatibility (no additionalProperties)
-        assert tool.strict_json_schema is True
+        # Verify tool has parameters schema
+        assert isinstance(tool.parameters, dict)
+        assert "properties" in tool.parameters
 
         # Verify tool name is correct
         assert tool.name == "list_managers_starting_with_b"
@@ -217,12 +217,12 @@ def test_recipe_tool_return_directly_default(mock_context, sample_recipe_suggest
         tool = tools[0]
 
         # Check the schema has return_directly with default=True
-        schema = tool.params_json_schema
+        schema = tool.parameters
         return_directly_param = schema["properties"]["return_directly"]
         assert return_directly_param["default"] is True
-        # Verify required params are visible in description
-        desc = tool.description.lower()
-        assert "required" in desc
+        # Recipe params are wrapped in a 'params' Pydantic model field
+        assert "params" in schema["properties"]
+        assert "return_directly" in schema["properties"]
 
         # Verify tool name
         assert tool.name == "list_managers_starting_with_b"
@@ -275,9 +275,9 @@ def test_rest_create_tools_basic(rest_context, rest_recipe_suggestions):
         tool = tools[0]
         assert tool.name == "get_user_by_id"
 
-        from agents import FunctionTool
+        from api_agent.llm.types import ToolDefinition
 
-        assert isinstance(tool, FunctionTool)
+        assert isinstance(tool, ToolDefinition)
 
 
 def test_rest_create_multiple_tools(rest_context):
@@ -331,7 +331,8 @@ def test_rest_tool_strict_schema(rest_context, rest_recipe_suggestions):
         tools = rest_create_tools(rest_context, "/v1", rest_recipe_suggestions)
         tool = tools[0]
 
-        assert tool.strict_json_schema is True
+        assert isinstance(tool.parameters, dict)
+        assert "properties" in tool.parameters
         assert tool.name == "get_user_by_id"
 
 
@@ -386,6 +387,6 @@ def test_rest_tool_return_directly_default(rest_context, rest_recipe_suggestions
         tools = rest_create_tools(rest_context, "/v1", rest_recipe_suggestions)
         tool = tools[0]
 
-        schema = tool.params_json_schema
+        schema = tool.parameters
         return_directly_param = schema["properties"]["return_directly"]
         assert return_directly_param["default"] is True

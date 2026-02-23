@@ -7,8 +7,6 @@ from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
-from agents import Agent, MaxTurnsExceeded, Runner, function_tool
-
 from ..config import settings
 from ..context import RequestContext
 from ..executor import (
@@ -17,11 +15,13 @@ from ..executor import (
     truncate_for_context,
 )
 from ..graphql import execute_query as graphql_fetch
+from ..llm.provider import MaxTurnsExceeded
+from ..llm.tools import tool
+from ..llm.types import ToolDefinition
 from ..recipe import (
     RECIPE_STORE,
     _return_directly_flag,
     _set_return_directly,
-    _tools_to_final_output,
     build_api_id,
     build_partial_result,
     build_recipe_docstring,
@@ -37,7 +37,7 @@ from ..recipe import (
 )
 from ..tracing import trace_metadata
 from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
-from .model import get_run_config, model
+from .model import get_inject_instructions, provider
 from .progress import get_turn_context, reset_progress
 from .prompts import (
     CONTEXT_SECTION,
@@ -328,10 +328,9 @@ Join: graphql_query('{{ users {{ id name }} }}', name='u'); graphql_query('{{ po
 """
 
 
-def _create_graphql_query_tool(ctx: RequestContext):
+def _create_graphql_query_tool(ctx: RequestContext) -> ToolDefinition:
     """Create graphql_query tool with bound context."""
 
-    @function_tool
     async def graphql_query(query: str, name: str = "data", return_directly: bool = False) -> str:
         """Execute GraphQL query and store result for sql_query.
 
@@ -393,14 +392,13 @@ def _create_graphql_query_tool(ctx: RequestContext):
 
         return json.dumps(result, indent=2)
 
-    return graphql_query
+    return tool(graphql_query)
 
 
 # Create search_schema tool bound to GraphQL schema context var
 search_schema = create_search_schema_tool(_raw_schema)
 
 
-@function_tool
 def sql_query(sql: str, return_directly: bool = False) -> str:
     """Run DuckDB SQL on stored GraphQL results.
 
@@ -447,11 +445,14 @@ def sql_query(sql: str, return_directly: bool = False) -> str:
     return json.dumps(result, indent=2)
 
 
+sql_query_tool = tool(sql_query)
+
+
 def _create_individual_recipe_tools(
     ctx: RequestContext,
     suggestions: list[dict[str, Any]],
 ) -> list:
-    """Generate one function_tool per recipe suggestion."""
+    """Generate ToolDefinition per recipe suggestion."""
     tools = []
     seen_names: set[str] = set()
 
@@ -558,7 +559,7 @@ def _create_individual_recipe_tools(
 
             dynamic_recipe_tool.__name__ = tname
             dynamic_recipe_tool.__doc__ = doc
-            return function_tool(dynamic_recipe_tool)
+            return tool(dynamic_recipe_tool)
 
         tools.append(make_tool(s["recipe_id"], params_spec, docstring, tool_name))
 
@@ -604,34 +605,34 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
 
         # Create tools with bound context
         gql_tool = _create_graphql_query_tool(ctx)
-        tools = [gql_tool, sql_query, search_schema]
+        tools = [gql_tool, sql_query_tool, search_schema]
         if suggestions:  # Create individual recipe tools for each suggestion
             recipe_tools = _create_individual_recipe_tools(ctx, suggestions)
             tools = [*recipe_tools, *tools]
 
-        # Create fresh agent with dynamic tools
-        agent = Agent(
-            name="graphql-agent",
-            model=model,
-            instructions=_build_system_prompt(recipe_context),
-            tools=tools,
-            tool_use_behavior=_tools_to_final_output,
-        )
-
-        # Inject schema into query
+        # Build system prompt and user message
+        instructions = _build_system_prompt(recipe_context)
         augmented_query = f"{schema_ctx}\n\nQuestion: {question}" if schema_ctx else question
 
-        # Run agent with MaxTurnsExceeded handling for partial results
+        def _should_stop(results):
+            try:
+                return bool(_return_directly_flag.get())
+            except LookupError:
+                return False
+
+        # Run tool-calling loop
         queries = []
         last_data = None
         turn_info = ""
         try:
             with trace_metadata({"mcp_name": settings.MCP_SLUG, "agent_type": "graphql"}):
-                result = await Runner.run(
-                    agent,
-                    augmented_query,
+                result = await provider.run_tool_loop(
+                    instructions=instructions,
+                    user_message=augmented_query,
+                    tool_defs=tools,
                     max_turns=settings.MAX_AGENT_TURNS,
-                    run_config=get_run_config(),
+                    should_stop=_should_stop,
+                    inject_instructions=get_inject_instructions(),
                 )
 
             queries = _graphql_queries.get()

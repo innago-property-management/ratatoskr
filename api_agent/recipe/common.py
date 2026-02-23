@@ -1,13 +1,13 @@
 """Shared utilities for recipe tools in GraphQL and REST agents."""
 
+from __future__ import annotations
+
 import json
 import logging
 import re
 from contextvars import ContextVar
 from typing import Any
 
-from agents import FunctionToolResult, RunContextWrapper
-from agents.agent import ToolsToFinalOutputResult
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from ..config import settings
@@ -167,16 +167,15 @@ def _set_return_directly() -> None:
         pass
 
 
-def _tools_to_final_output(
-    context: RunContextWrapper[Any], tool_results: list[FunctionToolResult]
-) -> ToolsToFinalOutputResult:
-    """Check if any tool requested direct return (skip LLM processing)."""
+def _tools_to_final_output() -> bool:
+    """Check if any tool requested direct return (skip LLM processing).
+
+    Returns True if the return-directly flag has been set.
+    """
     try:
-        if _return_directly_flag.get():
-            return ToolsToFinalOutputResult(is_final_output=True, final_output="__DIRECT_RETURN__")
+        return bool(_return_directly_flag.get())
     except LookupError:
-        pass
-    return ToolsToFinalOutputResult(is_final_output=False, final_output=None)
+        return False
 
 
 def build_recipe_docstring(

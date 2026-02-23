@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from agents import Agent, Runner
+pass  # LLM imports deferred to extract_recipe()
 
 from .store import get_example_values, normalize_ws, render_param_refs, render_text_template
 
@@ -205,14 +205,7 @@ async def extract_recipe(
     existing_recipes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     """Extract parameterized recipe from execution trace. Returns recipe or None."""
-    from ..agent.model import get_run_config, model
-
-    agent = Agent(
-        name="recipe-extractor",
-        model=model,
-        instructions=_EXTRACTOR_INSTRUCTIONS,
-        tools=[],
-    )
+    from ..agent.model import provider
 
     payload = {
         "api_type": api_type,
@@ -222,16 +215,16 @@ async def extract_recipe(
         "existing_recipes": existing_recipes or [],
     }
 
-    result = await Runner.run(
-        agent,
-        json.dumps(payload, indent=2),
-        max_turns=6,
-        run_config=get_run_config(),
-    )
-    if not result.final_output:
+    messages = [
+        {"role": "system", "content": _EXTRACTOR_INSTRUCTIONS},
+        {"role": "user", "content": json.dumps(payload, indent=2)},
+    ]
+
+    response = await provider.complete(messages, temperature=0.0, max_tokens=4096)
+    if not response.content:
         return None
 
-    recipe = _parse_json_maybe(str(result.final_output))
+    recipe = _parse_json_maybe(response.content)
     if not recipe:
         return None
 

@@ -21,17 +21,30 @@ class Settings(BaseSettings):
         """Slugified MCP_NAME for identifiers."""
         return re.sub(r"[^a-z0-9]+", "_", self.MCP_NAME.lower()).strip("_")
 
-    # LLM (accepts both API_AGENT_OPENAI_* and OPENAI_*)
+    # LLM Provider
+    PROVIDER: str = "openai"  # "openai", "anthropic", or "openai-compat"
+    API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "API_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"
+        ),
+    )
+    BASE_URL: str = Field(
+        default="",
+        validation_alias=AliasChoices("API_AGENT_BASE_URL", "OPENAI_BASE_URL"),
+    )
+    MODEL_NAME: str = ""  # empty = provider default
+    REASONING_EFFORT: str = ""  # "low", "medium", "high" - empty = disabled
+
+    # Legacy aliases for backward compatibility
     OPENAI_API_KEY: str = Field(
         default="",
         validation_alias=AliasChoices("API_AGENT_OPENAI_API_KEY", "OPENAI_API_KEY"),
     )
     OPENAI_BASE_URL: str = Field(
-        default="https://api.openai.com/v1",
+        default="",
         validation_alias=AliasChoices("API_AGENT_OPENAI_BASE_URL", "OPENAI_BASE_URL"),
     )
-    MODEL_NAME: str = "gpt-5.2"
-    REASONING_EFFORT: str = ""  # "low", "medium", "high" - empty = disabled
 
     # Agent limits
     MAX_AGENT_TURNS: int = 30
