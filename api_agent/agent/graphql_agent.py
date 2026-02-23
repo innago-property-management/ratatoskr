@@ -8,9 +8,6 @@ from datetime import datetime
 from typing import Any
 
 from ..config import settings
-from ..llm.provider import MaxTurnsExceeded
-from ..llm.tools import tool
-from ..llm.types import ToolDefinition
 from ..context import RequestContext
 from ..executor import (
     execute_sql,
@@ -18,11 +15,13 @@ from ..executor import (
     truncate_for_context,
 )
 from ..graphql import execute_query as graphql_fetch
+from ..llm.provider import MaxTurnsExceeded
+from ..llm.tools import tool
+from ..llm.types import ToolDefinition
 from ..recipe import (
     RECIPE_STORE,
     _return_directly_flag,
     _set_return_directly,
-    _tools_to_final_output,
     build_api_id,
     build_partial_result,
     build_recipe_docstring,
@@ -640,7 +639,7 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
             last_data = _last_result.get()[0]
             turn_info = get_turn_context(settings.MAX_AGENT_TURNS)
 
-        except MaxTurnsExceeded as e:
+        except MaxTurnsExceeded:
             # Return partial results when turn limit exceeded
             queries = _graphql_queries.get()
             last_data = _last_result.get()[0]

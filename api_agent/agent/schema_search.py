@@ -4,9 +4,8 @@ import re
 from contextvars import ContextVar
 from typing import Callable
 
-from ..llm.tools import tool as function_tool
-
 from ..config import settings
+from ..llm.tools import tool as function_tool
 
 
 def create_search_schema_tool(raw_schema_var: ContextVar[str]):
