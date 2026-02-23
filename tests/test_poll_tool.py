@@ -95,17 +95,12 @@ class TestPollBlocking:
         )
         poll_tool = _create_poll_tool(ctx, "https://api.example.com")
 
-        result = await poll_tool.on_invoke_tool(
-            None,
-            json.dumps(
-                {
-                    "method": "POST",
-                    "path": "/search",
-                    "done_field": "polling.completed",
-                    "done_value": "true",
-                    "body": json.dumps({"polling": {"count": 1}}),
-                }
-            ),
+        result = await poll_tool.function(
+            method="POST",
+            path="/search",
+            done_field="polling.completed",
+            done_value="true",
+            body=json.dumps({"polling": {"count": 1}}),
         )
         result_dict = json.loads(result)
         assert result_dict["success"] is False
@@ -129,17 +124,12 @@ class TestPollBlocking:
         )
         poll_tool = _create_poll_tool(ctx, "https://api.example.com")
 
-        result = await poll_tool.on_invoke_tool(
-            None,
-            json.dumps(
-                {
-                    "method": "POST",
-                    "path": "/search/flights",
-                    "done_field": "polling.completed",
-                    "done_value": "true",
-                    "body": json.dumps({"polling": {"count": 1}}),
-                }
-            ),
+        result = await poll_tool.function(
+            method="POST",
+            path="/search/flights",
+            done_field="polling.completed",
+            done_value="true",
+            body=json.dumps({"polling": {"count": 1}}),
         )
         result_dict = json.loads(result)
         # Will fail with connection error but NOT blocked
@@ -177,16 +167,11 @@ class TestPollGuardrails:
             new_callable=AsyncMock,
             return_value={"success": True, "data": mock_response},
         ):
-            result = await poll_tool.on_invoke_tool(
-                None,
-                json.dumps(
-                    {
-                        "method": "POST",
-                        "path": "/search/flights",
-                        "done_field": "polling.completed",  # doesn't exist
-                        "done_value": "true",
-                    }
-                ),
+            result = await poll_tool.function(
+                method="POST",
+                path="/search/flights",
+                done_field="polling.completed",
+                done_value="true",
             )
             result_dict = json.loads(result)
             assert result_dict["success"] is False
@@ -231,17 +216,12 @@ class TestPollGuardrails:
             new_callable=AsyncMock,
             side_effect=mock_request,
         ):
-            result = await poll_tool.on_invoke_tool(
-                None,
-                json.dumps(
-                    {
-                        "method": "POST",
-                        "path": "/search/flights",
-                        "done_field": "polling.completed",
-                        "done_value": "true",
-                        "delay_ms": 100,  # Agent overrides to 100ms
-                    }
-                ),
+            result = await poll_tool.function(
+                method="POST",
+                path="/search/flights",
+                done_field="polling.completed",
+                done_value="true",
+                delay_ms=100,
             )
             result_dict = json.loads(result)
             assert result_dict["success"] is True
@@ -277,17 +257,12 @@ class TestPollGuardrails:
                 "data": {"polling": {"completed": False}},
             },
         ):
-            result = await poll_tool.on_invoke_tool(
-                None,
-                json.dumps(
-                    {
-                        "method": "POST",
-                        "path": "/search/flights",
-                        "done_field": "polling.completed",
-                        "done_value": "true",
-                        "delay_ms": 1,
-                    }
-                ),
+            result = await poll_tool.function(
+                method="POST",
+                path="/search/flights",
+                done_field="polling.completed",
+                done_value="true",
+                delay_ms=1,
             )
             result_dict = json.loads(result)
             assert result_dict["success"] is False
@@ -331,18 +306,13 @@ class TestPollGuardrails:
             new_callable=AsyncMock,
             side_effect=mock_request,
         ):
-            result = await poll_tool.on_invoke_tool(
-                None,
-                json.dumps(
-                    {
-                        "method": "POST",
-                        "path": "/search/flights",
-                        "body": json.dumps({"polling": {"count": 1}}),
-                        "done_field": "polling.completed",
-                        "done_value": "true",
-                        "delay_ms": 1,
-                    }
-                ),
+            result = await poll_tool.function(
+                method="POST",
+                path="/search/flights",
+                body=json.dumps({"polling": {"count": 1}}),
+                done_field="polling.completed",
+                done_value="true",
+                delay_ms=1,
             )
             result_dict = json.loads(result)
             assert result_dict["success"] is True
@@ -387,17 +357,12 @@ class TestPollGuardrails:
             new_callable=AsyncMock,
             side_effect=mock_request,
         ):
-            result = await poll_tool.on_invoke_tool(
-                None,
-                json.dumps(
-                    {
-                        "method": "POST",
-                        "path": "/flights/search",
-                        "done_field": "retry.next",
-                        "done_value": "0",  # 0 means done
-                        "delay_ms": 1,
-                    }
-                ),
+            result = await poll_tool.function(
+                method="POST",
+                path="/flights/search",
+                done_field="retry.next",
+                done_value="0",
+                delay_ms=1,
             )
             result_dict = json.loads(result)
             assert result_dict["success"] is True
@@ -422,17 +387,12 @@ class TestPollGuardrails:
         )
         poll_tool = _create_poll_tool(ctx, "https://api.example.com")
 
-        result = await poll_tool.on_invoke_tool(
-            None,
-            json.dumps(
-                {
-                    "method": "POST",
-                    "path": "/search/flights",
-                    "done_field": "polling.completed",
-                    "done_value": "true",
-                    "body": "not-json",
-                }
-            ),
+        result = await poll_tool.function(
+            method="POST",
+            path="/search/flights",
+            done_field="polling.completed",
+            done_value="true",
+            body="not-json",
         )
         result_dict = json.loads(result)
         assert result_dict["success"] is False
@@ -473,18 +433,13 @@ class TestPollGuardrails:
             new_callable=AsyncMock,
             side_effect=mock_request,
         ):
-            result = await poll_tool.on_invoke_tool(
-                None,
-                json.dumps(
-                    {
-                        "method": "POST",
-                        "path": "/status/check",
-                        "body": json.dumps({"query": "test"}),  # No polling.count
-                        "done_field": "status.done",
-                        "done_value": "true",
-                        "delay_ms": 1,
-                    }
-                ),
+            result = await poll_tool.function(
+                method="POST",
+                path="/status/check",
+                body=json.dumps({"query": "test"}),
+                done_field="status.done",
+                done_value="true",
+                delay_ms=1,
             )
             result_dict = json.loads(result)
             assert result_dict["success"] is True
