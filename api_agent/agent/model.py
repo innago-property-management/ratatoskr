@@ -1,53 +1,36 @@
-"""Shared OpenAI model configuration for API agents."""
+"""Shared LLM provider configuration for API agents."""
 
-from agents import ModelSettings, RunConfig, set_default_openai_api, set_tracing_disabled
-from agents.models.openai_chatcompletions import OpenAIChatCompletionsModel
-from agents.run import CallModelData, ModelInputData
-from openai import AsyncOpenAI
-from openai.types.shared import Reasoning
+from __future__ import annotations
 
 from ..config import settings
+from ..llm import create_provider
+from ..llm.provider import LLMProvider
 from ..tracing import init_tracing
 from ..tracing import is_enabled as tracing_enabled
 from .progress import get_turn_context, increment_turn
 
-# Set default API mode
-set_default_openai_api("chat_completions")
-
 # Initialize tracing
 init_tracing()
-if not tracing_enabled():
-    set_tracing_disabled(True)
 
-# Shared OpenAI client
-client = AsyncOpenAI(
-    api_key=settings.OPENAI_API_KEY,
-    base_url=settings.OPENAI_BASE_URL,
+# Resolve API key: prefer new API_KEY, fall back to legacy OPENAI_API_KEY
+_api_key = settings.API_KEY or settings.OPENAI_API_KEY
+_base_url = settings.BASE_URL or settings.OPENAI_BASE_URL or None
+
+# Create the shared provider instance
+provider: LLMProvider = create_provider(
+    provider=settings.PROVIDER,
+    model=settings.MODEL_NAME or None,
+    api_key=_api_key,
+    base_url=_base_url,
 )
 
-# Shared model instance
-model = OpenAIChatCompletionsModel(
-    model=settings.MODEL_NAME,
-    openai_client=client,
-)
 
+def get_inject_instructions():
+    """Return a callback that injects turn count into instructions before each LLM call."""
 
-async def _inject_turn(call_data: CallModelData) -> ModelInputData:
-    """Inject turn count into instructions before each LLM call."""
-    increment_turn()
-    turn_info = get_turn_context(settings.MAX_AGENT_TURNS)
-    existing_instructions = call_data.model_data.instructions or ""
-    call_data.model_data.instructions = f"{existing_instructions}\n\n{turn_info}"
-    return call_data.model_data
+    def inject(instructions: str, turn: int) -> str:
+        increment_turn()
+        turn_info = get_turn_context(settings.MAX_AGENT_TURNS)
+        return f"{instructions}\n\n{turn_info}"
 
-
-def get_run_config() -> RunConfig:
-    """Get RunConfig with optional reasoning settings and turn injection."""
-    model_settings = None
-    if settings.REASONING_EFFORT:
-        model_settings = ModelSettings(reasoning=Reasoning(effort=settings.REASONING_EFFORT))  # type: ignore[arg-type]
-
-    return RunConfig(
-        model_settings=model_settings,
-        call_model_input_filter=_inject_turn,
-    )
+    return inject

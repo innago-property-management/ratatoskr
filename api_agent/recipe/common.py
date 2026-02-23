@@ -1,13 +1,13 @@
 """Shared utilities for recipe tools in GraphQL and REST agents."""
 
+from __future__ import annotations
+
 import json
 import logging
 import re
 from contextvars import ContextVar
 from typing import Any
 
-from agents import FunctionToolResult, RunContextWrapper
-from agents.agent import ToolsToFinalOutputResult
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from ..config import settings

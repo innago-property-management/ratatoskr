@@ -4,7 +4,7 @@ import re
 from contextvars import ContextVar
 from typing import Callable
 
-from agents import function_tool
+from ..llm.tools import tool as function_tool
 
 from ..config import settings
 
