@@ -305,11 +305,25 @@ uv run api-agent --provider openai-compat \
 
 ---
 
+## Roadmap
+
+Planned improvements (contributions welcome):
+
+- [ ] **Streaming responses** — Stream agent reasoning and partial results to MCP clients
+- [ ] **Mutation support** — Controlled write operations with confirmation flows
+- [ ] **Schema caching** — Cache introspected schemas to reduce startup latency
+- [ ] **Multi-API joins** — Query across multiple APIs in a single request
+- [ ] **Recipe sharing** — Export/import learned recipes between instances
+- [ ] **WebSocket subscriptions** — Support GraphQL subscriptions for real-time data
+- [ ] **Plugin system** — Custom pre/post-processing hooks for API responses
+
+See [RATATOSKR_ROADMAP.md](RATATOSKR_ROADMAP.md) for the full implementation roadmap.
+
 ## Development
 
 ```bash
-git clone https://github.com/agoda-com/api-agent.git
-cd api-agent
+git clone https://github.com/innago-property-management/ratatoskr.git
+cd ratatoskr
 uv sync --group dev
 uv run pytest tests/ -v      # Tests
 uv run ruff check api_agent/  # Lint

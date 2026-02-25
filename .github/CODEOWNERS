@@ -1,0 +1,12 @@
+# Default owners for everything in the repo
+* @innago-property-management/api-agent-maintainers
+
+# Python source
+api_agent/ @innago-property-management/api-agent-maintainers
+tests/ @innago-property-management/api-agent-maintainers
+
+# CI/CD
+.github/ @innago-property-management/api-agent-maintainers
+
+# Documentation
+*.md @innago-property-management/api-agent-maintainers
