@@ -6,6 +6,17 @@ readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "API Agent Contributors" }]
 requires-python = ">=3.11"
+keywords = ["mcp", "api", "graphql", "rest", "ai", "llm", "natural-language", "duckdb"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Internet :: WWW/HTTP",
+]
 dependencies = [
     "anthropic>=0.83.0",
     "arize-otel>=0.11.0",
@@ -24,6 +35,12 @@ dependencies = [
 
 [project.scripts]
 api-agent = "api_agent.__main__:main"
+
+[project.urls]
+Homepage = "https://github.com/innago-property-management/ratatoskr"
+Repository = "https://github.com/innago-property-management/ratatoskr"
+Issues = "https://github.com/innago-property-management/ratatoskr/issues"
+Changelog = "https://github.com/innago-property-management/ratatoskr/releases"
 
 [build-system]
 requires = ["hatchling"]
