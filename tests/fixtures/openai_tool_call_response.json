@@ -1,0 +1,30 @@
+{
+  "id": "chatcmpl-test-002",
+  "object": "chat.completion",
+  "model": "gpt-4o-mini",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_test_001",
+            "type": "function",
+            "function": {
+              "name": "graphql_query",
+              "arguments": "{\"query\": \"{ users(limit: 10) { id name email } }\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 200,
+    "completion_tokens": 50,
+    "total_tokens": 250
+  }
+}
