@@ -7,7 +7,7 @@ community a welcoming experience for everyone.
 
 ## Our Standards
 
-Examples of behavior that contributes to a positive environment:
+Examples of behavior that contribute to a positive environment:
 
 - Using welcoming and inclusive language
 - Being respectful of differing viewpoints and experiences
