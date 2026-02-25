@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/ratatoskr-logo.png" alt="Ratatoskr" width="300">
+</p>
+
 # API Agent
 
 **Turn any API into an MCP server. Query in English. Get results—even when the API can't.**
