@@ -59,7 +59,7 @@ class TestOpenAIProviderComplete:
             content="Hello!",
             usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         )
-        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "Hi"}])
 
@@ -80,7 +80,7 @@ class TestOpenAIProviderComplete:
             tool_calls=[tc1, tc2],
             usage={"prompt_tokens": 20, "completion_tokens": 30, "total_tokens": 50},
         )
-        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete(
             [{"role": "user", "content": "Find cheap flights"}],
@@ -107,7 +107,7 @@ class TestOpenAIProviderComplete:
             content="ok",
             usage={"prompt_tokens": 100, "completion_tokens": 42, "total_tokens": 142},
         )
-        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "test"}])
 
@@ -121,7 +121,7 @@ class TestOpenAIProviderComplete:
         """If response.usage is None, LLMResponse.usage is None."""
         provider = OpenAIProvider(model="gpt-4o-mini", api_key="test-key")
         mock_resp = _make_openai_response(content="ok", usage=None)
-        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "test"}])
 
@@ -138,7 +138,7 @@ class TestOpenAIProviderComplete:
             tool_calls=[tc],
             usage={"prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10},
         )
-        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete(
             [{"role": "user", "content": "do something"}],
@@ -155,7 +155,7 @@ class TestOpenAIProviderComplete:
         provider = OpenAIProvider(model="gpt-4o-mini", api_key="test-key")
         mock_resp = _make_openai_response(content="ok", usage=None)
         mock_create = AsyncMock(return_value=mock_resp)
-        provider.client.chat.completions.create = mock_create
+        provider.client.chat.completions.create = mock_create  # type: ignore[invalid-assignment]
 
         await provider.complete([{"role": "user", "content": "test"}])
 
@@ -168,7 +168,7 @@ class TestOpenAIProviderComplete:
         provider = OpenAIProvider(model="gpt-4o-mini", api_key="test-key")
         mock_resp = _make_openai_response(content="ok", usage=None)
         mock_create = AsyncMock(return_value=mock_resp)
-        provider.client.chat.completions.create = mock_create
+        provider.client.chat.completions.create = mock_create  # type: ignore[invalid-assignment]
 
         tools = [{"type": "function", "function": {"name": "my_tool"}}]
         await provider.complete(

@@ -61,13 +61,14 @@ class TestOpenAICompatProviderComplete:
             content="Local model says hi",
             usage={"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
         )
-        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "Hi"}])
 
         assert isinstance(result, LLMResponse)
         assert result.content == "Local model says hi"
         assert not result.has_tool_calls
+        assert result.usage is not None
         assert result.usage["total_tokens"] == 12
 
     @pytest.mark.asyncio
@@ -78,7 +79,7 @@ class TestOpenAICompatProviderComplete:
         )
         tc = _make_tool_call("call_1", "my_tool", '{"x": 1}')
         mock_resp = _make_openai_response(content=None, tool_calls=[tc], usage=None)
-        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)
+        provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete(
             [{"role": "user", "content": "use tool"}],
@@ -108,7 +109,7 @@ class TestOpenAICompatProviderComplete:
             assert "tools" not in kwargs
             return _make_openai_response(content="Fallback response")
 
-        provider.client.chat.completions.create = mock_create
+        provider.client.chat.completions.create = mock_create  # type: ignore[invalid-assignment]
 
         result = await provider.complete(
             [{"role": "user", "content": "Hi"}],
@@ -134,7 +135,7 @@ class TestOpenAICompatProviderComplete:
                 raise Exception("Unsupported function calling feature")
             return _make_openai_response(content="Recovered")
 
-        provider.client.chat.completions.create = mock_create
+        provider.client.chat.completions.create = mock_create  # type: ignore[invalid-assignment]
 
         result = await provider.complete(
             [{"role": "user", "content": "Hi"}],
@@ -151,7 +152,7 @@ class TestOpenAICompatProviderComplete:
             model="local-model", base_url="http://localhost:11434/v1"
         )
 
-        provider.client.chat.completions.create = AsyncMock(
+        provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
             side_effect=Exception("Connection refused")
         )
 
@@ -168,7 +169,7 @@ class TestOpenAICompatProviderComplete:
             model="local-model", base_url="http://localhost:11434/v1"
         )
 
-        provider.client.chat.completions.create = AsyncMock(
+        provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
             side_effect=Exception("This model does not support tool calling")
         )
 

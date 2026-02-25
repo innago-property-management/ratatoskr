@@ -22,7 +22,6 @@ from api_agent.recipe.store import RECIPE_STORE, sha256_hex
 @pytest.fixture(autouse=True)
 def clean_recipe_store():
     """Ensure the global recipe store is empty before and after each test."""
-    RECIPE_STORE._cache = {}
     RECIPE_STORE._records.clear()
     RECIPE_STORE._by_key.clear()
     RECIPE_STORE._lru.clear()

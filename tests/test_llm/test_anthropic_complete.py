@@ -52,7 +52,7 @@ class TestAnthropicProviderComplete:
             content_blocks=[{"type": "text", "text": "Hello from Claude!"}],
             usage={"input_tokens": 10, "output_tokens": 8},
         )
-        provider.client.messages.create = AsyncMock(return_value=mock_resp)
+        provider.client.messages.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "Hi"}])
 
@@ -76,7 +76,7 @@ class TestAnthropicProviderComplete:
             ],
             usage={"input_tokens": 20, "output_tokens": 15},
         )
-        provider.client.messages.create = AsyncMock(return_value=mock_resp)
+        provider.client.messages.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete(
             [{"role": "user", "content": "Search flights"}],
@@ -109,7 +109,7 @@ class TestAnthropicProviderComplete:
             ],
             usage={"input_tokens": 30, "output_tokens": 25},
         )
-        provider.client.messages.create = AsyncMock(return_value=mock_resp)
+        provider.client.messages.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "Look up item 42"}])
 
@@ -129,7 +129,7 @@ class TestAnthropicProviderComplete:
             usage={"input_tokens": 5, "output_tokens": 2},
         )
         mock_create = AsyncMock(return_value=mock_resp)
-        provider.client.messages.create = mock_create
+        provider.client.messages.create = mock_create  # type: ignore[invalid-assignment]
 
         messages = [
             {"role": "system", "content": "You are a helpful assistant."},
@@ -157,7 +157,7 @@ class TestAnthropicProviderComplete:
             usage={"input_tokens": 5, "output_tokens": 2},
         )
         mock_create = AsyncMock(return_value=mock_resp)
-        provider.client.messages.create = mock_create
+        provider.client.messages.create = mock_create  # type: ignore[invalid-assignment]
 
         messages = [{"role": "user", "content": "Hello"}]
         await provider.complete(messages)
@@ -173,7 +173,7 @@ class TestAnthropicProviderComplete:
             content_blocks=[{"type": "text", "text": "ok"}],
             usage={"input_tokens": 100, "output_tokens": 50},
         )
-        provider.client.messages.create = AsyncMock(return_value=mock_resp)
+        provider.client.messages.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "test"}])
 
@@ -190,7 +190,7 @@ class TestAnthropicProviderComplete:
             content_blocks=[{"type": "text", "text": "ok"}],
             usage=None,
         )
-        provider.client.messages.create = AsyncMock(return_value=mock_resp)
+        provider.client.messages.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "test"}])
 
@@ -211,7 +211,7 @@ class TestAnthropicProviderComplete:
             ],
             usage={"input_tokens": 5, "output_tokens": 5},
         )
-        provider.client.messages.create = AsyncMock(return_value=mock_resp)
+        provider.client.messages.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
 
         result = await provider.complete([{"role": "user", "content": "test"}])
 

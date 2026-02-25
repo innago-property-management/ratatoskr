@@ -14,17 +14,15 @@ from api_agent.tools.query import register_query_tool
 
 def _make_request_context(api_type="graphql", **overrides):
     """Build a RequestContext with sensible defaults."""
-    defaults = {
-        "target_url": "https://api.example.com/graphql",
-        "api_type": api_type,
-        "target_headers": {"Authorization": "Bearer test"},
-        "allow_unsafe_paths": (),
-        "base_url": None,
-        "include_result": False,
-        "poll_paths": (),
-    }
-    defaults.update(overrides)
-    return RequestContext(**defaults)
+    return RequestContext(
+        target_url=overrides.get("target_url", "https://api.example.com/graphql"),
+        api_type=overrides.get("api_type", api_type),
+        target_headers=overrides.get("target_headers", {"Authorization": "Bearer test"}),
+        allow_unsafe_paths=overrides.get("allow_unsafe_paths", ()),
+        base_url=overrides.get("base_url", None),
+        include_result=overrides.get("include_result", False),
+        poll_paths=overrides.get("poll_paths", ()),
+    )
 
 
 @pytest.fixture
@@ -32,7 +30,7 @@ def query_fn():
     """Register the _query tool on a fresh FastMCP app and return its inner function."""
     mcp = FastMCP("test")
     register_query_tool(mcp)
-    return mcp._tool_manager._tools["_query"].fn
+    return mcp._tool_manager._tools["_query"].fn  # type: ignore[unresolved-attribute]
 
 
 # ---------------------------------------------------------------------------

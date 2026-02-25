@@ -17,7 +17,7 @@ def execute_tool():
     """Register the _execute tool on a test FastMCP instance and return the inner function."""
     mcp = FastMCP("test")
     register_execute_tool(mcp)
-    return mcp._tool_manager._tools["_execute"].fn
+    return mcp._tool_manager._tools["_execute"].fn  # type: ignore[unresolved-attribute]
 
 
 @pytest.fixture
