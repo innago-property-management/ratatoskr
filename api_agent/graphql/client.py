@@ -54,6 +54,10 @@ async def execute_query(
             resp.raise_for_status()
             result = resp.json()
             if "errors" in result:
+                data = result.get("data")
+                if data is not None:
+                    # Partial success: return both data and errors (per GraphQL spec)
+                    return {"success": True, "data": data, "errors": result["errors"]}
                 return {"success": False, "error": result["errors"]}
             return {"success": True, "data": result.get("data", {})}
         except httpx.HTTPStatusError as e:

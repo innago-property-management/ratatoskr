@@ -2,21 +2,39 @@
   <img src="docs/ratatoskr-logo.png" alt="Ratatoskr" width="300">
 </p>
 
-# API Agent
+<h1 align="center">Ratatoskr</h1>
 
-**Turn any API into an MCP server. Query in English. Get results—even when the API can't.**
+<p align="center">
+  <strong>Turn any API into an MCP server. Query in English. Get results — even when the API can't.</strong>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#how-it-works">How It Works</a> &middot;
+  <a href="#providers">Providers</a> &middot;
+  <a href="#reference">Reference</a> &middot;
+  <a href="#development">Development</a>
+</p>
+
+---
+
+> **Ratatoskr** is a polyglot-LLM fork of [agoda-com/api-agent](https://github.com/agoda-com/api-agent) — Agoda's universal API-to-MCP bridge. This fork adds first-class **Anthropic** and **OpenAI-compatible** (Ollama, LM Studio, vLLM) provider support alongside the original OpenAI backend. All credit for the core architecture goes to the [Agoda engineering team](https://medium.com/agoda-engineering/how-to-convert-any-api-to-mcp-with-zero-code-and-zero-deployments-using-apiagent-fa494de8eaee).
+
+---
 
 Point at any GraphQL or REST API. Ask questions in natural language. The agent fetches data, stores it in DuckDB, and runs SQL post-processing. Rankings, filters, JOINs work **even if the API doesn't support them**.
 
 ## What Makes It Different
 
-**🎯 Zero config.** No custom MCP code per API. Point at a GraphQL endpoint or OpenAPI spec — schema introspected automatically.
+**Zero config.** No custom MCP code per API. Point at a GraphQL endpoint or OpenAPI spec — schema introspected automatically.
 
-**✨ SQL post-processing.** API returns 10,000 unsorted rows? Agent ranks top 10. No GROUP BY? Agent aggregates. Need JOINs across endpoints? Agent combines.
+**SQL post-processing.** API returns 10,000 unsorted rows? Agent ranks top 10. No GROUP BY? Agent aggregates. Need JOINs across endpoints? Agent combines.
 
-**🔒 Safe by default.** Read-only. Mutations blocked unless explicitly allowed.
+**Safe by default.** Read-only. Mutations blocked unless explicitly allowed.
 
-**🧠 Recipe learning.** Successful queries become cached pipelines. Reuse instantly without LLM reasoning.
+**Recipe learning.** Successful queries become cached pipelines. Reuse instantly without LLM reasoning.
+
+**Polyglot LLM.** Run with OpenAI, Anthropic (Claude), or any OpenAI-compatible endpoint — same capabilities, your choice of model.
 
 ## Quick Start
 
@@ -27,14 +45,14 @@ Point at any GraphQL or REST API. Ask questions in natural language. The agent f
 OPENAI_API_KEY=your_key uv run api-agent
 
 # Anthropic (Claude)
-uv run api-agent --provider anthropic --api-key sk-ant-your_key
+uv run api-agent --provider anthropic --api-key your_key
 
 # Local model (Ollama, LM Studio, vLLM)
 uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 --model llama3
 
 # Or Docker (OpenAI)
-docker build -t api-agent .
-docker run -p 3000:3000 -e OPENAI_API_KEY=your_key api-agent
+docker build -t ratatoskr .
+docker run -p 3000:3000 -e OPENAI_API_KEY=your_key ratatoskr
 ```
 
 **2. Add to any MCP client:**
@@ -91,6 +109,149 @@ That's it. Agent introspects schema, generates queries, runs SQL post-processing
   }
 }
 ```
+
+---
+
+## How It Works
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant M as MCP Server
+    participant A as Agent
+    participant G as Target API
+
+    U->>M: Question + Headers
+    M->>G: Schema introspection
+    G-->>M: Schema
+    M->>A: Schema + question
+    A->>G: API call
+    G-->>A: Data stored in DuckDB
+    A->>A: SQL post-processing
+    A-->>M: Summary
+    M-->>U: {ok, data, queries[]}
+```
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Client["MCP Client"]
+        H["Headers: X-Target-URL, X-API-Type"]
+    end
+
+    subgraph MCP["MCP Server (FastMCP)"]
+        Q["{prefix}_query"]
+        E["{prefix}_execute"]
+        R["r_{recipe} (dynamic)"]
+    end
+
+    subgraph Agent["Agents (Polyglot LLM)"]
+        GA["GraphQL Agent"]
+        RA["REST Agent"]
+    end
+
+    subgraph Exec["Executors"]
+        HTTP["HTTP Client"]
+        Duck["DuckDB"]
+    end
+
+    Client -->|NL + headers| MCP
+    Q -->|graphql| GA
+    Q -->|rest| RA
+    E --> HTTP
+    R -->|"no LLM"| HTTP
+    R --> Duck
+    GA --> HTTP
+    RA --> HTTP
+    GA --> Duck
+    RA --> Duck
+    HTTP --> API[Target API]
+```
+
+**Stack:** [FastMCP](https://github.com/jlowin/fastmcp) &middot; [OpenAI](https://platform.openai.com/docs) / [Anthropic](https://docs.anthropic.com) / OpenAI-compatible &middot; [DuckDB](https://duckdb.org)
+
+---
+
+## Recipe Learning
+
+Agent learns reusable patterns from successful queries:
+
+1. **Executes** — API calls + SQL via LLM reasoning
+2. **Extracts** — LLM converts trace into parameterized template
+3. **Caches** — Stores recipe keyed by (API, schema hash)
+4. **Exposes** — Recipe becomes MCP tool (`r_{name}`) callable without LLM
+
+```mermaid
+flowchart LR
+    subgraph First["First Query via {prefix}_query"]
+        Q1["'Top 5 users by age'"]
+        A1["Agent reasons"]
+        E1["API + SQL"]
+        R1["Recipe extracted"]
+    end
+
+    subgraph Tools["MCP Tools"]
+        T["r_get_top_users<br/>params: {limit}"]
+    end
+
+    subgraph Reuse["Direct Call"]
+        Q2["r_get_top_users({limit: 10})"]
+        X["Execute directly"]
+    end
+
+    Q1 --> A1 --> E1 --> R1 --> T
+    Q2 --> T --> X
+```
+
+Recipes auto-expire on schema changes. Disable with `API_AGENT_ENABLE_RECIPES=false`.
+
+---
+
+## Providers
+
+Ratatoskr supports multiple LLM providers through a thin abstraction layer.
+
+### OpenAI (default)
+
+```bash
+OPENAI_API_KEY=sk-... uv run api-agent
+```
+
+### Anthropic (Claude)
+
+```bash
+# Via CLI
+uv run api-agent --provider anthropic --api-key sk-ant-...
+
+# Via env vars
+API_AGENT_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... uv run api-agent
+
+# Custom model
+uv run api-agent --provider anthropic --model claude-opus-4-20250514
+```
+
+### Local Models (Ollama, LM Studio, vLLM)
+
+```bash
+# Ollama
+uv run api-agent --provider openai-compat \
+  --base-url http://localhost:11434/v1 \
+  --model llama3
+
+# LM Studio
+uv run api-agent --provider openai-compat \
+  --base-url http://localhost:1234/v1 \
+  --model local-model
+
+# vLLM
+uv run api-agent --provider openai-compat \
+  --base-url http://gpu-server:8000/v1 \
+  --model mistral-7b
+```
+
+> **Note:** Local models must support tool/function calling for full functionality.
+> If an endpoint doesn't support tools, the agent will retry without them (graceful degradation).
 
 ---
 
@@ -166,149 +327,6 @@ CLI arguments override environment variables.
 
 ---
 
-## How It Works
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant M as MCP Server
-    participant A as Agent
-    participant G as Target API
-
-    U->>M: Question + Headers
-    M->>G: Schema introspection
-    G-->>M: Schema
-    M->>A: Schema + question
-    A->>G: API call
-    G-->>A: Data → stored in DuckDB
-    A->>A: SQL post-processing
-    A-->>M: Summary
-    M-->>U: {ok, data, queries[]}
-```
-
-## Architecture
-
-```mermaid
-flowchart TB
-    subgraph Client["MCP Client"]
-        H["Headers: X-Target-URL, X-API-Type"]
-    end
-
-    subgraph MCP["MCP Server (FastMCP)"]
-        Q["{prefix}_query"]
-        E["{prefix}_execute"]
-        R["r_{recipe} (dynamic)"]
-    end
-
-    subgraph Agent["Agents (Polyglot LLM)"]
-        GA["GraphQL Agent"]
-        RA["REST Agent"]
-    end
-
-    subgraph Exec["Executors"]
-        HTTP["HTTP Client"]
-        Duck["DuckDB"]
-    end
-
-    Client -->|NL + headers| MCP
-    Q -->|graphql| GA
-    Q -->|rest| RA
-    E --> HTTP
-    R -->|"no LLM"| HTTP
-    R --> Duck
-    GA --> HTTP
-    RA --> HTTP
-    GA --> Duck
-    RA --> Duck
-    HTTP --> API[Target API]
-```
-
-**Stack:** [FastMCP](https://github.com/jlowin/fastmcp) • [OpenAI](https://platform.openai.com/docs) / [Anthropic](https://docs.anthropic.com) / OpenAI-compatible • [DuckDB](https://duckdb.org)
-
----
-
-## Recipe Learning
-
-Agent learns reusable patterns from successful queries:
-
-1. **Executes** — API calls + SQL via LLM reasoning
-2. **Extracts** — LLM converts trace into parameterized template
-3. **Caches** — Stores recipe keyed by (API, schema hash)
-4. **Exposes** — Recipe becomes MCP tool (`r_{name}`) callable without LLM
-
-```mermaid
-flowchart LR
-    subgraph First["First Query via {prefix}_query"]
-        Q1["'Top 5 users by age'"]
-        A1["Agent reasons"]
-        E1["API + SQL"]
-        R1["Recipe extracted"]
-    end
-
-    subgraph Tools["MCP Tools"]
-        T["r_get_top_users<br/>params: {limit}"]
-    end
-
-    subgraph Reuse["Direct Call"]
-        Q2["r_get_top_users({limit: 10})"]
-        X["Execute directly"]
-    end
-
-    Q1 --> A1 --> E1 --> R1 --> T
-    Q2 --> T --> X
-```
-
-Recipes auto-expire on schema changes. Disable with `API_AGENT_ENABLE_RECIPES=false`.
-
----
-
-## Providers
-
-This fork supports multiple LLM providers through a thin abstraction layer.
-
-### OpenAI (default)
-
-```bash
-OPENAI_API_KEY=sk-... uv run api-agent
-```
-
-### Anthropic (Claude)
-
-```bash
-# Via CLI
-uv run api-agent --provider anthropic --api-key sk-ant-...
-
-# Via env vars
-API_AGENT_PROVIDER=anthropic ANTHROPIC_API_KEY=sk-ant-... uv run api-agent
-
-# Custom model
-uv run api-agent --provider anthropic --model claude-opus-4-20250514
-```
-
-### Local Models (Ollama, LM Studio, vLLM)
-
-```bash
-# Ollama
-uv run api-agent --provider openai-compat \
-  --base-url http://localhost:11434/v1 \
-  --model llama3
-
-# LM Studio
-uv run api-agent --provider openai-compat \
-  --base-url http://localhost:1234/v1 \
-  --model local-model
-
-# vLLM
-uv run api-agent --provider openai-compat \
-  --base-url http://gpu-server:8000/v1 \
-  --model mistral-7b
-```
-
-> **Note:** Local models must support tool/function calling for full functionality.
-> If an endpoint doesn't support tools, the agent will retry without them (graceful degradation).
-
----
-
 ## Roadmap
 
 Planned improvements (contributions welcome):
@@ -321,15 +339,13 @@ Planned improvements (contributions welcome):
 - [ ] **WebSocket subscriptions** — Support GraphQL subscriptions for real-time data
 - [ ] **Plugin system** — Custom pre/post-processing hooks for API responses
 
-See [RATATOSKR_ROADMAP.md](RATATOSKR_ROADMAP.md) for the full implementation roadmap.
-
 ## Development
 
 ```bash
 git clone https://github.com/innago-property-management/ratatoskr.git
 cd ratatoskr
 uv sync --group dev
-uv run pytest tests/ -v      # Tests
+uv run pytest tests/ -v      # Tests (511 passing)
 uv run ruff check api_agent/  # Lint
 uv run ty check               # Type check
 ```
@@ -337,3 +353,19 @@ uv run ty check               # Type check
 ## Observability
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable OpenTelemetry tracing. Works with Jaeger, Zipkin, Grafana Tempo, Arize Phoenix.
+
+---
+
+## Origin & Attribution
+
+Ratatoskr is a fork of **[api-agent](https://github.com/agoda-com/api-agent)** by [Agoda](https://github.com/agoda-com), licensed under the [MIT License](LICENSE).
+
+The core architecture — FastMCP server, dynamic tool naming, agent orchestration, DuckDB post-processing, and recipe learning — is entirely Agoda's work. Ratatoskr extends it with:
+
+- **Polyglot LLM support** — Anthropic, OpenAI, and OpenAI-compatible providers via a pluggable `LLMProvider` abstraction
+- **Expanded test coverage** — 511 tests covering orchestration, safety boundaries, configuration contracts, and provider SDK surfaces
+- **GraphQL partial success fix** — Returns both `data` and `errors` when both present, per the GraphQL specification
+
+The name **Ratatoskr** comes from the Norse squirrel who runs up and down Yggdrasil carrying messages between realms — a fitting metaphor for a universal API-to-LLM bridge.
+
+**Upstream:** [agoda-com/api-agent](https://github.com/agoda-com/api-agent) &middot; [Blog post](https://medium.com/agoda-engineering/how-to-convert-any-api-to-mcp-with-zero-code-and-zero-deployments-using-apiagent-fa494de8eaee)

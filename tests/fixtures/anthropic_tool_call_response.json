@@ -1,0 +1,25 @@
+{
+  "id": "msg_test_002",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-20250514",
+  "content": [
+    {
+      "type": "text",
+      "text": "Let me query the API for you."
+    },
+    {
+      "type": "tool_use",
+      "id": "toolu_test_001",
+      "name": "graphql_query",
+      "input": {
+        "query": "{ users(limit: 10) { id name email } }"
+      }
+    }
+  ],
+  "stop_reason": "tool_use",
+  "usage": {
+    "input_tokens": 200,
+    "output_tokens": 80
+  }
+}

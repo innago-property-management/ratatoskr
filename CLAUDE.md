@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Ratatoskr** is a polyglot-LLM fork of [agoda-com/api-agent](https://github.com/agoda-com/api-agent). Upstream changes may need periodic cherry-picking.
+
 ## Commands
 
 **Setup:**
@@ -11,14 +13,15 @@ uv sync --group dev
 
 **Run server:**
 ```bash
-uv run api-agent                    # Local dev
-# Or direct (no clone): uvx --from git+https://github.com/agoda-com/api-agent api-agent
+uv run api-agent                    # Local dev (OpenAI default)
+uv run api-agent --provider anthropic --api-key sk-ant-...  # Anthropic
+uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 --model llama3  # Local
 # Server starts on http://localhost:3000/mcp
 ```
 
 **Tests:**
 ```bash
-uv run pytest tests/ -v              # All tests
+uv run pytest tests/ -v              # All tests (511 passing)
 uv run pytest tests/test_foo.py -v   # Single test file
 uv run pytest tests/test_foo.py::test_bar -v  # Single test
 ```
@@ -33,13 +36,13 @@ uv run ty check                      # Type check
 
 **Docker:**
 ```bash
-docker build -t api-agent .
-docker run -p 3000:3000 -e OPENAI_API_KEY="..." api-agent
+docker build -t ratatoskr .
+docker run -p 3000:3000 -e OPENAI_API_KEY="..." ratatoskr
 ```
 
 ## Architecture
 
-**MCP Server (FastMCP)** receives NL queries + headers → routes to **Agents** (OpenAI Agents SDK) → agents call target APIs + DuckDB for SQL processing.
+**MCP Server (FastMCP)** receives NL queries + headers → routes to **Agents** (pluggable LLM providers) → agents call target APIs + DuckDB for SQL processing.
 
 ### Request Flow
 
@@ -50,7 +53,7 @@ docker run -p 3000:3000 -e OPENAI_API_KEY="..." api-agent
 5. **agent/graphql_agent.py** or **agent/rest_agent.py**:
    - Fetches schema (introspection or OpenAPI)
    - Creates agent w/ dynamic tools (`graphql_query`/`rest_call`, `sql_query`, `search_schema`)
-   - Runs agent loop (max 30 turns)
+   - Runs agent loop (max 30 turns) via `LLMProvider.run_tool_loop()`
    - Returns results
 6. **executor.py**: DuckDB integration for SQL post-processing
 
@@ -61,17 +64,24 @@ docker run -p 3000:3000 -e OPENAI_API_KEY="..." api-agent
   - **config.py**: Settings via `pydantic-settings` (env vars w/ `API_AGENT_` prefix)
   - **context.py**: Header parsing → `RequestContext`, tool name generation
   - **middleware.py**: Dynamic tool naming per session
-  - **tracing.py**: OpenTelemetry tracing via OTLP (uses [arize-otel](https://github.com/Arize-ai/openinference) for convenience, works with [Arize Phoenix](https://docs.arize.com/phoenix), Jaeger, Zipkin, Grafana Tempo, etc.)
+  - **tracing.py**: OpenTelemetry tracing via OTLP
+
+- **api_agent/llm/**: LLM provider abstraction (Ratatoskr addition)
+  - **provider.py**: `LLMProvider` ABC with `complete()` and `run_tool_loop()`
+  - **types.py**: `LLMResponse`, `ToolCall`, `ToolDefinition`, `ToolResult`
+  - **openai_provider.py**: OpenAI native SDK provider
+  - **anthropic_provider.py**: Anthropic native SDK provider
+  - **openai_compat.py**: OpenAI-compatible provider (Ollama, LM Studio, vLLM) with retry-without-tools fallback
 
 - **api_agent/tools/**: MCP tool implementations
   - **query.py**: `_query` tool (NL → agent)
   - **execute.py**: `_execute` tool (direct GraphQL/REST call)
 
-- **api_agent/agent/**: Agent logic (OpenAI Agents SDK)
+- **api_agent/agent/**: Agent logic
   - **graphql_agent.py**: GraphQL agent w/ introspection, query building, SQL
   - **rest_agent.py**: REST agent w/ OpenAPI parsing, polling support
+  - **model.py**: Lazy LLM provider singleton (`_provider` / `provider` — monkeypatch both in tests)
   - **prompts.py**: Shared system prompt fragments
-  - **model.py**: LLM config (OpenAI-compatible)
   - **progress.py**: Turn tracking
   - **schema_search.py**: Grep-like schema search tool
   - **contextvar_utils.py**: Safe ContextVar access helpers
@@ -108,7 +118,7 @@ Tools have internal names (`_query`, `_execute`) transformed by middleware per s
 
 ### Safety
 
-- **GraphQL**: Mutations blocked (queries only)
+- **GraphQL**: Mutations blocked (queries only). Partial success returns both `data` and `errors` per GraphQL spec.
 - **REST**: POST/PUT/DELETE/PATCH blocked by default, enable via `X-Allow-Unsafe-Paths` header (glob patterns)
 
 ### Polling (REST only)
@@ -131,8 +141,30 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 - **Templating**: GraphQL `{{param}}`, REST `{"$param": "name"}`, SQL `{{param}}`
 - **Config**: `ENABLE_RECIPES` (default: True), `RECIPE_CACHE_SIZE` (default: 64)
 
-## Testing Notes
+## Testing
 
-Tests use pytest-asyncio. Mock httpx for HTTP calls. See `tests/test_*.py` for patterns.
+511 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
 
-CI runs tests + linting on Python 3.11/3.12 (see `.github/workflows/test.yml`).
+### Test Patterns
+
+- **`FakeLLMProvider`** in `tests/conftest.py`: Returns canned `LLMResponse` objects. Monkeypatch at `api_agent.agent.model._provider` AND `api_agent.agent.model.provider`.
+- **`fake_provider_factory`** fixture: Accepts either `(monkeypatch, responses)` or `(responses, monkeypatch)`.
+- **Mock boundary**: Mock httpx transport and LLM provider. Use REAL ContextVar, RecipeStore, DuckDB executor.
+- **Fixtures**: `tests/fixtures/` has recorded JSON responses and sample GraphQL schemas.
+- **Helpers**: `make_text_response()`, `make_tool_call_response()` for building canned LLM responses.
+
+### Test Coverage Map
+
+| Area | Test Files |
+|------|-----------|
+| GraphQL orchestrator | `test_graphql_agent.py` (8 tests) |
+| REST orchestrator | `test_rest_agent.py` (10 tests) |
+| GraphQL client | `test_graphql_client.py` (15 tests) |
+| Execute tool | `test_execute_tool.py` (15 tests) |
+| Recipe runner | `test_recipe_runner.py` (11 tests) |
+| Config settings | `test_config.py` (53 tests) |
+| OpenAI provider | `test_llm/test_openai_complete.py` (7 tests) |
+| Anthropic provider | `test_llm/test_anthropic_complete.py` (8 tests) |
+| OpenAI-compat provider | `test_llm/test_compat_complete.py` (9 tests) |
+| Query tool routing | `test_query_tool.py` (8 tests) |
+| Middleware | `test_middleware_routing.py` (6 tests) |
