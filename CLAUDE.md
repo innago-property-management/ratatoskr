@@ -143,7 +143,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 
 ## Testing
 
-577 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
+547 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
 
 ### Test Patterns
 
