@@ -14,12 +14,10 @@ from .reflection import parse_grpc_target
 logger = logging.getLogger(__name__)
 
 
-def _create_channel(target: str, tls: bool, skip_tls_verify: bool = False) -> grpc.aio.Channel:
+def _create_channel(target: str, tls: bool) -> grpc.aio.Channel:
     """Create an async gRPC channel. Extracted for testability."""
     if tls:
         creds = grpc.ssl_channel_credentials()
-        if skip_tls_verify:
-            logger.warning("TLS verification disabled for gRPC target %s", target)
         return grpc.aio.secure_channel(target, creds)
     return grpc.aio.insecure_channel(target)
 
@@ -32,7 +30,6 @@ async def execute_unary_rpc(
     input_type_name: str,
     output_type_name: str,
     metadata: list[tuple[str, str]] | None = None,
-    skip_tls_verify: bool = False,
     timeout_s: float = 30.0,
 ) -> dict[str, Any]:
     """Execute a unary gRPC RPC call.
@@ -45,7 +42,6 @@ async def execute_unary_rpc(
         input_type_name: Fully qualified input message type name
         output_type_name: Fully qualified output message type name
         metadata: Optional gRPC metadata tuples
-        skip_tls_verify: Skip TLS verification (dev only)
         timeout_s: RPC timeout in seconds
 
     Returns:
@@ -84,7 +80,7 @@ async def execute_unary_rpc(
     if not method_path.startswith("/"):
         method_path = f"/{method_path}"
 
-    channel = _create_channel(target, tls, skip_tls_verify)
+    channel = _create_channel(target, tls)
 
     try:
         stub = channel.unary_unary(

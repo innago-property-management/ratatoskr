@@ -6,7 +6,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 import grpc
-import grpc.aio
 from google.protobuf import descriptor_pool as dp_module
 from google.protobuf.descriptor import FieldDescriptor, MethodDescriptor, ServiceDescriptor
 
@@ -179,18 +178,6 @@ def build_schema_text(services: list[ServiceInfo], pool: Any) -> str:
     return result
 
 
-def _make_channel(
-    target: str, tls: bool, skip_tls_verify: bool = False
-) -> grpc.aio.Channel:
-    """Create a gRPC async channel."""
-    if tls:
-        if skip_tls_verify:
-            logger.warning("TLS verification disabled for gRPC target %s", target)
-        creds = grpc.ssl_channel_credentials()
-        return grpc.aio.secure_channel(target, creds)
-    return grpc.aio.insecure_channel(target)
-
-
 def _extract_services(
     service_names: list[str], pool: dp_module.DescriptorPool
 ) -> list[ServiceInfo]:
@@ -215,14 +202,17 @@ def _extract_services(
 async def fetch_schema(
     target_url: str,
     metadata: list[tuple[str, str]] | None = None,
-    skip_tls_verify: bool = False,
 ) -> GrpcSchema:
     """Connect to gRPC server, fetch reflection schema, return parsed schema.
 
+    Uses a synchronous gRPC channel for reflection (required by
+    ``ProtoReflectionDescriptorDatabase``) with ``asyncio.to_thread``
+    to avoid blocking the event loop.
+
     Args:
         target_url: gRPC target URL (grpc:// or grpcs://)
-        metadata: Optional gRPC metadata (auth headers etc.)
-        skip_tls_verify: Skip TLS certificate verification (dev only)
+        metadata: Optional gRPC metadata (auth headers etc.), forwarded
+            to the reflection channel for authenticated servers
 
     Returns:
         GrpcSchema with services, pool, and raw schema text
@@ -237,28 +227,29 @@ async def fetch_schema(
     )
 
     target, tls = parse_grpc_target(target_url)
-    channel = _make_channel(target, tls, skip_tls_verify)
 
+    # ProtoReflectionDescriptorDatabase requires a sync channel.
+    sync_channel = (
+        grpc.secure_channel(target, grpc.ssl_channel_credentials())
+        if tls
+        else grpc.insecure_channel(target)
+    )
     try:
-        # ProtoReflectionDescriptorDatabase uses sync channel internally.
-        # Create a sync channel for reflection, then use pool for message construction.
-        sync_channel = (
-            grpc.secure_channel(target, grpc.ssl_channel_credentials())
-            if tls
-            else grpc.insecure_channel(target)
+        # Thread metadata through as channel-level call credentials
+        # so authenticated servers allow reflection requests.
+        stub_kwargs: dict[str, Any] = {}
+        if metadata:
+            stub_kwargs["metadata"] = metadata
+
+        reflection_db = await asyncio.to_thread(
+            ProtoReflectionDescriptorDatabase, sync_channel, **stub_kwargs
         )
-        try:
-            reflection_db = await asyncio.to_thread(
-                ProtoReflectionDescriptorDatabase, sync_channel
-            )
-            service_names = await asyncio.to_thread(reflection_db.get_services)
-        finally:
-            sync_channel.close()
-
-        pool = dp_module.DescriptorPool(reflection_db)
-        services = _extract_services(list(service_names), pool)
-        raw_text = build_schema_text(services, pool)
-
-        return GrpcSchema(services=services, pool=pool, raw_schema_text=raw_text)
+        service_names = await asyncio.to_thread(reflection_db.get_services)
     finally:
-        await channel.close()
+        sync_channel.close()
+
+    pool = dp_module.DescriptorPool(reflection_db)
+    services = _extract_services(list(service_names), pool)
+    raw_text = build_schema_text(services, pool)
+
+    return GrpcSchema(services=services, pool=pool, raw_schema_text=raw_text)

@@ -217,7 +217,7 @@ class TestExecuteUnaryRpc:
             output_type_name="test.Resp",
         )
 
-        mock_create_channel.assert_called_once_with("api.example.com:443", True, False)
+        mock_create_channel.assert_called_once_with("api.example.com:443", True)
 
     @pytest.mark.asyncio
     @patch("api_agent.grpc.client.GetMessageClass")
