@@ -167,15 +167,7 @@ def _set_return_directly() -> None:
         pass
 
 
-def _tools_to_final_output() -> bool:
-    """Check if any tool requested direct return (skip LLM processing).
-
-    Returns True if the return-directly flag has been set.
-    """
-    try:
-        return bool(_return_directly_flag.get())
-    except LookupError:
-        return False
+# _tools_to_final_output removed — replaced by should_stop callbacks in provider.run_tool_loop()
 
 
 def build_recipe_docstring(

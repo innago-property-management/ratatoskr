@@ -74,7 +74,8 @@ def get_base_url_from_spec(spec: dict[str, Any], spec_url: str = "") -> str:
         from urllib.parse import urlparse
 
         parsed = urlparse(spec_url)
-        return f"{parsed.scheme}://{parsed.netloc}"
+        if parsed.scheme and parsed.netloc:
+            return f"{parsed.scheme}://{parsed.netloc}"
 
     return ""
 

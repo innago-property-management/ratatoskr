@@ -6,18 +6,21 @@ T011: Direct API execution — GraphQL path, REST path, truncation, missing para
 from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 from fastmcp import FastMCP
 
 from api_agent.context import MissingHeaderError, RequestContext
 from api_agent.tools.execute import register_execute_tool
 
 
-@pytest.fixture
-def execute_tool():
+@pytest_asyncio.fixture
+async def execute_tool():
     """Register the _execute tool on a test FastMCP instance and return the inner function."""
     mcp = FastMCP("test")
     register_execute_tool(mcp)
-    return mcp._tool_manager._tools["_execute"].fn  # type: ignore[unresolved-attribute]
+    tool = await mcp.get_tool("_execute")
+    assert tool is not None
+    return tool.fn  # type: ignore[unresolved-attribute]
 
 
 @pytest.fixture

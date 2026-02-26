@@ -3,7 +3,9 @@
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import pytest_asyncio
 from fastmcp import FastMCP
+from mcp.types import ToolListChangedNotification
 
 from api_agent.context import MissingHeaderError, RequestContext
 from api_agent.tools.query import register_query_tool
@@ -25,12 +27,14 @@ def _make_request_context(api_type="graphql", **overrides):
     )
 
 
-@pytest.fixture
-def query_fn():
+@pytest_asyncio.fixture
+async def query_fn():
     """Register the _query tool on a fresh FastMCP app and return its inner function."""
     mcp = FastMCP("test")
     register_query_tool(mcp)
-    return mcp._tool_manager._tools["_query"].fn  # type: ignore[unresolved-attribute]
+    tool = await mcp.get_tool("_query")
+    assert tool is not None
+    return tool.fn  # type: ignore[unresolved-attribute]
 
 
 # ---------------------------------------------------------------------------
@@ -120,7 +124,7 @@ class TestQueryToolRouting:
         mock_mcp_ctx = AsyncMock()
         result = await query_fn(question="test", ctx=mock_mcp_ctx)
 
-        mock_mcp_ctx.send_tool_list_changed.assert_awaited_once()
+        mock_mcp_ctx.send_notification.assert_awaited_once_with(ToolListChangedNotification())
         assert result["ok"] is True
 
     @pytest.mark.asyncio
@@ -141,11 +145,12 @@ class TestQueryToolRouting:
         }
 
         mock_mcp_ctx = AsyncMock()
-        mock_mcp_ctx.send_tool_list_changed.side_effect = RuntimeError("notify failed")
+        mock_mcp_ctx.send_notification.side_effect = RuntimeError("notify failed")
 
         # Should not raise
         result = await query_fn(question="test", ctx=mock_mcp_ctx)
         assert result["ok"] is True
+        mock_mcp_ctx.send_notification.assert_awaited_once()
 
     @pytest.mark.asyncio
     @patch("api_agent.tools.query.consume_recipe_changes", return_value=False)

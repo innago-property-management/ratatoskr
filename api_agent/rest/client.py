@@ -46,6 +46,14 @@ def _build_url(
     if not base_url:
         raise ValueError("No base URL provided")
 
+    # If base_url is missing a scheme, default to https
+    if base_url and "://" not in base_url:
+        base_url = f"https://{base_url}"
+
+    # If base_url is missing a scheme, default to https for safety
+    if base_url and not base_url.startswith(("http://", "https://")):
+        base_url = f"https://{base_url}"
+
     url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
 
     # Add query params

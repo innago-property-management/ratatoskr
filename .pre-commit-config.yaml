@@ -1,0 +1,17 @@
+repos:
+  # Gitleaks - Secret detection
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.24.2
+    hooks:
+      - id: gitleaks
+
+  # Local hooks for project-specific checks
+  - repo: local
+    hooks:
+      # Prevent commits to default branch
+      - id: prevent-commits-to-default-branch
+        name: Prevent commits to default branch
+        entry: ./prevent-commits-to-default-branch.sh
+        language: script
+        pass_filenames: false
+        always_run: true
