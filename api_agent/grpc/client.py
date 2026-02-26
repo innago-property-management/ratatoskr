@@ -106,8 +106,8 @@ async def execute_unary_rpc(
         return {"success": True, "data": response_dict}
 
     except grpc.RpcError as e:
-        code = e.code()
-        details = e.details() or str(code)
+        code = e.code()  # type: ignore[unresolved-attribute]  # grpc stubs incomplete
+        details = e.details() or str(code)  # type: ignore[unresolved-attribute]
         hint = _error_hint(code)
         error_msg = f"gRPC error [{code.name}]: {details}"
         if hint:
