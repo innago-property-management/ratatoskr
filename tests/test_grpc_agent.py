@@ -3,9 +3,12 @@
 Tests follow the FakeLLMProvider pattern from test_rest_agent.py.
 """
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 
 from api_agent.agent.grpc_agent import _find_method, process_grpc_query
+from api_agent.config import settings
 from api_agent.context import RequestContext
 from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
 from tests.conftest import make_text_response, make_tool_call_response
@@ -254,3 +257,717 @@ class TestProcessGrpcQuery:
 
         assert result["ok"] is False
         assert "Failed to connect" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Phase 1: Tool Error Paths
+# ---------------------------------------------------------------------------
+
+
+class TestGrpcCallToolErrors:
+    """Tests for grpc_call tool error branches exercised through the agent."""
+
+    @pytest.mark.asyncio
+    async def test_grpc_call_method_not_found_lists_available(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Calling a nonexistent method returns error with available unary methods.
+
+        Protects grpc_agent.py:144-155 — method-not-found branch with
+        available methods list that filters out streaming methods.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        # execute_unary_rpc should NOT be called — guard with side_effect
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc",
+            AsyncMock(side_effect=AssertionError("should not be called")),
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {"method": "nonexistent/Foo", "request": "{}"},
+                    call_id="call_notfound",
+                ),
+                make_text_response("Method not found."),
+            ],
+        )
+
+        result = await process_grpc_query("Call Foo", grpc_ctx)
+
+        assert result["ok"] is True
+        # The LLM saw the error and summarized; the tool response contained
+        # the available methods list with SayHello but NOT StreamGreetings
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_grpc_call_invalid_json_request(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Invalid JSON in request field returns error, agent recovers.
+
+        Protects grpc_agent.py:168-174 — json.JSONDecodeError handler.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": "{bad json",
+                    },
+                    call_id="call_badjson",
+                ),
+                make_text_response("The request body was invalid JSON."),
+            ],
+        )
+
+        result = await process_grpc_query("Say hello", grpc_ctx)
+
+        # Agent recovered — LLM saw the error and replied
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_grpc_call_passes_metadata_from_headers(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Target headers are converted to gRPC metadata tuples on RPC call.
+
+        Protects grpc_agent.py:177-181 — metadata construction.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        captured_kwargs = {}
+
+        async def mock_execute_rpc(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return {"success": True, "data": {"message": "ok"}}
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_meta",
+                ),
+                make_text_response("Done."),
+            ],
+        )
+
+        result = await process_grpc_query("Say hello", grpc_ctx)
+
+        assert result["ok"] is True
+        # grpc_ctx has target_headers={"authorization": "Bearer test-token"}
+        assert captured_kwargs.get("metadata") == [
+            ("authorization", "Bearer test-token")
+        ]
+
+    @pytest.mark.asyncio
+    async def test_return_directly_skips_llm_output(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """return_directly=True returns raw data, data field is None.
+
+        Protects grpc_agent.py:223-227 (flag set), 397-403 (direct return check),
+        422-423 (agent_output = None).
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_execute_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": {"users": [{"id": 1, "name": "Alice"}]},
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                        "return_directly": True,
+                    },
+                    call_id="call_direct",
+                ),
+                # LLM may output __DIRECT_RETURN__ or be short-circuited
+                make_text_response("__DIRECT_RETURN__"),
+            ],
+        )
+
+        result = await process_grpc_query("Get users", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is None  # Direct return — no LLM summary
+        assert result["result"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: SQL Pipeline
+# ---------------------------------------------------------------------------
+
+
+class TestGrpcSqlPipeline:
+    """Tests for gRPC → SQL post-processing pipeline."""
+
+    @pytest.mark.asyncio
+    async def test_grpc_call_then_sql_query(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Three-step: grpc_call stores data, sql_query filters, LLM summarizes.
+
+        Protects grpc_agent.py:206-219 (result storage for SQL) and
+        247-281 (_sql_query function).
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_execute_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": [
+                    {"id": 1, "name": "Alice", "age": 30},
+                    {"id": 2, "name": "Bob", "age": 25},
+                    {"id": 3, "name": "Charlie", "age": 35},
+                ],
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                        "name": "users",
+                    },
+                    call_id="call_sql_1",
+                ),
+                make_tool_call_response(
+                    "sql_query",
+                    {"sql": "SELECT name FROM users WHERE age > 28"},
+                    call_id="call_sql_2",
+                ),
+                make_text_response("Users over 28: Alice (30) and Charlie (35)."),
+            ],
+        )
+
+        result = await process_grpc_query("Find users over 28", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+        assert result["result"] is not None
+
+    @pytest.mark.asyncio
+    async def test_sql_query_before_grpc_call_returns_error(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Calling sql_query before grpc_call returns 'No data' error.
+
+        Protects grpc_agent.py:249-255 — empty/unset _query_results path.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "sql_query",
+                    {"sql": "SELECT 1"},
+                    call_id="call_sql_early",
+                ),
+                make_text_response("No data was available to query."),
+            ],
+        )
+
+        result = await process_grpc_query("Run a query", grpc_ctx)
+
+        # Agent recovered — LLM saw the "No data" error and replied
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_sql_query_return_directly(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """sql_query with return_directly=True returns raw SQL result.
+
+        Protects grpc_agent.py:269-273 — return_directly flag in _sql_query.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_execute_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": [
+                    {"id": 1, "name": "Alice"},
+                    {"id": 2, "name": "Bob"},
+                ],
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                        "name": "users",
+                    },
+                    call_id="call_sqld_1",
+                ),
+                make_tool_call_response(
+                    "sql_query",
+                    {"sql": "SELECT name FROM users", "return_directly": True},
+                    call_id="call_sqld_2",
+                ),
+                make_text_response("__DIRECT_RETURN__"),
+            ],
+        )
+
+        result = await process_grpc_query("Get user names", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is None  # Direct return — no LLM summary
+        assert result["result"] is not None
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: Orchestrator Edge Cases
+# ---------------------------------------------------------------------------
+
+
+class TestGrpcOrchestratorEdgeCases:
+    """Tests for process_grpc_query edge cases: MaxTurns, empty output, etc."""
+
+    @pytest.mark.asyncio
+    async def test_max_turns_exceeded_with_data(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """MaxTurnsExceeded with partial data returns ok=True with partial result.
+
+        Protects grpc_agent.py:390-394 — MaxTurnsExceeded handler.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_execute_rpc(*args, **kwargs):
+            return {"success": True, "data": {"message": "Hello!"}}
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        monkeypatch.setattr(settings, "MAX_AGENT_TURNS", 2)
+
+        # Feed many tool calls — agent will hit max turns
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id=f"call_mt_{i}",
+                )
+                for i in range(10)
+            ],
+        )
+
+        result = await process_grpc_query("Say hello repeatedly", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["result"] is not None
+        assert result["rpc_calls"]  # At least one call was made
+
+    @pytest.mark.asyncio
+    async def test_max_turns_exceeded_no_data(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """MaxTurnsExceeded with no data returns ok=False.
+
+        Protects grpc_agent.py:390-394 — MaxTurnsExceeded no-data branch.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        # All RPCs fail — no data stored
+        async def mock_execute_rpc(*args, **kwargs):
+            return {"success": False, "error": "Unavailable"}
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        monkeypatch.setattr(settings, "MAX_AGENT_TURNS", 2)
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id=f"call_mtn_{i}",
+                )
+                for i in range(10)
+            ],
+        )
+
+        result = await process_grpc_query("Say hello", grpc_ctx)
+
+        assert result["ok"] is False
+        assert result["result"] is None
+
+    @pytest.mark.asyncio
+    async def test_empty_output_with_data_returns_partial(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """RPC succeeds but LLM returns empty string — partial result.
+
+        Protects grpc_agent.py:405-412 — no output + last_data branch.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_execute_rpc(*args, **kwargs):
+            return {"success": True, "data": {"message": "Hello!"}}
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_empty_1",
+                ),
+                make_text_response(""),  # Empty final output
+            ],
+        )
+
+        result = await process_grpc_query("Say hello", grpc_ctx)
+
+        assert result["ok"] is True
+        assert "Partial" in result["data"]
+        assert result["result"] is not None
+
+    @pytest.mark.asyncio
+    async def test_empty_output_no_data_returns_error(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """LLM returns empty string with no tool calls — error.
+
+        Protects grpc_agent.py:414-420 — no output + no data branch.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [make_text_response("")],  # Empty output, no tool calls
+        )
+
+        result = await process_grpc_query("Say hello", grpc_ctx)
+
+        assert result["ok"] is False
+        assert "No output" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_outer_exception_handler(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Unexpected exception in agent loop is caught by outer handler.
+
+        Protects grpc_agent.py:436-443 — outermost except Exception.
+        """
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        # Make _build_system_prompt raise to trigger the outer catch-all
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent._build_system_prompt",
+            lambda: (_ for _ in ()).throw(RuntimeError("unexpected boom")),
+        )
+
+        fake_provider_factory(monkeypatch, [])
+
+        result = await process_grpc_query("Say hello", grpc_ctx)
+
+        assert result["ok"] is False
+        assert "unexpected boom" in result["error"]
+        assert result["rpc_calls"] == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_schema_receives_metadata(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Target headers are forwarded as metadata to fetch_schema.
+
+        Protects grpc_agent.py:312-316 — metadata construction for reflection.
+        """
+        captured_kwargs = {}
+
+        async def mock_fetch_schema(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return _make_test_schema()
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_execute_rpc(*args, **kwargs):
+            return {"success": True, "data": {"message": "ok"}}
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_call",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_fmeta",
+                ),
+                make_text_response("Done."),
+            ],
+        )
+
+        await process_grpc_query("Say hello", grpc_ctx)
+
+        # grpc_ctx.target_headers = {"authorization": "Bearer test-token"}
+        assert captured_kwargs.get("metadata") == [
+            ("authorization", "Bearer test-token")
+        ]
+
+    @pytest.mark.asyncio
+    async def test_reflection_error_lowercase_keyword(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Reflection error with 'reflection' (no 'UNIMPLEMENTED') detected.
+
+        Protects grpc_agent.py:320 — the 'or "reflection" in error_msg.lower()' branch.
+        """
+        async def mock_fetch_schema(*args, **kwargs):
+            raise Exception("Server Reflection is not supported")
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(monkeypatch, [])
+
+        result = await process_grpc_query("List services", grpc_ctx)
+
+        assert result["ok"] is False
+        assert "reflection not enabled" in result["error"].lower()
+
+
+# ---------------------------------------------------------------------------
+# Phase 7: Medium Priority
+# ---------------------------------------------------------------------------
+
+
+class TestGrpcMediumPriority:
+    """Medium-severity mutation-proofing tests."""
+
+    def test_find_method_by_service_name_form(self):
+        """Second match path in _find_method: svc.full_name/m.name form.
+
+        Protects grpc_agent.py:116-117 — the fallback match when
+        full_method_path differs from {service}/{method}.
+        """
+        # Schema where full_method_path has a versioned prefix
+        services = [
+            ServiceInfo(
+                full_name="myapp.UserService",
+                methods=[
+                    MethodInfo(
+                        name="GetUser",
+                        full_method_path="/myapp.v2.UserService/GetUser",
+                        input_type="myapp.GetUserReq",
+                        output_type="myapp.GetUserResp",
+                    ),
+                ],
+            )
+        ]
+        schema = GrpcSchema(
+            services=services, pool=MagicMock(), raw_schema_text=""
+        )
+
+        # This won't match full_method_path (myapp.v2.UserService/GetUser)
+        # but WILL match svc.full_name/m.name (myapp.UserService/GetUser)
+        m = _find_method(schema, "myapp.UserService/GetUser")
+        assert m is not None
+        assert m.name == "GetUser"
+
+    @pytest.mark.asyncio
+    async def test_large_schema_truncated(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """Schema larger than MAX_TOOL_RESPONSE_CHARS is truncated.
+
+        Protects grpc_agent.py:349-355 — schema truncation with marker.
+        """
+        big_text = "x" * (settings.MAX_TOOL_RESPONSE_CHARS + 100)
+        big_schema = GrpcSchema(
+            services=[
+                ServiceInfo(
+                    full_name="big.Svc",
+                    methods=[
+                        MethodInfo(
+                            name="Do",
+                            full_method_path="/big.Svc/Do",
+                            input_type="big.Req",
+                            output_type="big.Resp",
+                        )
+                    ],
+                )
+            ],
+            pool=MagicMock(),
+            raw_schema_text=big_text,
+        )
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return big_schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        prov = fake_provider_factory(
+            monkeypatch,
+            [make_text_response("Schema is large.")],
+        )
+
+        await process_grpc_query("Describe schema", grpc_ctx)
+
+        # The provider's call_log should show the truncated schema
+        assert prov.call_log, "Provider should have been called"
+        user_msg = prov.call_log[0]["messages"][-1]
+        # User message content contains the augmented query
+        msg_content = user_msg.get("content", "") if isinstance(user_msg, dict) else str(user_msg)
+        assert "[SCHEMA TRUNCATED" in msg_content

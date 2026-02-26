@@ -3,7 +3,7 @@
 Covers: tool name transformation, prefix validation, context forwarding.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from fastmcp.exceptions import NotFoundError
@@ -174,3 +174,67 @@ class TestNonRecipeToolRouting:
                     await middleware.on_call_tool(context, call_next)
 
         assert captured[0].message.name == "_query"
+
+
+class TestGrpcMiddleware:
+    """Test middleware gRPC-specific paths."""
+
+    def test_inject_api_context_grpc_label(self):
+        """gRPC api_type produces 'gRPC' label in description prefix."""
+        from api_agent.middleware import _inject_api_context
+
+        result = _inject_api_context("Query the API", "grpc.example.com", "grpc")
+        assert "[grpc.example.com gRPC API]" in result
+        assert "Query the API" in result
+
+    @pytest.mark.asyncio
+    async def test_on_list_tools_grpc_skips_schema_check(self):
+        """gRPC sessions don't fail when load_schema_and_base_url returns empty."""
+        # gRPC doesn't need upfront schema (reflection happens in agent)
+        # So when load_schema_and_base_url returns ("",""), it should NOT raise RuntimeError
+        from api_agent.middleware import DynamicToolNamingMiddleware
+
+        middleware = DynamicToolNamingMiddleware()
+
+        grpc_ctx = RequestContext(
+            target_url="grpc://localhost:50051",
+            api_type="grpc",
+            target_headers={},
+            allow_unsafe_paths=(),
+            base_url=None,
+            include_result=False,
+            poll_paths=(),
+        )
+
+        # Simulate the on_list_tools path:
+        # 1. call_next returns some tools
+        # 2. get_http_headers returns headers
+        # 3. get_request_context returns grpc_ctx
+        # 4. load_schema_and_base_url returns ("", "") for gRPC
+        # 5. Should NOT raise RuntimeError
+
+        from fastmcp.tools.tool import Tool as FastMCPTool
+
+        mock_tool = MagicMock(spec=FastMCPTool)
+        mock_tool.name = "_query"
+        mock_tool.description = "Query tool"
+        mock_tool.model_copy = MagicMock(return_value=mock_tool)
+
+        context = MagicMock()  # MiddlewareContext
+
+        async def call_next(ctx):
+            return [mock_tool]
+
+        with patch("api_agent.middleware.get_http_headers", return_value={
+            "x-target-url": "grpc://localhost:50051",
+            "x-api-type": "grpc",
+        }):
+            with patch("api_agent.middleware.get_request_context", return_value=grpc_ctx):
+                with patch("api_agent.middleware.load_schema_and_base_url", return_value=("", "")):
+                    with patch("api_agent.middleware.extract_api_name", return_value="mygrpc"):
+                        with patch("api_agent.middleware.get_full_hostname", return_value="localhost"):
+                            with patch("api_agent.middleware._list_recipe_tools", return_value=[]):
+                                # This should NOT raise - gRPC is exempt from schema check
+                                result = await middleware.on_list_tools(context, call_next)
+
+        assert len(result) >= 1

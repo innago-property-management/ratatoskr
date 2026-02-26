@@ -273,6 +273,136 @@ class TestExecuteUnaryRpc:
         call_kwargs = stub.call_args[1]
         assert call_kwargs["metadata"] == test_metadata
 
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    async def test_generic_exception_returns_rpc_failed(
+        self, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Non-gRPC exception during RPC returns 'RPC call failed' error."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        # Use ValueError (not grpc.RpcError) to hit the generic except
+        mock_channel = _make_mock_channel(error=ValueError("unexpected serialization error"))
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_unary_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Hello",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "RPC call failed" in result["error"]
+        assert "unexpected serialization error" in result["error"]
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    async def test_rpc_error_empty_details_uses_code(
+        self, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """When RPC error details are empty, falls back to str(code)."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        mock_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.INTERNAL,
+            initial_metadata=grpc.aio.Metadata(),
+            trailing_metadata=grpc.aio.Metadata(),
+            details="",  # empty string — triggers the `or str(code)` fallback
+        )
+
+        mock_channel = _make_mock_channel(error=mock_error)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_unary_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Hello",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "INTERNAL" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    async def test_rpc_error_includes_hint_text(
+        self, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Error message includes the hint text for known error codes."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        mock_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.NOT_FOUND,
+            initial_metadata=grpc.aio.Metadata(),
+            trailing_metadata=grpc.aio.Metadata(),
+            details="Method not found",
+        )
+
+        mock_channel = _make_mock_channel(error=mock_error)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_unary_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Missing",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        # The hint for NOT_FOUND is "The method or service was not found on the server"
+        assert "not found on the server" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_timeout_passed_to_stub(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Custom timeout is forwarded to the RPC stub call."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.return_value = {}
+
+        mock_channel = _make_mock_channel()
+        mock_create_channel.return_value = mock_channel
+
+        await execute_unary_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Hello",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+            timeout_s=5.0,
+        )
+
+        stub = mock_channel.unary_unary.return_value
+        call_kwargs = stub.call_args[1]
+        assert call_kwargs["timeout"] == 5.0
+
 
 class TestErrorHint:
     """Test error hint helper."""
@@ -284,3 +414,17 @@ class TestErrorHint:
 
     def test_unknown_code_returns_empty(self):
         assert _error_hint(grpc.StatusCode.INTERNAL) == ""
+
+    def test_all_six_codes_have_nonempty_hints(self):
+        """Every mapped status code returns a non-empty hint string."""
+        codes_with_hints = [
+            grpc.StatusCode.UNAUTHENTICATED,
+            grpc.StatusCode.PERMISSION_DENIED,
+            grpc.StatusCode.NOT_FOUND,
+            grpc.StatusCode.UNAVAILABLE,
+            grpc.StatusCode.DEADLINE_EXCEEDED,
+            grpc.StatusCode.UNIMPLEMENTED,
+        ]
+        for code in codes_with_hints:
+            hint = _error_hint(code)
+            assert hint, f"Expected non-empty hint for {code.name}"
