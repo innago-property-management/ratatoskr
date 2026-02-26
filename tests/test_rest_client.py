@@ -74,6 +74,36 @@ class TestBuildUrl:
         with pytest.raises(ValueError, match="No base URL provided"):
             _build_url("/users", base_url="")
 
+    # --- Bug fix regression tests ---
+
+    def test_base_url_with_path_prefix_preserved(self):
+        """Bug 1: urljoin drops base path prefixes like /v2."""
+        url = _build_url("/users", base_url="https://api.example.com/v2")
+        assert url == "https://api.example.com/v2/users"
+
+    def test_base_url_with_deep_path_prefix(self):
+        """Bug 1: Deeper path prefixes must also survive."""
+        url = _build_url("/items/{id}", base_url="https://api.example.com/v2/admin", path_params={"id": "42"})
+        assert url == "https://api.example.com/v2/admin/items/42"
+
+    def test_relative_base_url_raises(self):
+        """Bug 3: Relative server URLs like /v2 lack a netloc and should raise."""
+        with pytest.raises(ValueError, match="base URL"):
+            _build_url("/users", base_url="/v2")
+
+    def test_multi_value_query_params(self):
+        """Bug 4: List-valued query params need doseq=True."""
+        url = _build_url(
+            "/search",
+            base_url="https://api.example.com",
+            query_params={"ids": [1, 2, 3]},
+        )
+        assert "ids=1" in url
+        assert "ids=2" in url
+        assert "ids=3" in url
+        # Must NOT produce the mangled form ids=%5B1%2C+2%2C+3%5D
+        assert "%5B" not in url
+
 
 class TestExecuteRequest:
     """Test request execution and method blocking."""
