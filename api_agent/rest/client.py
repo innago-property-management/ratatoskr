@@ -3,7 +3,7 @@
 import fnmatch
 import logging
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urlparse
 
 import httpx
 
@@ -47,21 +47,22 @@ def _build_url(
         raise ValueError("No base URL provided")
 
     # If base_url is missing a scheme, default to https
-    if base_url and "://" not in base_url:
+    if "://" not in base_url:
         base_url = f"https://{base_url}"
 
-    # If base_url is missing a scheme, default to https for safety
-    if base_url and not base_url.startswith(("http://", "https://")):
-        base_url = f"https://{base_url}"
+    # Validate that the URL has a proper netloc (host)
+    parsed = urlparse(base_url)
+    if not parsed.netloc:
+        raise ValueError(f"Invalid base URL (no host): {base_url}")
 
-    url = urljoin(base_url.rstrip("/") + "/", path.lstrip("/"))
+    url = base_url.rstrip("/") + "/" + path.lstrip("/")
 
     # Add query params
     if query_params:
         # Filter out None values
         filtered = {k: v for k, v in query_params.items() if v is not None}
         if filtered:
-            url = f"{url}?{urlencode(filtered)}"
+            url = f"{url}?{urlencode(filtered, doseq=True)}"
 
     return url
 
