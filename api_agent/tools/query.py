@@ -1,5 +1,6 @@
 """Unified MCP tool for natural language API queries."""
 
+import logging
 from typing import Annotated
 
 from fastmcp import FastMCP
@@ -12,6 +13,8 @@ from ..agent.rest_agent import process_rest_query
 from ..context import MissingHeaderError, get_request_context
 from ..recipe import consume_recipe_changes, reset_recipe_change_flag
 from ..utils.csv import to_csv
+
+logger = logging.getLogger(__name__)
 
 
 def _build_response(result: dict, calls_key: str, ctx) -> dict:
@@ -62,7 +65,7 @@ Returns answer and the queries/calls made (reusable with execute tool).""",
             try:
                 await ctx.send_notification(ToolListChangedNotification())
             except Exception:
-                pass
+                logger.debug("Failed to send tool list changed notification", exc_info=True)
 
         # Direct return: just CSV, no wrapper
         if result.get("result") is not None and result.get("data") is None:

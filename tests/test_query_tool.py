@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import pytest_asyncio
 from fastmcp import FastMCP
+from mcp.types import ToolListChangedNotification
 
 from api_agent.context import MissingHeaderError, RequestContext
 from api_agent.tools.query import register_query_tool
@@ -123,7 +124,7 @@ class TestQueryToolRouting:
         mock_mcp_ctx = AsyncMock()
         result = await query_fn(question="test", ctx=mock_mcp_ctx)
 
-        mock_mcp_ctx.send_notification.assert_awaited_once()
+        mock_mcp_ctx.send_notification.assert_awaited_once_with(ToolListChangedNotification())
         assert result["ok"] is True
 
     @pytest.mark.asyncio
@@ -149,6 +150,7 @@ class TestQueryToolRouting:
         # Should not raise
         result = await query_fn(question="test", ctx=mock_mcp_ctx)
         assert result["ok"] is True
+        mock_mcp_ctx.send_notification.assert_awaited_once()
 
     @pytest.mark.asyncio
     @patch("api_agent.tools.query.consume_recipe_changes", return_value=False)
