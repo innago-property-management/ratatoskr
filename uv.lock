@@ -60,7 +60,7 @@ wheels = [
 ]
 
 [[package]]
-name = "api-agent"
+name = "api-agent-ratatoskr"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

@@ -1,5 +1,5 @@
 [project]
-name = "api-agent"
+name = "api-agent-ratatoskr"
 version = "0.1.0"
 description = "Universal MCP server for querying GraphQL, REST, and gRPC APIs using natural language"
 readme = "README.md"
