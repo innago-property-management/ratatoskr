@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastmcp import FastMCP
 from fastmcp.server.context import Context
+from mcp.types import ToolListChangedNotification
 from pydantic import Field
 
 from ..agent.graphql_agent import process_query
@@ -59,7 +60,7 @@ Returns answer and the queries/calls made (reusable with execute tool).""",
         # Notify clients if recipes changed
         if ctx and consume_recipe_changes():
             try:
-                await ctx.send_tool_list_changed()
+                await ctx.send_notification(ToolListChangedNotification())
             except Exception:
                 pass
 
