@@ -23,7 +23,6 @@ def init_tracing() -> None:
 
     try:
         from openinference.instrumentation import using_metadata
-        from openinference.instrumentation.openai_agents import OpenAIAgentsInstrumentor
         from opentelemetry import trace
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
         from opentelemetry.sdk.resources import Resource
@@ -37,7 +36,19 @@ def init_tracing() -> None:
             BatchSpanProcessor(OTLPSpanExporter(endpoint=f"{otlp_endpoint}/v1/traces"))
         )
         trace.set_tracer_provider(provider)
-        OpenAIAgentsInstrumentor().instrument(tracer_provider=provider)
+
+        # Instrument OpenAI/Anthropic clients if available
+        try:
+            from openinference.instrumentation.openai import OpenAIInstrumentor  # noqa: I001  # type: ignore[unresolved-import]
+            OpenAIInstrumentor().instrument(tracer_provider=provider)
+        except ImportError:
+            logger.debug("OpenAI instrumentation not available")
+
+        try:
+            from openinference.instrumentation.anthropic import AnthropicInstrumentor  # noqa: I001  # type: ignore[unresolved-import]
+            AnthropicInstrumentor().instrument(tracer_provider=provider)
+        except ImportError:
+            logger.debug("Anthropic instrumentation not available")
 
         _using_metadata_fn = using_metadata
         _tracer_ready = True
