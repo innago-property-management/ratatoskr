@@ -1,5 +1,6 @@
-"""gRPC client — execute unary RPC calls with dynamic message construction."""
+"""gRPC client — execute unary and server-streaming RPC calls with dynamic message construction."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -112,6 +113,134 @@ async def execute_unary_rpc(
     except Exception as e:
         return {"success": False, "error": f"RPC call failed: {e}"}
     finally:
+        await channel.close()
+
+
+async def execute_server_streaming_rpc(
+    target_url: str,
+    method_path: str,
+    request_json: dict[str, Any],
+    pool: dp_module.DescriptorPool,
+    input_type_name: str,
+    output_type_name: str,
+    metadata: list[tuple[str, str]] | None = None,
+    timeout_s: float = 30.0,
+    max_messages: int = 100,
+) -> dict[str, Any]:
+    """Execute a server-streaming gRPC RPC call.
+
+    The client sends a single request; the server streams back multiple responses.
+    Responses are collected into a list, capped at ``max_messages``.
+
+    Args:
+        target_url: gRPC target URL (grpc:// or grpcs://)
+        method_path: Full method path (e.g. "/package.Service/ListItems")
+        request_json: Request fields as JSON dict
+        pool: DescriptorPool with loaded service descriptors
+        input_type_name: Fully qualified input message type name
+        output_type_name: Fully qualified output message type name
+        metadata: Optional gRPC metadata tuples
+        timeout_s: RPC timeout in seconds
+        max_messages: Maximum number of streamed messages to collect
+
+    Returns:
+        {"success": True, "data": list[dict], "message_count": int} on success
+        {"success": False, "error": str, "partial_data": list[dict]} on failure
+    """
+    target, tls = parse_grpc_target(target_url)
+
+    # Build request message
+    try:
+        input_desc = pool.FindMessageTypeByName(input_type_name)
+        InputClass = GetMessageClass(input_desc)
+        request_msg = ParseDict(request_json, InputClass())
+    except KeyError:
+        return {
+            "success": False,
+            "error": f"Input message type '{input_type_name}' not found in schema",
+            "partial_data": [],
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to build request: {e}",
+            "partial_data": [],
+        }
+
+    # Build response deserializer
+    try:
+        output_desc = pool.FindMessageTypeByName(output_type_name)
+        OutputClass = GetMessageClass(output_desc)
+    except KeyError:
+        return {
+            "success": False,
+            "error": f"Output message type '{output_type_name}' not found in schema",
+            "partial_data": [],
+        }
+
+    # Normalize method path
+    if not method_path.startswith("/"):
+        method_path = f"/{method_path}"
+
+    channel = _create_channel(target, tls)
+    collected: list[dict[str, Any]] = []
+    call = None
+
+    try:
+        stub = channel.unary_stream(
+            method_path,
+            request_serializer=InputClass.SerializeToString,
+            response_deserializer=OutputClass.FromString,
+        )
+
+        call = stub(
+            request_msg,
+            metadata=metadata,
+            timeout=timeout_s,
+        )
+
+        async for response_msg in call:
+            response_dict = MessageToDict(
+                response_msg, preserving_proto_field_name=True
+            )
+            collected.append(response_dict)
+            if len(collected) >= max_messages:
+                break
+
+        return {
+            "success": True,
+            "data": collected,
+            "message_count": len(collected),
+        }
+
+    except grpc.RpcError as e:
+        code = e.code()  # type: ignore[unresolved-attribute]  # grpc stubs incomplete
+        details = e.details() or str(code)  # type: ignore[unresolved-attribute]
+        hint = _error_hint(code)
+        error_msg = f"gRPC error [{code.name}]: {details}"
+        if hint:
+            error_msg += f". {hint}"
+        return {
+            "success": False,
+            "error": error_msg,
+            "partial_data": collected,
+        }
+    except asyncio.TimeoutError:
+        return {
+            "success": False,
+            "error": "Stream timed out — the server may be slow or unreachable",
+            "partial_data": collected,
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Streaming RPC failed: {e}",
+            "partial_data": collected,
+        }
+    finally:
+        # Cancel the stream if it wasn't fully exhausted
+        if call is not None and hasattr(call, "cancel"):
+            call.cancel()
         await channel.close()
 
 

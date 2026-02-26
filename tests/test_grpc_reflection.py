@@ -127,7 +127,7 @@ class TestBuildSchemaText:
         assert "  string message" in text
 
     def test_streaming_method_tagged(self):
-        """Streaming methods get [unsupported-v1] tags."""
+        """Server-streaming methods get [server-streaming] tag (no unsupported)."""
         services = [
             ServiceInfo(
                 full_name="test.Svc",
@@ -152,10 +152,10 @@ class TestBuildSchemaText:
         text = build_schema_text(services, pool)
 
         assert "server-streaming" in text
-        assert "unsupported-v1" in text
+        assert "unsupported" not in text
 
     def test_bidi_streaming_tagged(self):
-        """Bidi streaming methods get both tags."""
+        """Bidi streaming methods get client-streaming unsupported + server-streaming tags."""
         services = [
             ServiceInfo(
                 full_name="test.Svc",
@@ -177,7 +177,7 @@ class TestBuildSchemaText:
 
         assert "client-streaming" in text
         assert "server-streaming" in text
-        assert "unsupported-v1" in text
+        assert "unsupported" in text
 
     def test_multiple_services(self):
         """Multiple services appear in output."""
@@ -322,7 +322,7 @@ class TestBuildSchemaText:
 
         assert "client-streaming" in text
         assert "server-streaming" not in text
-        assert "unsupported-v1" in text
+        assert "unsupported" in text
 
 
 class TestExtractServices:

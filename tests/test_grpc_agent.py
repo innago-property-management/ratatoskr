@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api_agent.agent.grpc_agent import _find_method, process_grpc_query
+from api_agent.agent.grpc_agent import _find_method, _find_streaming_method, process_grpc_query
 from api_agent.config import settings
 from api_agent.context import RequestContext
 from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
@@ -57,7 +57,7 @@ def _make_test_schema():
         "<services>\nhelloworld.Greeter\n"
         "  SayHello(helloworld.HelloRequest) -> helloworld.HelloReply\n"
         "  StreamGreetings(helloworld.HelloRequest) -> helloworld.HelloReply"
-        "  [server-streaming, unsupported-v1]\n"
+        "  [server-streaming]\n"
     )
     return GrpcSchema(services=services, pool=pool, raw_schema_text=raw_text)
 
@@ -200,7 +200,7 @@ class TestProcessGrpcQuery:
         result = await process_grpc_query("Stream greetings", grpc_ctx)
 
         assert result["ok"] is True
-        assert "streaming" in result["data"].lower() or "not supported" in result["data"].lower()
+        assert "streaming" in result["data"].lower() or "grpc_stream" in result["data"].lower()
 
     @pytest.mark.asyncio
     async def test_rpc_error_propagated(self, grpc_ctx, fake_provider_factory, monkeypatch):
@@ -971,3 +971,207 @@ class TestGrpcMediumPriority:
         # User message content contains the augmented query
         msg_content = user_msg.get("content", "") if isinstance(user_msg, dict) else str(user_msg)
         assert "[SCHEMA TRUNCATED" in msg_content
+
+
+# ---------------------------------------------------------------------------
+# Phase B3: Server Streaming Agent Tool
+# ---------------------------------------------------------------------------
+
+
+class TestGrpcStreamTool:
+    """Tests for grpc_stream tool — server-streaming RPC via the agent."""
+
+    @pytest.mark.asyncio
+    async def test_stream_success(self, grpc_ctx, fake_provider_factory, monkeypatch):
+        """grpc_stream calls execute_server_streaming_rpc and stores results."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_stream_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": [
+                    {"message": "Hello 1"},
+                    {"message": "Hello 2"},
+                    {"message": "Hello 3"},
+                ],
+                "message_count": 3,
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_server_streaming_rpc",
+            mock_stream_rpc,
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_stream",
+                    {
+                        "method": "helloworld.Greeter/StreamGreetings",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_stream_1",
+                ),
+                make_text_response("Received 3 greeting messages."),
+            ],
+        )
+
+        result = await process_grpc_query("Stream greetings", grpc_ctx)
+
+        assert result["ok"] is True
+        assert "3" in result["data"] or "greeting" in result["data"].lower()
+
+    @pytest.mark.asyncio
+    async def test_stream_non_streaming_method_blocked(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_stream rejects non-streaming (unary) methods."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_stream",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_stream_unary",
+                ),
+                make_text_response("That method is not a streaming method."),
+            ],
+        )
+
+        result = await process_grpc_query("Stream SayHello", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_stream_stores_data_for_sql(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_stream results are stored for sql_query post-processing."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_stream_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": [
+                    {"id": 1, "name": "Alice"},
+                    {"id": 2, "name": "Bob"},
+                    {"id": 3, "name": "Charlie"},
+                ],
+                "message_count": 3,
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_server_streaming_rpc",
+            mock_stream_rpc,
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_stream",
+                    {
+                        "method": "helloworld.Greeter/StreamGreetings",
+                        "request": '{"name": "world"}',
+                        "name": "greetings",
+                    },
+                    call_id="call_stream_sql_1",
+                ),
+                make_tool_call_response(
+                    "sql_query",
+                    {"sql": "SELECT name FROM greetings WHERE id > 1"},
+                    call_id="call_stream_sql_2",
+                ),
+                make_text_response("Bob and Charlie."),
+            ],
+        )
+
+        result = await process_grpc_query("Stream and filter", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["result"] is not None
+
+    @pytest.mark.asyncio
+    async def test_stream_rpc_error(self, grpc_ctx, fake_provider_factory, monkeypatch):
+        """grpc_stream propagates RPC errors with partial data info."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_stream_rpc(*args, **kwargs):
+            return {
+                "success": False,
+                "error": "gRPC error [UNAVAILABLE]: Server down",
+                "partial_data": [{"message": "Hello 1"}],
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_server_streaming_rpc",
+            mock_stream_rpc,
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_stream",
+                    {
+                        "method": "helloworld.Greeter/StreamGreetings",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_stream_err",
+                ),
+                make_text_response("Stream failed after 1 message."),
+            ],
+        )
+
+        result = await process_grpc_query("Stream greetings", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    def test_find_streaming_method(self):
+        """_find_streaming_method finds server-streaming methods only."""
+        schema = _make_test_schema()
+        m = _find_streaming_method(schema, "helloworld.Greeter/StreamGreetings")
+        assert m is not None
+        assert m.server_streaming is True
+
+    def test_find_streaming_method_rejects_unary(self):
+        """_find_streaming_method returns None for unary methods."""
+        schema = _make_test_schema()
+        m = _find_streaming_method(schema, "helloworld.Greeter/SayHello")
+        assert m is None
