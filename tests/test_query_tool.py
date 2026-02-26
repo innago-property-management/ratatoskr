@@ -71,6 +71,32 @@ class TestQueryToolRouting:
     @pytest.mark.asyncio
     @patch("api_agent.tools.query.consume_recipe_changes", return_value=False)
     @patch("api_agent.tools.query.reset_recipe_change_flag")
+    @patch("api_agent.tools.query.process_grpc_query", new_callable=AsyncMock)
+    @patch("api_agent.tools.query.get_request_context")
+    async def test_routes_to_grpc(
+        self, mock_get_ctx, mock_process_grpc, mock_reset, mock_consume, query_fn
+    ):
+        """gRPC api_type routes to process_grpc_query."""
+        ctx = _make_request_context(
+            api_type="grpc",
+            target_url="grpc://localhost:50051",
+        )
+        mock_get_ctx.return_value = ctx
+        mock_process_grpc.return_value = {
+            "ok": True,
+            "data": "The server replied: Hello!",
+            "rpc_calls": [{"method": "/helloworld.Greeter/SayHello"}],
+        }
+
+        result = await query_fn(question="Say hello")
+
+        mock_process_grpc.assert_awaited_once_with("Say hello", ctx)
+        assert result["ok"] is True
+        assert "rpc_calls" in result
+
+    @pytest.mark.asyncio
+    @patch("api_agent.tools.query.consume_recipe_changes", return_value=False)
+    @patch("api_agent.tools.query.reset_recipe_change_flag")
     @patch("api_agent.tools.query.process_rest_query", new_callable=AsyncMock)
     @patch("api_agent.tools.query.get_request_context")
     async def test_routes_to_rest(
