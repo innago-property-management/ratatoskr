@@ -21,7 +21,7 @@ uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 -
 
 **Tests:**
 ```bash
-uv run pytest tests/ -v              # All tests (511 passing)
+uv run pytest tests/ -v              # All tests (547 passing)
 uv run pytest tests/test_foo.py -v   # Single test file
 uv run pytest tests/test_foo.py::test_bar -v  # Single test
 ```
@@ -143,7 +143,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 
 ## Testing
 
-511 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
+547 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
 
 ### Test Patterns
 
