@@ -1,12 +1,12 @@
 [project]
 name = "api-agent"
 version = "0.1.0"
-description = "Universal MCP server for querying GraphQL and REST APIs using natural language"
+description = "Universal MCP server for querying GraphQL, REST, and gRPC APIs using natural language"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "API Agent Contributors" }]
 requires-python = ">=3.11"
-keywords = ["mcp", "api", "graphql", "rest", "ai", "llm", "natural-language", "duckdb"]
+keywords = ["mcp", "api", "graphql", "rest", "grpc", "ai", "llm", "natural-language", "duckdb"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -22,6 +22,8 @@ dependencies = [
     "arize-otel>=0.11.0",
     "duckdb>=1.0.0",
     "fastmcp>=3.0.0",
+    "grpcio>=1.70.0",
+    "grpcio-reflection>=1.70.0",
     "httpx>=0.28.1",
     "openai>=1.0.0",
     "pydantic>=2.12.5",

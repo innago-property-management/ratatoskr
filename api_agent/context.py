@@ -18,8 +18,8 @@ class MissingHeaderError(Exception):
 class RequestContext:
     """Per-request context extracted from headers."""
 
-    target_url: str  # X-Target-URL: GraphQL endpoint or OpenAPI spec URL
-    api_type: str  # X-API-Type: "graphql" or "rest"
+    target_url: str  # X-Target-URL: GraphQL endpoint, OpenAPI spec URL, or gRPC target
+    api_type: str  # X-API-Type: "graphql", "rest", or "grpc"
     target_headers: dict  # X-Target-Headers: parsed JSON headers
     allow_unsafe_paths: tuple[str, ...]  # X-Allow-Unsafe-Paths: glob patterns for POST/etc
     base_url: str | None  # X-Base-URL: override base URL (REST only)
@@ -61,10 +61,12 @@ def get_request_context() -> RequestContext:
         raise MissingHeaderError("X-Target-URL header required")
 
     if not api_type:
-        raise MissingHeaderError("X-API-Type header required (graphql|rest)")
+        raise MissingHeaderError("X-API-Type header required (graphql|rest|grpc)")
 
-    if api_type not in ("graphql", "rest"):
-        raise MissingHeaderError(f"X-API-Type must be 'graphql' or 'rest', got '{api_type}'")
+    if api_type not in ("graphql", "rest", "grpc"):
+        raise MissingHeaderError(
+            f"X-API-Type must be 'graphql', 'rest', or 'grpc', got '{api_type}'"
+        )
 
     try:
         target_headers = json.loads(target_headers_raw)

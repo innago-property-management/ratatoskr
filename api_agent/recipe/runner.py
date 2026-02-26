@@ -24,10 +24,14 @@ from .store import RECIPE_STORE, render_param_refs, render_text_template, sha256
 
 
 async def load_schema_and_base_url(ctx: RequestContext) -> tuple[str, str]:
-    """Load raw schema and base URL (REST). Returns (raw_schema, base_url)."""
+    """Load raw schema and base URL. Returns (raw_schema, base_url)."""
     if ctx.api_type == "graphql":
         raw_schema = await fetch_graphql_schema_raw(ctx.target_url, ctx.target_headers)
         return raw_schema, ""
+
+    if ctx.api_type == "grpc":
+        # gRPC recipes not yet supported — return empty to skip recipe listing
+        return "", ""
 
     _, spec_base_url, raw_spec_json = await fetch_schema_context(ctx.target_url, ctx.target_headers)
     base_url = ctx.base_url or spec_base_url or ""

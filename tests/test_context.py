@@ -70,7 +70,7 @@ class TestGetRequestContext:
             "x-target-url": "https://api.example.com",
             "x-api-type": "invalid",
         }
-        with pytest.raises(MissingHeaderError, match="must be 'graphql' or 'rest'"):
+        with pytest.raises(MissingHeaderError, match="must be 'graphql', 'rest', or 'grpc'"):
             get_request_context()
 
     @patch("api_agent.context.get_http_headers")
@@ -81,6 +81,16 @@ class TestGetRequestContext:
         }
         ctx = get_request_context()
         assert ctx.api_type == "rest"
+
+    @patch("api_agent.context.get_http_headers")
+    def test_grpc_api_type(self, mock_headers):
+        mock_headers.return_value = {
+            "x-target-url": "grpc://service.internal:50051",
+            "x-api-type": "grpc",
+        }
+        ctx = get_request_context()
+        assert ctx.api_type == "grpc"
+        assert ctx.target_url == "grpc://service.internal:50051"
 
     @patch("api_agent.context.get_http_headers")
     def test_invalid_json_headers_defaults_empty(self, mock_headers):

@@ -9,6 +9,7 @@ from mcp.types import ToolListChangedNotification
 from pydantic import Field
 
 from ..agent.graphql_agent import process_query
+from ..agent.grpc_agent import process_grpc_query
 from ..agent.rest_agent import process_rest_query
 from ..context import MissingHeaderError, get_request_context
 from ..recipe import consume_recipe_changes, reset_recipe_change_flag
@@ -57,6 +58,8 @@ Returns answer and the queries/calls made (reusable with execute tool).""",
 
         if req_ctx.api_type == "graphql":
             result = await process_query(question, req_ctx)
+        elif req_ctx.api_type == "grpc":
+            result = await process_grpc_query(question, req_ctx)
         else:
             result = await process_rest_query(question, req_ctx)
 
@@ -71,7 +74,8 @@ Returns answer and the queries/calls made (reusable with execute tool).""",
         if result.get("result") is not None and result.get("data") is None:
             return to_csv(result["result"])
 
-        calls_key = "queries" if req_ctx.api_type == "graphql" else "api_calls"
+        calls_key_map = {"graphql": "queries", "grpc": "rpc_calls"}
+        calls_key = calls_key_map.get(req_ctx.api_type, "api_calls")
         response = _build_response(result, calls_key, req_ctx)
 
         return response

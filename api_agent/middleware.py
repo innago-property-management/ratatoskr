@@ -35,7 +35,8 @@ def _get_tool_suffix(internal_name: str) -> str:
 
 def _inject_api_context(description: str, hostname: str, api_type: str) -> str:
     """Inject API context into tool description using full hostname."""
-    api_type_label = "GraphQL" if api_type == "graphql" else "REST"
+    api_type_labels = {"graphql": "GraphQL", "grpc": "gRPC"}
+    api_type_label = api_type_labels.get(api_type, "REST")
     prefix = f"[{hostname} {api_type_label} API] "
     return prefix + description
 
@@ -147,7 +148,7 @@ class DynamicToolNamingMiddleware(Middleware):
             raise RuntimeError(str(e)) from e
 
         raw_schema, base_url = await load_schema_and_base_url(req_ctx)
-        if not raw_schema:
+        if not raw_schema and req_ctx.api_type != "grpc":
             schema_type = "GraphQL" if req_ctx.api_type == "graphql" else "OpenAPI"
             raise RuntimeError(
                 f"Failed to load {schema_type} schema. Check X-Target-URL and auth headers."
