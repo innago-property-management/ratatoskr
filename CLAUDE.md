@@ -143,7 +143,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 
 ## Testing
 
-547 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
+577 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
 
 ### Test Patterns
 
@@ -159,12 +159,15 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 |------|-----------|
 | GraphQL orchestrator | `test_graphql_agent.py` (8 tests) |
 | REST orchestrator | `test_rest_agent.py` (10 tests) |
+| gRPC orchestrator | `test_grpc_agent.py` (25 tests) |
 | GraphQL client | `test_graphql_client.py` (15 tests) |
+| gRPC client | `test_grpc_client.py` (15 tests) |
+| gRPC reflection | `test_grpc_reflection.py` (21 tests) |
 | Execute tool | `test_execute_tool.py` (15 tests) |
-| Recipe runner | `test_recipe_runner.py` (11 tests) |
+| Recipe runner | `test_recipe_runner.py` (12 tests) |
 | Config settings | `test_config.py` (53 tests) |
 | OpenAI provider | `test_llm/test_openai_complete.py` (7 tests) |
 | Anthropic provider | `test_llm/test_anthropic_complete.py` (8 tests) |
 | OpenAI-compat provider | `test_llm/test_compat_complete.py` (9 tests) |
 | Query tool routing | `test_query_tool.py` (8 tests) |
-| Middleware | `test_middleware_routing.py` (6 tests) |
+| Middleware | `test_middleware_routing.py` (8 tests) |

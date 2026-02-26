@@ -1,11 +1,14 @@
 """Tests for gRPC reflection module — URL parsing, schema building, service extraction."""
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from api_agent.grpc.reflection import (
     MethodInfo,
     ServiceInfo,
     build_schema_text,
+    fetch_schema,
     parse_grpc_target,
 )
 
@@ -296,6 +299,31 @@ class TestBuildSchemaText:
         assert "<services>" in text
         assert "<message_types>" not in text
 
+    def test_client_streaming_only_tagged(self):
+        """Client-streaming-only method gets client-streaming tag but NOT server-streaming."""
+        services = [
+            ServiceInfo(
+                full_name="test.Svc",
+                methods=[
+                    MethodInfo(
+                        name="Upload",
+                        full_method_path="/test.Svc/Upload",
+                        input_type="test.Req",
+                        output_type="test.Resp",
+                        client_streaming=True,
+                        server_streaming=False,
+                    )
+                ],
+            )
+        ]
+        pool = self._make_mock_pool({"test.Req": [], "test.Resp": []})
+
+        text = build_schema_text(services, pool)
+
+        assert "client-streaming" in text
+        assert "server-streaming" not in text
+        assert "unsupported-v1" in text
+
 
 class TestExtractServices:
     """Test _extract_services with mock DescriptorPool."""
@@ -320,3 +348,131 @@ class TestExtractServices:
 
         services = _extract_services(["missing.Service"], pool)
         assert services == []
+
+
+class TestFetchSchema:
+    """Tests for fetch_schema() async function."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_schema_plaintext_channel(self):
+        """Plaintext URL uses grpc.insecure_channel."""
+        mock_channel = MagicMock()
+        mock_reflection_db = MagicMock()
+        mock_reflection_db.get_services.return_value = []
+
+        call_count = 0
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_reflection_db
+            return []
+
+        with patch(
+            "api_agent.grpc.reflection.grpc.insecure_channel",
+            return_value=mock_channel,
+        ) as mock_insecure:
+            with patch("api_agent.grpc.reflection.grpc.secure_channel") as mock_secure:
+                with patch("asyncio.to_thread", side_effect=fake_to_thread):
+                    with patch("api_agent.grpc.reflection.dp_module.DescriptorPool"):
+                        result = await fetch_schema("grpc://localhost:50051")
+
+        mock_insecure.assert_called_once()
+        mock_secure.assert_not_called()
+        mock_channel.close.assert_called_once()
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_fetch_schema_tls_channel(self):
+        """TLS URL uses grpc.secure_channel."""
+        mock_channel = MagicMock()
+        mock_reflection_db = MagicMock()
+        mock_reflection_db.get_services.return_value = []
+
+        call_count = 0
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return mock_reflection_db
+            return []
+
+        with patch("api_agent.grpc.reflection.grpc.insecure_channel") as mock_insecure:
+            with patch(
+                "api_agent.grpc.reflection.grpc.secure_channel",
+                return_value=mock_channel,
+            ) as mock_secure:
+                with patch("asyncio.to_thread", side_effect=fake_to_thread):
+                    with patch("api_agent.grpc.reflection.dp_module.DescriptorPool"):
+                        with patch(
+                            "api_agent.grpc.reflection.grpc.ssl_channel_credentials"
+                        ):
+                            result = await fetch_schema("grpcs://api.example.com:8443")
+
+        mock_secure.assert_called_once()
+        mock_insecure.assert_not_called()
+        mock_channel.close.assert_called_once()
+        assert result is not None
+
+    @pytest.mark.asyncio
+    async def test_fetch_schema_forwards_metadata(self):
+        """Metadata is forwarded to ProtoReflectionDescriptorDatabase."""
+        mock_channel = MagicMock()
+        mock_reflection_db = MagicMock()
+        mock_reflection_db.get_services.return_value = []
+
+        captured_kwargs: dict = {}
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            if kwargs or (args and not callable(args[0])):
+                # This is the ProtoReflectionDescriptorDatabase call
+                captured_kwargs.update(kwargs)
+                return mock_reflection_db
+            return []
+
+        with patch(
+            "api_agent.grpc.reflection.grpc.insecure_channel",
+            return_value=mock_channel,
+        ):
+            with patch("asyncio.to_thread", side_effect=fake_to_thread):
+                with patch("api_agent.grpc.reflection.dp_module.DescriptorPool"):
+                    await fetch_schema(
+                        "grpc://localhost:50051",
+                        metadata=[("authorization", "Bearer tok")],
+                    )
+
+        assert "metadata" in captured_kwargs
+        assert captured_kwargs["metadata"] == [("authorization", "Bearer tok")]
+
+    @pytest.mark.asyncio
+    async def test_fetch_schema_closes_channel_on_error(self):
+        """Channel is closed even if reflection fails (finally block)."""
+        mock_channel = MagicMock()
+
+        async def fake_to_thread(fn, *args, **kwargs):
+            raise Exception("reflection failed")
+
+        with patch(
+            "api_agent.grpc.reflection.grpc.insecure_channel",
+            return_value=mock_channel,
+        ):
+            with patch("asyncio.to_thread", side_effect=fake_to_thread):
+                with pytest.raises(Exception, match="reflection failed"):
+                    await fetch_schema("grpc://localhost:50051")
+
+        mock_channel.close.assert_called_once()
+
+
+class TestFormatMessageType:
+    """Tests for _format_message_type cycle detection."""
+
+    def test_cycle_detection_returns_empty(self):
+        """Already-seen message type returns empty string."""
+        from api_agent.grpc.reflection import _format_message_type
+
+        msg_desc = MagicMock()
+        msg_desc.full_name = "test.SelfRef"
+        result = _format_message_type(msg_desc, seen={"test.SelfRef"})
+        assert result == ""

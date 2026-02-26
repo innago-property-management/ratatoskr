@@ -601,3 +601,26 @@ class TestReturnDirectlyAndSchemaValidation:
         parsed = json.loads(result)
         assert parsed["success"] is False
         assert "match" in parsed["error"].lower()
+
+
+class TestGrpcRecipeNoOp:
+    """Test that gRPC sessions get no recipes (deferred to v2)."""
+
+    @pytest.mark.asyncio
+    async def test_load_schema_grpc_returns_empty(self):
+        """gRPC api_type returns empty schema and base_url."""
+        from api_agent.recipe.runner import load_schema_and_base_url
+
+        grpc_ctx = RequestContext(
+            target_url="grpc://localhost:50051",
+            api_type="grpc",
+            target_headers={},
+            base_url=None,
+            include_result=False,
+            allow_unsafe_paths=(),
+            poll_paths=(),
+        )
+
+        raw_schema, base_url = await load_schema_and_base_url(grpc_ctx)
+        assert raw_schema == ""
+        assert base_url == ""
