@@ -10,7 +10,10 @@ import json
 import logging
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from ..llm.provider import LLMProvider
 
 from ..config import settings
 from ..executor import execute_sql, extract_tables_from_response, truncate_for_context
@@ -75,8 +78,9 @@ class ProtocolConfig:
     schema_text: str  # Truncated schema for LLM context
     raw_schema: str  # Full schema for recipe matching
 
-    # Provider — passed from agent module to preserve monkeypatch targets in tests
-    provider: Any  # LLMProvider (or monkeypatched fake)
+    # Provider — passed from agent module to preserve monkeypatch targets in tests.
+    # Typed as LLMProvider for IDE support; Any at runtime for monkeypatch compatibility.
+    provider: "LLMProvider"
 
     # Tools & prompt
     tools: list  # Protocol tools (without recipe tools — those get added by orchestrator)

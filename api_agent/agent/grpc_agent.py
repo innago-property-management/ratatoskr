@@ -236,17 +236,7 @@ def _create_grpc_call_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
                 }
             )
 
-        # Block streaming methods
-        if method_info.server_streaming:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": (
-                        f"Method '{method}' is a server-streaming method. "
-                        "Use grpc_stream instead of grpc_call."
-                    ),
-                }
-            )
+        # Block streaming methods (check bidi first since it has both flags)
         if method_info.client_streaming and method_info.server_streaming:
             return json.dumps(
                 {
@@ -254,6 +244,16 @@ def _create_grpc_call_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
                     "error": (
                         f"Method '{method}' is a bidi-streaming method. "
                         "Use grpc_bidi_stream instead of grpc_call."
+                    ),
+                }
+            )
+        if method_info.server_streaming:
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        f"Method '{method}' is a server-streaming method. "
+                        "Use grpc_stream instead of grpc_call."
                     ),
                 }
             )

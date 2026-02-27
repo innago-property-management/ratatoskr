@@ -389,53 +389,57 @@ sql_query_tool = create_sql_query_tool(_ctx_vars, _log, "Call graphql_query firs
 # ---------------------------------------------------------------------------
 
 
-def _graphql_step_executor_factory(recipe_id: str):
-    """Build a GraphQL step executor for recipe tools."""
+def _make_graphql_step_executor_factory(ctx: RequestContext):
+    """Build a GraphQL step executor factory for recipe tools.
 
-    async def graphql_step_executor(step_idx, step, params, results):
-        if not isinstance(step, dict) or step.get("kind") != "graphql":
-            return (
-                False,
-                None,
-                json.dumps({"success": False, "error": "invalid recipe step"}, indent=2),
-                None,
-            )
+    Returns a factory: (recipe_id) -> async step_executor
+    Captures ctx at factory-creation time to avoid race conditions.
+    """
 
-        name = step.get("name") or "data"
-        tmpl = step.get("query_template")
-        if not isinstance(tmpl, str):
-            return (
-                False,
-                None,
-                json.dumps({"success": False, "error": "missing query_template"}, indent=2),
-                None,
-            )
+    def factory(recipe_id: str):
+        async def graphql_step_executor(step_idx, step, params, results):
+            if not isinstance(step, dict) or step.get("kind") != "graphql":
+                return (
+                    False,
+                    None,
+                    json.dumps({"success": False, "error": "invalid recipe step"}, indent=2),
+                    None,
+                )
 
-        query = render_text_template(tmpl, params)
-        # Use the graphql_fetch from the module scope (preserves monkeypatch target)
-        res = await graphql_fetch(query, None, _fetch_ctx.target_url, _fetch_ctx.target_headers)
-        if not res.get("success"):
-            return (
-                False,
-                None,
-                json.dumps({"success": False, "error": res.get("error", "query failed")}, indent=2),
-                None,
-            )
+            name = step.get("name") or "data"
+            tmpl = step.get("query_template")
+            if not isinstance(tmpl, str):
+                return (
+                    False,
+                    None,
+                    json.dumps({"success": False, "error": "missing query_template"}, indent=2),
+                    None,
+                )
 
-        data = res.get("data", {})
-        from ..executor import extract_tables_from_response
+            query = render_text_template(tmpl, params)
+            res = await graphql_fetch(query, None, ctx.target_url, ctx.target_headers)
+            if not res.get("success"):
+                return (
+                    False,
+                    None,
+                    json.dumps(
+                        {"success": False, "error": res.get("error", "query failed")}, indent=2
+                    ),
+                    None,
+                )
 
-        tables, _ = extract_tables_from_response(data, str(name))
-        results.update(tables)
-        _query_results.set(results)
-        safe_append_contextvar_list(_graphql_queries, query)
-        return True, tables.get(str(name)), "", query
+            data = res.get("data", {})
+            from ..executor import extract_tables_from_response
 
-    return graphql_step_executor
+            tables, _ = extract_tables_from_response(data, str(name))
+            results.update(tables)
+            _query_results.set(results)
+            safe_append_contextvar_list(_graphql_queries, query)
+            return True, tables.get(str(name)), "", query
 
+        return graphql_step_executor
 
-# Module-level reference for recipe executor to capture RequestContext
-_fetch_ctx: RequestContext = None  # type: ignore[assignment]
+    return factory
 
 
 # ---------------------------------------------------------------------------
@@ -450,9 +454,6 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
         question: Natural language question
         ctx: Request context with target_url and target_headers
     """
-    global _fetch_ctx
-    _fetch_ctx = ctx
-
     # Fetch schema (protocol-specific)
     schema_ctx = await _fetch_schema_context(ctx.target_url, ctx.target_headers)
     raw_schema = safe_get_contextvar(_raw_schema, "")
@@ -476,7 +477,7 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
         tools=tools,
         instructions=instructions,
         api_id=build_api_id(ctx, "graphql"),
-        recipe_step_executor_factory=_graphql_step_executor_factory,
+        recipe_step_executor_factory=_make_graphql_step_executor_factory(ctx),
         recipe_item_key="executed_queries",
     )
 
