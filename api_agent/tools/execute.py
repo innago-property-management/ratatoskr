@@ -10,7 +10,12 @@ from pydantic import Field
 from ..config import settings
 from ..context import MissingHeaderError, get_request_context
 from ..graphql import execute_query
-from ..grpc.client import execute_unary_rpc
+from ..grpc.client import (
+    execute_bidi_streaming_rpc,
+    execute_client_streaming_rpc,
+    execute_server_streaming_rpc,
+    execute_unary_rpc,
+)
 from ..grpc.reflection import GrpcSchema, MethodInfo
 from ..grpc.reflection import fetch_schema as fetch_grpc_schema
 from ..rest.client import execute_request
@@ -31,6 +36,16 @@ def _find_grpc_method(schema: GrpcSchema, method_path: str) -> MethodInfo | None
     return None
 
 
+def _parse_single_request(grpc_request: str | None) -> dict[str, Any] | str:
+    """Parse grpc_request JSON string into a dict, or return error string."""
+    if not grpc_request:
+        return {}
+    try:
+        return json.loads(grpc_request)
+    except json.JSONDecodeError as e:
+        return f"Invalid JSON in grpc_request: {e}"
+
+
 def register_execute_tool(mcp: FastMCP) -> None:
     """Register the unified execute tool with generic internal name."""
 
@@ -40,7 +55,8 @@ def register_execute_tool(mcp: FastMCP) -> None:
 
 For GraphQL: provide query (and optional variables)
 For REST: provide method and path (and optional params/body)
-For gRPC: provide grpc_method and optional grpc_request (JSON string)
+For gRPC: provide grpc_method and grpc_request (JSON string) for unary/server-streaming,
+  or grpc_requests (JSON array) for client-streaming/bidi-streaming
 
 Use this to re-run queries from the query tool or execute known operations.""",
         tags={"execute"},
@@ -68,7 +84,13 @@ Use this to re-run queries from the query tool or execute known operations.""",
         ] = None,
         grpc_request: Annotated[
             str | None,
-            Field(description="gRPC request body as JSON string"),
+            Field(description="gRPC request body as JSON string (for unary/server-streaming)"),
+        ] = None,
+        grpc_requests: Annotated[
+            str | None,
+            Field(
+                description="JSON array of request objects (for client-streaming/bidi-streaming)"
+            ),
         ] = None,
     ) -> dict:
         """Execute API call directly."""
@@ -106,17 +128,6 @@ Use this to re-run queries from the query tool or execute known operations.""",
                     "error": "grpc_method param required for gRPC",
                 }
 
-            # Parse request JSON
-            try:
-                request_json: dict[str, Any] = (
-                    json.loads(grpc_request) if grpc_request else {}
-                )
-            except json.JSONDecodeError as e:
-                return {
-                    "ok": False,
-                    "error": f"Invalid JSON in grpc_request: {e}",
-                }
-
             # Build metadata from target headers
             metadata: list[tuple[str, str]] | None = None
             if ctx.target_headers:
@@ -140,32 +151,93 @@ Use this to re-run queries from the query tool or execute known operations.""",
                     m.full_method_path
                     for svc in schema.services
                     for m in svc.methods
-                    if not m.client_streaming and not m.server_streaming
                 ]
                 return {
                     "ok": False,
                     "error": f"Method '{grpc_method}' not found in schema. "
-                    f"Available unary methods: {available}",
+                    f"Available methods: {available}",
                 }
 
-            # Block streaming methods
-            if method_info.client_streaming or method_info.server_streaming:
-                return {
-                    "ok": False,
-                    "error": f"Method '{grpc_method}' uses streaming, which is not "
-                    "supported by the execute tool. Only unary RPCs are supported.",
-                }
+            # Route by streaming type
+            is_client_stream = method_info.client_streaming and not method_info.server_streaming
+            is_bidi = method_info.client_streaming and method_info.server_streaming
+            is_server_stream = method_info.server_streaming and not method_info.client_streaming
 
-            # Execute the RPC
-            result = await execute_unary_rpc(
-                target_url=ctx.target_url,
-                method_path=method_info.full_method_path,
-                request_json=request_json,
-                pool=schema.pool,
-                input_type_name=method_info.input_type,
-                output_type_name=method_info.output_type,
-                metadata=metadata,
-            )
+            if is_client_stream or is_bidi:
+                # Client-streaming or bidi: need grpc_requests (JSON array)
+                # or fall back to wrapping grpc_request as single-element array
+                if grpc_requests:
+                    try:
+                        requests_list: list[dict[str, Any]] = json.loads(grpc_requests)
+                    except json.JSONDecodeError as e:
+                        return {
+                            "ok": False,
+                            "error": f"Invalid JSON in grpc_requests: {e}",
+                        }
+                    if not isinstance(requests_list, list):
+                        return {
+                            "ok": False,
+                            "error": "grpc_requests must be a JSON array, "
+                            f"got {type(requests_list).__name__}",
+                        }
+                elif grpc_request:
+                    try:
+                        requests_list = [json.loads(grpc_request)]
+                    except json.JSONDecodeError as e:
+                        return {
+                            "ok": False,
+                            "error": f"Invalid JSON in grpc_request: {e}",
+                        }
+                else:
+                    stream_type = "bidi-streaming" if is_bidi else "client-streaming"
+                    return {
+                        "ok": False,
+                        "error": f"Method '{grpc_method}' is {stream_type}. "
+                        "Provide grpc_requests (JSON array) or grpc_request (single JSON object).",
+                    }
+
+                rpc_fn = execute_bidi_streaming_rpc if is_bidi else execute_client_streaming_rpc
+                result = await rpc_fn(
+                    target_url=ctx.target_url,
+                    method_path=method_info.full_method_path,
+                    requests_json=requests_list,
+                    pool=schema.pool,
+                    input_type_name=method_info.input_type,
+                    output_type_name=method_info.output_type,
+                    metadata=metadata,
+                )
+            elif is_server_stream:
+                # Server-streaming: single request, stream responses
+                parsed = _parse_single_request(grpc_request)
+                if isinstance(parsed, str):
+                    return {"ok": False, "error": parsed}
+                request_json: dict[str, Any] = parsed
+
+                result = await execute_server_streaming_rpc(
+                    target_url=ctx.target_url,
+                    method_path=method_info.full_method_path,
+                    request_json=request_json,
+                    pool=schema.pool,
+                    input_type_name=method_info.input_type,
+                    output_type_name=method_info.output_type,
+                    metadata=metadata,
+                )
+            else:
+                # Unary RPC
+                parsed = _parse_single_request(grpc_request)
+                if isinstance(parsed, str):
+                    return {"ok": False, "error": parsed}
+                request_json = parsed
+
+                result = await execute_unary_rpc(
+                    target_url=ctx.target_url,
+                    method_path=method_info.full_method_path,
+                    request_json=request_json,
+                    pool=schema.pool,
+                    input_type_name=method_info.input_type,
+                    output_type_name=method_info.output_type,
+                    metadata=metadata,
+                )
 
             if not result.get("success"):
                 return {"ok": False, "error": result.get("error", "RPC call failed")}

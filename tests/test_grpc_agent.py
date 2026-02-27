@@ -7,7 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api_agent.agent.grpc_agent import _find_method, _find_streaming_method, process_grpc_query
+from api_agent.agent.grpc_agent import (
+    _find_bidi_streaming_method,
+    _find_client_streaming_method,
+    _find_method,
+    _find_streaming_method,
+    process_grpc_query,
+)
 from api_agent.config import settings
 from api_agent.context import RequestContext
 from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
@@ -29,7 +35,7 @@ def grpc_ctx() -> RequestContext:
 
 
 def _make_test_schema():
-    """Build a minimal GrpcSchema for testing."""
+    """Build a minimal GrpcSchema for testing (includes all streaming types)."""
     from unittest.mock import MagicMock
 
     pool = MagicMock()
@@ -50,6 +56,21 @@ def _make_test_schema():
                     output_type="helloworld.HelloReply",
                     server_streaming=True,
                 ),
+                MethodInfo(
+                    name="UploadNames",
+                    full_method_path="/helloworld.Greeter/UploadNames",
+                    input_type="helloworld.HelloRequest",
+                    output_type="helloworld.HelloReply",
+                    client_streaming=True,
+                ),
+                MethodInfo(
+                    name="Chat",
+                    full_method_path="/helloworld.Greeter/Chat",
+                    input_type="helloworld.HelloRequest",
+                    output_type="helloworld.HelloReply",
+                    client_streaming=True,
+                    server_streaming=True,
+                ),
             ],
         )
     ]
@@ -58,6 +79,10 @@ def _make_test_schema():
         "  SayHello(helloworld.HelloRequest) -> helloworld.HelloReply\n"
         "  StreamGreetings(helloworld.HelloRequest) -> helloworld.HelloReply"
         "  [server-streaming]\n"
+        "  UploadNames(helloworld.HelloRequest) -> helloworld.HelloReply"
+        "  [client-streaming]\n"
+        "  Chat(helloworld.HelloRequest) -> helloworld.HelloReply"
+        "  [bidi-streaming]\n"
     )
     return GrpcSchema(services=services, pool=pool, raw_schema_text=raw_text)
 
@@ -1163,6 +1188,40 @@ class TestGrpcStreamTool:
         assert result["ok"] is True
         assert result["data"] is not None
 
+    @pytest.mark.asyncio
+    async def test_stream_redirects_client_streaming_method(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_stream redirects client-streaming methods to grpc_client_stream."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_stream",
+                    {
+                        "method": "helloworld.Greeter/UploadNames",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_stream_client",
+                ),
+                make_text_response("I should use grpc_client_stream instead."),
+            ],
+        )
+
+        result = await process_grpc_query("Upload names via stream", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
     def test_find_streaming_method(self):
         """_find_streaming_method finds server-streaming methods only."""
         schema = _make_test_schema()
@@ -1174,4 +1233,403 @@ class TestGrpcStreamTool:
         """_find_streaming_method returns None for unary methods."""
         schema = _make_test_schema()
         m = _find_streaming_method(schema, "helloworld.Greeter/SayHello")
+        assert m is None
+
+    def test_find_streaming_method_rejects_bidi(self):
+        """_find_streaming_method returns None for bidi-streaming methods."""
+        schema = _make_test_schema()
+        m = _find_streaming_method(schema, "helloworld.Greeter/Chat")
+        assert m is None
+
+
+# ---------------------------------------------------------------------------
+# Phase v3: Client Streaming + Bidi Streaming Agent Tools
+# ---------------------------------------------------------------------------
+
+
+class TestGrpcClientStreamTool:
+    """Tests for grpc_client_stream tool."""
+
+    @pytest.mark.asyncio
+    async def test_client_stream_success(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_client_stream sends batch of requests and gets single response."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_client_stream_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": {"total": 3, "status": "uploaded"},
+                "messages_sent": 3,
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_client_streaming_rpc",
+            mock_client_stream_rpc,
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_client_stream",
+                    {
+                        "method": "helloworld.Greeter/UploadNames",
+                        "requests": '[{"name": "a"}, {"name": "b"}, {"name": "c"}]',
+                    },
+                    call_id="call_cs_1",
+                ),
+                make_text_response("Uploaded 3 names."),
+            ],
+        )
+
+        result = await process_grpc_query("Upload names", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_client_stream_rejects_unary_method(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_client_stream rejects unary methods."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_client_stream",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "requests": '[{"name": "world"}]',
+                    },
+                    call_id="call_cs_unary",
+                ),
+                make_text_response("That method is not client-streaming."),
+            ],
+        )
+
+        result = await process_grpc_query("Upload to SayHello", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_client_stream_rejects_bidi_method(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_client_stream rejects bidi-streaming methods."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_client_stream",
+                    {
+                        "method": "helloworld.Greeter/Chat",
+                        "requests": '[{"name": "hello"}]',
+                    },
+                    call_id="call_cs_bidi",
+                ),
+                make_text_response("That method is bidi, not client-streaming."),
+            ],
+        )
+
+        result = await process_grpc_query("Upload to Chat", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_client_stream_invalid_json(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_client_stream returns error on invalid JSON."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_client_stream",
+                    {
+                        "method": "helloworld.Greeter/UploadNames",
+                        "requests": "{bad json",
+                    },
+                    call_id="call_cs_badjson",
+                ),
+                make_text_response("Invalid JSON."),
+            ],
+        )
+
+        result = await process_grpc_query("Upload names", grpc_ctx)
+
+        assert result["ok"] is True  # Agent recovered from error
+
+    @pytest.mark.asyncio
+    async def test_client_stream_stores_data_for_sql(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_client_stream results are stored for sql_query."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_client_stream_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": [
+                    {"id": 1, "status": "ok"},
+                    {"id": 2, "status": "fail"},
+                ],
+                "messages_sent": 2,
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_client_streaming_rpc",
+            mock_client_stream_rpc,
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_client_stream",
+                    {
+                        "method": "helloworld.Greeter/UploadNames",
+                        "requests": '[{"name": "a"}, {"name": "b"}]',
+                        "name": "results",
+                    },
+                    call_id="call_cs_sql_1",
+                ),
+                make_tool_call_response(
+                    "sql_query",
+                    {"sql": "SELECT id FROM results WHERE status = 'ok'"},
+                    call_id="call_cs_sql_2",
+                ),
+                make_text_response("Item 1 succeeded."),
+            ],
+        )
+
+        result = await process_grpc_query("Upload and check status", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["result"] is not None
+
+
+class TestGrpcBidiStreamTool:
+    """Tests for grpc_bidi_stream tool."""
+
+    @pytest.mark.asyncio
+    async def test_bidi_stream_success(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_bidi_stream sends requests and collects responses."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_bidi_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": [
+                    {"reply": "hi back"},
+                    {"reply": "thanks"},
+                ],
+                "messages_sent": 2,
+                "message_count": 2,
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_bidi_streaming_rpc",
+            mock_bidi_rpc,
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_bidi_stream",
+                    {
+                        "method": "helloworld.Greeter/Chat",
+                        "requests": '[{"name": "hi"}, {"name": "thanks"}]',
+                    },
+                    call_id="call_bidi_1",
+                ),
+                make_text_response("Chat complete."),
+            ],
+        )
+
+        result = await process_grpc_query("Chat with service", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_bidi_stream_rejects_non_bidi_method(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_bidi_stream rejects non-bidi methods."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_bidi_stream",
+                    {
+                        "method": "helloworld.Greeter/SayHello",
+                        "requests": '[{"name": "world"}]',
+                    },
+                    call_id="call_bidi_unary",
+                ),
+                make_text_response("Not a bidi method."),
+            ],
+        )
+
+        result = await process_grpc_query("Bidi SayHello", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
+    @pytest.mark.asyncio
+    async def test_bidi_stream_stores_data_for_sql(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_bidi_stream results are stored for sql_query post-processing."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        async def mock_bidi_rpc(*args, **kwargs):
+            return {
+                "success": True,
+                "data": [
+                    {"id": 1, "reply": "hi"},
+                    {"id": 2, "reply": "bye"},
+                ],
+                "messages_sent": 1,
+                "message_count": 2,
+            }
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.execute_bidi_streaming_rpc",
+            mock_bidi_rpc,
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_bidi_stream",
+                    {
+                        "method": "helloworld.Greeter/Chat",
+                        "requests": '[{"name": "go"}]',
+                        "name": "chat_log",
+                    },
+                    call_id="call_bidi_sql_1",
+                ),
+                make_tool_call_response(
+                    "sql_query",
+                    {"sql": "SELECT reply FROM chat_log WHERE id = 2"},
+                    call_id="call_bidi_sql_2",
+                ),
+                make_text_response("The final reply was 'bye'."),
+            ],
+        )
+
+        result = await process_grpc_query("Chat and filter", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["result"] is not None
+
+
+class TestMethodFinders:
+    """Tests for _find_client_streaming_method and _find_bidi_streaming_method."""
+
+    def test_find_client_streaming_method(self):
+        schema = _make_test_schema()
+        m = _find_client_streaming_method(schema, "helloworld.Greeter/UploadNames")
+        assert m is not None
+        assert m.client_streaming is True
+        assert m.server_streaming is False
+
+    def test_find_client_streaming_rejects_bidi(self):
+        schema = _make_test_schema()
+        m = _find_client_streaming_method(schema, "helloworld.Greeter/Chat")
+        assert m is None
+
+    def test_find_client_streaming_rejects_unary(self):
+        schema = _make_test_schema()
+        m = _find_client_streaming_method(schema, "helloworld.Greeter/SayHello")
+        assert m is None
+
+    def test_find_bidi_streaming_method(self):
+        schema = _make_test_schema()
+        m = _find_bidi_streaming_method(schema, "helloworld.Greeter/Chat")
+        assert m is not None
+        assert m.client_streaming is True
+        assert m.server_streaming is True
+
+    def test_find_bidi_streaming_rejects_client_only(self):
+        schema = _make_test_schema()
+        m = _find_bidi_streaming_method(schema, "helloworld.Greeter/UploadNames")
+        assert m is None
+
+    def test_find_bidi_streaming_rejects_server_only(self):
+        schema = _make_test_schema()
+        m = _find_bidi_streaming_method(schema, "helloworld.Greeter/StreamGreetings")
         assert m is None
