@@ -81,6 +81,12 @@ def _recipes_equivalent(existing: dict[str, Any], candidate: dict[str, Any], api
                 c_step.get("query_template")
             ):
                 return False
+        elif api_type == "grpc":
+            for key in ("method", "request"):
+                if _normalize_ws_value(e_step.get(key)) != _normalize_ws_value(
+                    c_step.get(key)
+                ):
+                    return False
         else:
             for key in ("method", "path", "path_params", "query_params", "body"):
                 if e_step.get(key) != c_step.get(key):
@@ -105,7 +111,7 @@ async def maybe_extract_and_save_recipe(
     """Extract and save recipe if conditions met.
 
     Args:
-        api_type: "graphql" or "rest"
+        api_type: "graphql", "rest", or "grpc"
         api_id: API identifier for recipe storage
         question: Original user question
         steps: API call steps from agent execution
@@ -183,6 +189,8 @@ def build_recipe_docstring(
         count = len(steps)
         if api_type == "graphql":
             parts.append(f"{count} GraphQL quer{'ies' if count > 1 else 'y'}")
+        elif api_type == "grpc":
+            parts.append(f"{count} gRPC call{'s' if count > 1 else ''}")
         else:
             parts.append(f"{count} API call{'s' if count > 1 else ''}")
     if sql_steps:
@@ -322,6 +330,8 @@ def build_api_id(ctx, api_type: str, base_url: str = "") -> str:
     """Build api_id string for recipe matching."""
     if api_type == "graphql":
         return f"graphql:{ctx.target_url}"
+    if api_type == "grpc":
+        return f"grpc:{ctx.target_url}"
     return f"rest:{ctx.target_url}|{base_url}"
 
 
