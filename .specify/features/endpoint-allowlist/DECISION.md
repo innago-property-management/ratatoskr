@@ -39,7 +39,7 @@ This preserves full backwards compatibility.
 
 | Mechanism | Who | Purpose | Analogy |
 |-----------|-----|---------|---------|
-| `API_AGENT_ALLOW_ENDPOINTS` env/config | Ops/platform engineer | Deploy-time ceiling | Firewall rules |
+| `API_AGENT_ALLOW_ENDPOINTS_{REST,GRAPHQL,GRPC}` env/config | Ops/platform engineer | Deploy-time ceiling | Firewall rules |
 | `X-Allow-Endpoints` header | MCP client developer | Per-session focus lens | Query filter |
 
 **Resolution rules:**
@@ -98,12 +98,20 @@ execution-time filtering (LLM sees the endpoint but the call is blocked).
 
 ### Header Wire Format
 
-`X-Allow-Endpoints` uses comma-separated glob patterns:
+`X-Allow-Endpoints` uses a JSON array of glob patterns, matching the existing
+convention used by `X-Allow-Unsafe-Paths` and `X-Poll-Paths` (both parsed via
+`json.loads` in `context.py`):
 ```
-X-Allow-Endpoints: GET /users/*, GET /orders/*, POST /orders
+X-Allow-Endpoints: ["GET /users/*", "GET /orders/*", "POST /orders"]
 ```
-Whitespace around commas is trimmed. This matches the existing comma-separated
-convention used by `X-Allow-Unsafe-Paths` and `X-Poll-Paths`.
+
+### Out of Scope (Deferred to DESIGN.md)
+
+- **Error messages for filtered endpoints**: UX Advocate recommended clear messaging
+  when an endpoint was filtered vs. genuinely not found. Deferred to implementation.
+- **Discovery mode**: UX Advocate suggested the LLM should be able to list what's
+  allowed. Deferred — may be a natural consequence of the filtered schema being
+  visible, or may need an explicit tool.
 
 ### Recipe Filtering
 
