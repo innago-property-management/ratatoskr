@@ -1,4 +1,4 @@
-"""Tests for gRPC client — unary RPC execution, serialization, error handling, streaming."""
+"""Tests for gRPC client — unary, server-streaming, client-streaming, bidi-streaming."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -9,6 +9,8 @@ import pytest
 
 from api_agent.grpc.client import (
     _error_hint,
+    execute_bidi_streaming_rpc,
+    execute_client_streaming_rpc,
     execute_server_streaming_rpc,
     execute_unary_rpc,
 )
@@ -759,3 +761,648 @@ class TestExecuteServerStreamingRpc:
         assert "unexpected stream error" in result["error"]
         # CRITICAL: channel must be closed even after errors
         mock_channel.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Helpers for client-streaming tests
+# ---------------------------------------------------------------------------
+
+
+class MockClientStreamCall:
+    """Simulates a gRPC client-streaming call (StreamUnaryCall).
+
+    Tracks written messages and returns a single response when awaited.
+    """
+
+    def __init__(self, response=None, write_error: Exception | None = None):
+        self._response = response or MagicMock()
+        self._write_error = write_error
+        self._written: list = []
+        self._done_writing_called = False
+        self._cancelled = False
+
+    async def write(self, msg):
+        if self._write_error:
+            raise self._write_error
+        self._written.append(msg)
+
+    async def done_writing(self):
+        self._done_writing_called = True
+
+    def cancel(self):
+        self._cancelled = True
+
+    def __await__(self):
+        async def _get_response():
+            return self._response
+        return _get_response().__await__()
+
+
+def _make_client_streaming_channel(call=None, error=None):
+    """Create a mock gRPC channel for client-streaming RPCs.
+
+    stream_unary() is sync (returns a callable stub).
+    The stub, when called, returns the call object.
+    """
+    channel = MagicMock()
+    if error:
+        stub = MagicMock(side_effect=error)
+    else:
+        stub = MagicMock(return_value=call or MockClientStreamCall())
+    channel.stream_unary.return_value = stub
+    channel.close = AsyncMock()
+    return channel
+
+
+class TestExecuteClientStreamingRpc:
+    """Test execute_client_streaming_rpc with mocked channels and protobuf."""
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_client_stream_happy_path(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Send 3 messages via client stream, receive single response."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.return_value = {"total": 3, "status": "ok"}
+
+        response_msg = MagicMock()
+        call = MockClientStreamCall(response=response_msg)
+        mock_channel = _make_client_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Upload",
+            requests_json=[{"item": "a"}, {"item": "b"}, {"item": "c"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is True
+        assert result["data"] == {"total": 3, "status": "ok"}
+        assert result["messages_sent"] == 3
+        assert len(call._written) == 3
+        assert call._done_writing_called
+        mock_channel.stream_unary.assert_called_once()
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_client_stream_empty_request_list(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Empty request array sends nothing but still gets a response."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.return_value = {"total": 0}
+
+        call = MockClientStreamCall(response=MagicMock())
+        mock_channel = _make_client_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Upload",
+            requests_json=[],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is True
+        assert result["messages_sent"] == 0
+        assert len(call._written) == 0
+        assert call._done_writing_called
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    async def test_client_stream_rpc_error(
+        self, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """RPC error after sending messages returns failure."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        rpc_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.RESOURCE_EXHAUSTED,
+            initial_metadata=grpc.aio.Metadata(),
+            trailing_metadata=grpc.aio.Metadata(),
+            details="Too many items",
+        )
+
+        mock_channel = _make_client_streaming_channel(error=rpc_error)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Upload",
+            requests_json=[{"item": "a"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "RESOURCE_EXHAUSTED" in result["error"]
+        assert "Too many items" in result["error"]
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_client_stream_unknown_input_type(self):
+        """Unknown input type returns error without connecting."""
+        pool = MagicMock()
+        pool.FindMessageTypeByName.side_effect = KeyError("not found")
+
+        result = await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Upload",
+            requests_json=[{"item": "a"}],
+            pool=pool,
+            input_type_name="unknown.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "unknown.Req" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    async def test_client_stream_unknown_output_type(self, mock_parse_dict, mock_get_class):
+        """Unknown output type returns error."""
+        pool = MagicMock()
+
+        def find_message(name):
+            if name == "test.Req":
+                desc = MagicMock()
+                desc.full_name = name
+                return desc
+            raise KeyError(name)
+
+        pool.FindMessageTypeByName = find_message
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        result = await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Upload",
+            requests_json=[{"item": "a"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="unknown.Resp",
+        )
+
+        assert result["success"] is False
+        assert "unknown.Resp" in result["error"]
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_client_stream_metadata_forwarded(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Metadata is forwarded to the RPC call."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.return_value = {}
+
+        call = MockClientStreamCall(response=MagicMock())
+        mock_channel = _make_client_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        test_metadata = [("authorization", "Bearer tok456")]
+
+        await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Upload",
+            requests_json=[{"item": "a"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+            metadata=test_metadata,
+        )
+
+        stub = mock_channel.stream_unary.return_value
+        call_kwargs = stub.call_args[1]
+        assert call_kwargs["metadata"] == test_metadata
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_client_stream_method_path_normalized(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Method path without leading / gets normalized."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.return_value = {}
+
+        call = MockClientStreamCall(response=MagicMock())
+        mock_channel = _make_client_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="test.Svc/Upload",
+            requests_json=[],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        call_args = mock_channel.stream_unary.call_args
+        assert call_args[0][0] == "/test.Svc/Upload"
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    async def test_client_stream_generic_exception(
+        self, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Non-gRPC exception returns generic error and closes channel."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        mock_channel = _make_client_streaming_channel(
+            error=RuntimeError("unexpected serialization error")
+        )
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_client_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Upload",
+            requests_json=[{"item": "a"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "Client-streaming RPC failed" in result["error"]
+        mock_channel.close.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Helpers for bidi-streaming tests
+# ---------------------------------------------------------------------------
+
+
+class MockBidiStreamCall:
+    """Simulates a gRPC bidi-streaming call (StreamStreamCall).
+
+    Accepts a request_iterator (consumed to track sent messages),
+    yields responses, optionally raising errors mid-stream.
+    """
+
+    def __init__(
+        self,
+        responses: list | None = None,
+        error_after: int | None = None,
+        error: Exception | None = None,
+    ):
+        self._responses = responses or []
+        self._error_after = error_after
+        self._error = error
+        self._index = 0
+        self._cancelled = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._cancelled:
+            raise StopAsyncIteration
+        if self._error_after is not None and self._index >= self._error_after:
+            if self._error:
+                raise self._error
+            raise StopAsyncIteration
+        if self._index >= len(self._responses):
+            raise StopAsyncIteration
+        msg = self._responses[self._index]
+        self._index += 1
+        return msg
+
+    def cancel(self):
+        self._cancelled = True
+
+
+def _make_bidi_streaming_channel(call=None, error=None):
+    """Create a mock gRPC channel for bidi-streaming RPCs.
+
+    stream_stream() is sync (returns a callable stub).
+    The stub, when called with request_iterator, returns the call object.
+    """
+    channel = MagicMock()
+    if error:
+        stub = MagicMock(side_effect=error)
+    else:
+        stub = MagicMock(return_value=call or MockBidiStreamCall())
+    channel.stream_stream.return_value = stub
+    channel.close = AsyncMock()
+    return channel
+
+
+class TestExecuteBidiStreamingRpc:
+    """Test execute_bidi_streaming_rpc with mocked channels and protobuf."""
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_bidi_stream_happy_path(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Send 2 messages, receive 3 responses."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.side_effect = [
+            {"id": 1, "echo": "a"},
+            {"id": 2, "echo": "b"},
+            {"id": 3, "echo": "done"},
+        ]
+
+        call = MockBidiStreamCall(responses=[MagicMock(), MagicMock(), MagicMock()])
+        mock_channel = _make_bidi_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[{"msg": "hello"}, {"msg": "world"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is True
+        assert result["messages_sent"] == 2
+        assert result["message_count"] == 3
+        assert len(result["data"]) == 3
+        assert result["data"][0] == {"id": 1, "echo": "a"}
+        mock_channel.stream_stream.assert_called_once()
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_bidi_stream_empty_requests(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Empty request array — server may still send responses."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.side_effect = [{"status": "idle"}]
+
+        call = MockBidiStreamCall(responses=[MagicMock()])
+        mock_channel = _make_bidi_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is True
+        assert result["messages_sent"] == 0
+        assert result["message_count"] == 1
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_bidi_stream_max_messages_caps(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Response capped at max_messages."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        responses = [MagicMock() for _ in range(50)]
+        mock_to_dict.side_effect = [{"i": i} for i in range(50)]
+
+        call = MockBidiStreamCall(responses=responses)
+        mock_channel = _make_bidi_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[{"msg": "go"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+            max_messages=5,
+        )
+
+        assert result["success"] is True
+        assert result["message_count"] == 5
+        assert len(result["data"]) == 5
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_bidi_stream_rpc_error_returns_partial(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """RPC error mid-stream returns partial data."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.side_effect = [{"id": 1}, {"id": 2}]
+
+        rpc_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.INTERNAL,
+            initial_metadata=grpc.aio.Metadata(),
+            trailing_metadata=grpc.aio.Metadata(),
+            details="stream broken",
+        )
+
+        call = MockBidiStreamCall(
+            responses=[MagicMock(), MagicMock()],
+            error_after=2,
+            error=rpc_error,
+        )
+        mock_channel = _make_bidi_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[{"msg": "hi"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "INTERNAL" in result["error"]
+        assert len(result["partial_data"]) == 2
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_bidi_stream_timeout_returns_partial(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Timeout during bidi collection returns partial data."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.side_effect = [{"id": 1}]
+
+        class TimeoutBidiStream:
+            def __init__(self):
+                self._yielded = False
+                self._cancelled = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self._cancelled:
+                    raise StopAsyncIteration
+                if not self._yielded:
+                    self._yielded = True
+                    return MagicMock()
+                raise asyncio.TimeoutError()
+
+            def cancel(self):
+                self._cancelled = True
+
+        call = TimeoutBidiStream()
+        mock_channel = _make_bidi_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[{"msg": "hi"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "timed out" in result["error"].lower() or "timeout" in result["error"].lower()
+        assert len(result["partial_data"]) == 1
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_bidi_stream_metadata_forwarded(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Metadata is forwarded to the bidi RPC call."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+        mock_to_dict.return_value = {}
+
+        call = MockBidiStreamCall(responses=[])
+        mock_channel = _make_bidi_streaming_channel(call=call)
+        mock_create_channel.return_value = mock_channel
+
+        test_metadata = [("x-api-key", "secret")]
+
+        await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+            metadata=test_metadata,
+        )
+
+        stub = mock_channel.stream_stream.return_value
+        call_kwargs = stub.call_args[1]
+        assert call_kwargs["metadata"] == test_metadata
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    async def test_bidi_stream_generic_exception(
+        self, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Non-gRPC exception returns generic error and closes channel."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        mock_channel = _make_bidi_streaming_channel(
+            error=RuntimeError("unexpected bidi error")
+        )
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[{"msg": "hi"}],
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "Bidi-streaming RPC failed" in result["error"]
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_bidi_stream_unknown_input_type(self):
+        """Unknown input type returns error without connecting."""
+        pool = MagicMock()
+        pool.FindMessageTypeByName.side_effect = KeyError("not found")
+
+        result = await execute_bidi_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/Chat",
+            requests_json=[{"msg": "hi"}],
+            pool=pool,
+            input_type_name="unknown.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "unknown.Req" in result["error"]

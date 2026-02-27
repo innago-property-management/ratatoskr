@@ -148,10 +148,11 @@ def build_schema_text(services: list[ServiceInfo], pool: Any) -> str:
         svc_lines.append(svc.full_name)
         for m in svc.methods:
             streaming_tags = []
-            if m.client_streaming:
+            if m.client_streaming and m.server_streaming:
+                streaming_tags.append("bidi-streaming")
+            elif m.client_streaming:
                 streaming_tags.append("client-streaming")
-                streaming_tags.append("unsupported")
-            if m.server_streaming:
+            elif m.server_streaming:
                 streaming_tags.append("server-streaming")
 
             tag_str = f"  [{', '.join(streaming_tags)}]" if streaming_tags else ""
