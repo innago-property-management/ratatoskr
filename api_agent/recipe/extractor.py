@@ -152,6 +152,8 @@ def _validate_step_graphql(orig: dict, recipe_step: dict, params: dict) -> bool:
 
 def _validate_step_grpc(orig: dict, recipe_step: dict, params: dict) -> bool:
     """Validate gRPC step renders to original."""
+    if recipe_step.get("kind") != "grpc":
+        return False
     if recipe_step.get("name") != orig.get("name"):
         return False
     if recipe_step.get("method") != orig.get("method"):

@@ -126,7 +126,10 @@ async def execute_recipe_tool(
     if ctx.api_type == "grpc":
         # gRPC execution
         metadata = [(k, v) for k, v in ctx.target_headers.items()] if ctx.target_headers else None
-        # Fetch schema for descriptor pool (needed by gRPC client)
+        # The descriptor pool is required by the gRPC client to serialize/deserialize
+        # protobuf messages.  It cannot be reconstructed from the raw_schema_text that
+        # load_schema_and_base_url returns, so we must always call fetch_grpc_schema
+        # here even when raw_schema was already provided by the caller.
         grpc_schema = await fetch_grpc_schema(ctx.target_url, metadata=metadata)
 
         executed_rpcs: list[dict[str, Any]] = []
@@ -172,17 +175,25 @@ async def execute_recipe_tool(
                     metadata=metadata,
                 )
             elif method_info.server_streaming:
+                if not isinstance(request_obj, dict):
+                    return False, None, error_json(
+                        f"grpc server-streaming step expects dict request, got {type(request_obj).__name__}"
+                    ), None
                 res = await execute_server_streaming_rpc(
                     target_url=ctx.target_url, method_path=method_info.full_method_path,
-                    request_json=request_obj if isinstance(request_obj, dict) else {},
+                    request_json=request_obj,
                     pool=grpc_schema.pool,
                     input_type_name=method_info.input_type, output_type_name=method_info.output_type,
                     metadata=metadata,
                 )
             else:
+                if not isinstance(request_obj, dict):
+                    return False, None, error_json(
+                        f"grpc unary step expects dict request, got {type(request_obj).__name__}"
+                    ), None
                 res = await execute_unary_rpc(
                     target_url=ctx.target_url, method_path=method_info.full_method_path,
-                    request_json=request_obj if isinstance(request_obj, dict) else {},
+                    request_json=request_obj,
                     pool=grpc_schema.pool,
                     input_type_name=method_info.input_type, output_type_name=method_info.output_type,
                     metadata=metadata,
