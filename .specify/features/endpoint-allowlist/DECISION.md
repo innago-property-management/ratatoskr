@@ -55,7 +55,7 @@ This preserves full backwards compatibility.
 | `GET /users/*` | REST: GET /users/123, GET /users/search |
 | `*/users*` | REST: any method on /users paths |
 | `Query.user*` | GraphQL: Query.user, Query.users, Query.userById |
-| `Mutation.createUser` | GraphQL: exact match (only if mutations are also allowed) |
+| `Mutation.createUser` | GraphQL: exact match (requires mutation guard to be lifted separately) |
 | `helloworld.Greeter/*` | gRPC: all methods on Greeter service |
 | `helloworld.Greeter/SayHello` | gRPC: exact method |
 
@@ -88,17 +88,31 @@ execution-time filtering (LLM sees the endpoint but the call is blocked).
 - **`X-Allow-Unsafe-Paths`**: Both must allow. An endpoint must pass the allowlist
   AND the unsafe-paths check for write operations. The allowlist controls visibility;
   unsafe-paths controls mutability.
+- **GraphQL mutation guard**: The hardcoded mutation blocker (`graphql/client.py`)
+  is independent of the allowlist. Even if `Mutation.createUser` passes the allowlist,
+  it still requires the mutation guard to be lifted. The allowlist is a visibility
+  control; the mutation guard is a safety control. Both are layered, neither replaces
+  the other.
 - **`X-Poll-Paths`**: Polling only works on allowed endpoints (natural consequence
   of schema filtering).
+
+### Header Wire Format
+
+`X-Allow-Endpoints` uses comma-separated glob patterns:
+```
+X-Allow-Endpoints: GET /users/*, GET /orders/*, POST /orders
+```
+Whitespace around commas is trimmed. This matches the existing comma-separated
+convention used by `X-Allow-Unsafe-Paths` and `X-Poll-Paths`.
 
 ### Recipe Filtering
 
 Recipes associated with non-allowed endpoints:
 - MUST NOT appear in recipe suggestions (`search_recipes`)
 - MUST NOT be executable via recipe tools
-- Recipes are keyed by `(api_id, schema_hash)` — the schema hash will change when
-  the schema is filtered, so recipes naturally won't match. This may be sufficient
-  without explicit recipe filtering logic.
+- Recipes are keyed by `(api_id, schema_hash)` — the implementation MUST hash the
+  filtered schema (not the full schema). This naturally partitions recipe caches:
+  filtered sessions get their own recipes, no explicit filtering logic needed.
 
 ## Resolved Questions
 
@@ -111,11 +125,14 @@ Recipes associated with non-allowed endpoints:
    is unwise. If a user needs both filtered and unfiltered access, they register two
    separate sessions — but there's no practical reason to want this.
 
-3. **GraphQL type dependencies**: Allowing `Query.user` includes referenced types
-   (`User`, `Address`) in the filtered schema so the LLM can build valid queries.
-   However, `Query.user` does NOT imply `Query.address` is allowed — the allowlist
-   controls root-level entry points, not transitive type reachability. Referenced
-   types are included for schema completeness, not as additional query roots.
+3. **GraphQL type dependencies**: Allowing `Query.user` includes directly referenced
+   types (`User`, and `Address` if it's a field of `User`) in the filtered schema so
+   the LLM can build valid queries. Type inclusion follows the full transitive closure
+   of the allowed root fields — if `User` references `Address` which references
+   `Country`, all three types are included. However, `Query.user` does NOT imply
+   `Query.address` is allowed — the allowlist controls root-level entry points, not
+   which query roots are reachable. Referenced types are included for schema
+   completeness, not as additional query roots.
 
 ## Pre-Existing Security Context
 
@@ -143,6 +160,6 @@ smarter schema ranking is a cheaper first step.
 ## Recommended Next Steps
 
 1. Write DESIGN.md with implementation plan
-3. Implement in phases: config parsing -> schema filtering -> protocol agents -> recipes
-4. Estimated complexity: 8 points (touches context.py, config.py, all 3 agents,
+2. Implement in phases: config parsing -> schema filtering -> protocol agents -> recipes
+3. Estimated complexity: 8 points (touches context.py, config.py, all 3 agents,
    schema_search, recipe search)
