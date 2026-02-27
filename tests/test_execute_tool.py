@@ -812,6 +812,29 @@ class TestExecuteGRPC:
         assert "json" in result["error"].lower()
 
     @pytest.mark.asyncio
+    async def test_grpc_client_streaming_requests_not_array(
+        self, execute_tool, grpc_ctx, monkeypatch
+    ):
+        """Client-streaming with grpc_requests that isn't a JSON array returns error."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/UploadNames",
+            grpc_requests='{"name": "Alice"}',
+        )
+
+        assert result["ok"] is False
+        assert "array" in result["error"].lower()
+
+    @pytest.mark.asyncio
     async def test_grpc_client_streaming_fallback_to_grpc_request(
         self, execute_tool, grpc_ctx, monkeypatch
     ):

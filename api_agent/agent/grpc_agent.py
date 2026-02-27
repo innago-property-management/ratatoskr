@@ -349,6 +349,14 @@ def _create_grpc_stream_tool(
                             "Use grpc_bidi_stream instead."
                         ),
                     })
+                if existing.client_streaming and not existing.server_streaming:
+                    return json.dumps({
+                        "success": False,
+                        "error": (
+                            f"Method '{method}' is client-streaming. "
+                            "Use grpc_client_stream instead."
+                        ),
+                    })
                 return json.dumps({
                     "success": False,
                     "error": (

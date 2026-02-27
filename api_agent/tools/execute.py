@@ -36,6 +36,16 @@ def _find_grpc_method(schema: GrpcSchema, method_path: str) -> MethodInfo | None
     return None
 
 
+def _parse_single_request(grpc_request: str | None) -> dict[str, Any] | str:
+    """Parse grpc_request JSON string into a dict, or return error string."""
+    if not grpc_request:
+        return {}
+    try:
+        return json.loads(grpc_request)
+    except json.JSONDecodeError as e:
+        return f"Invalid JSON in grpc_request: {e}"
+
+
 def register_execute_tool(mcp: FastMCP) -> None:
     """Register the unified execute tool with generic internal name."""
 
@@ -164,6 +174,12 @@ Use this to re-run queries from the query tool or execute known operations.""",
                             "ok": False,
                             "error": f"Invalid JSON in grpc_requests: {e}",
                         }
+                    if not isinstance(requests_list, list):
+                        return {
+                            "ok": False,
+                            "error": "grpc_requests must be a JSON array, "
+                            f"got {type(requests_list).__name__}",
+                        }
                 elif grpc_request:
                     try:
                         requests_list = [json.loads(grpc_request)]
@@ -192,15 +208,10 @@ Use this to re-run queries from the query tool or execute known operations.""",
                 )
             elif is_server_stream:
                 # Server-streaming: single request, stream responses
-                try:
-                    request_json: dict[str, Any] = (
-                        json.loads(grpc_request) if grpc_request else {}
-                    )
-                except json.JSONDecodeError as e:
-                    return {
-                        "ok": False,
-                        "error": f"Invalid JSON in grpc_request: {e}",
-                    }
+                parsed = _parse_single_request(grpc_request)
+                if isinstance(parsed, str):
+                    return {"ok": False, "error": parsed}
+                request_json: dict[str, Any] = parsed
 
                 result = await execute_server_streaming_rpc(
                     target_url=ctx.target_url,
@@ -213,15 +224,10 @@ Use this to re-run queries from the query tool or execute known operations.""",
                 )
             else:
                 # Unary RPC
-                try:
-                    request_json = (
-                        json.loads(grpc_request) if grpc_request else {}
-                    )
-                except json.JSONDecodeError as e:
-                    return {
-                        "ok": False,
-                        "error": f"Invalid JSON in grpc_request: {e}",
-                    }
+                parsed = _parse_single_request(grpc_request)
+                if isinstance(parsed, str):
+                    return {"ok": False, "error": parsed}
+                request_json = parsed
 
                 result = await execute_unary_rpc(
                     target_url=ctx.target_url,

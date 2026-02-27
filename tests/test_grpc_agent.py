@@ -1188,6 +1188,40 @@ class TestGrpcStreamTool:
         assert result["ok"] is True
         assert result["data"] is not None
 
+    @pytest.mark.asyncio
+    async def test_stream_redirects_client_streaming_method(
+        self, grpc_ctx, fake_provider_factory, monkeypatch
+    ):
+        """grpc_stream redirects client-streaming methods to grpc_client_stream."""
+        schema = _make_test_schema()
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        fake_provider_factory(
+            monkeypatch,
+            [
+                make_tool_call_response(
+                    "grpc_stream",
+                    {
+                        "method": "helloworld.Greeter/UploadNames",
+                        "request": '{"name": "world"}',
+                    },
+                    call_id="call_stream_client",
+                ),
+                make_text_response("I should use grpc_client_stream instead."),
+            ],
+        )
+
+        result = await process_grpc_query("Upload names via stream", grpc_ctx)
+
+        assert result["ok"] is True
+        assert result["data"] is not None
+
     def test_find_streaming_method(self):
         """_find_streaming_method finds server-streaming methods only."""
         schema = _make_test_schema()
