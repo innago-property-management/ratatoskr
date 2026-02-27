@@ -13,7 +13,7 @@ from .store import get_example_values, normalize_ws, render_param_refs, render_t
 _EXTRACTOR_INSTRUCTIONS = """You are a recipe extractor. Convert executed API calls into reusable templates.
 
 INPUT:
-- api_type: "graphql" or "rest"
+- api_type: "graphql", "rest", or "grpc"
 - question: user's question
 - steps: executed API calls (preserve order)
 - sql_steps: executed SQL queries (preserve order)
@@ -40,6 +40,8 @@ STEP FORMATS:
 - GraphQL: {"kind": "graphql", "name": "...", "query_template": "...{{param}}..."}
 - REST: {"kind": "rest", "name": "...", "method": "GET", "path": "/x", "path_params": {}, "query_params": {}, "body": {}}
   Use {"$param": "paramName"} for parameterized values in REST objects.
+- gRPC: {"kind": "grpc", "name": "...", "method": "/pkg.Service/Method", "request": {...}}
+  Use {"$param": "paramName"} for parameterized values in the request object.
 - SQL: Use {{param}} for parameterized values in sql_steps strings.
   Example: "WHERE name ILIKE '{{startsWith}}%'" with param startsWith default "A"
 
@@ -112,6 +114,9 @@ def _find_used_params(recipe: dict[str, Any], api_type: str) -> set[str]:
             tmpl = step.get("query_template", "")
             if isinstance(tmpl, str):
                 used.update(_PLACEHOLDER_RE.findall(tmpl))
+        # gRPC: check $param refs in request object
+        elif api_type == "grpc":
+            _find_param_refs(step.get("request"), used)
         # REST: check $param refs in path_params, query_params, body
         else:
             for key in ("path_params", "query_params", "body"):
@@ -143,6 +148,23 @@ def _validate_step_graphql(orig: dict, recipe_step: dict, params: dict) -> bool:
     return normalize_ws(render_text_template(tmpl, params)) == normalize_ws(
         str(orig.get("query", ""))
     )
+
+
+def _validate_step_grpc(orig: dict, recipe_step: dict, params: dict) -> bool:
+    """Validate gRPC step renders to original."""
+    if recipe_step.get("name") != orig.get("name"):
+        return False
+    if recipe_step.get("method") != orig.get("method"):
+        return False
+    rendered = render_param_refs(_canon_obj(recipe_step.get("request")), params)
+    orig_req = orig.get("request")
+    # Original request is stored as JSON string — parse for comparison
+    if isinstance(orig_req, str):
+        try:
+            orig_req = json.loads(orig_req)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return rendered == _canon_obj(orig_req)
 
 
 def _validate_step_rest(orig: dict, recipe_step: dict, params: dict) -> bool:
@@ -183,7 +205,12 @@ def _validate_equivalence(
         if not isinstance(rec, dict) or rec.get("kind") != orig.get("kind"):
             return False
 
-        validator = _validate_step_graphql if api_type == "graphql" else _validate_step_rest
+        if api_type == "graphql":
+            validator = _validate_step_graphql
+        elif api_type == "grpc":
+            validator = _validate_step_grpc
+        else:
+            validator = _validate_step_rest
         if not validator(orig, rec, params):
             return False
 

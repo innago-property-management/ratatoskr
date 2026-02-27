@@ -603,12 +603,15 @@ class TestReturnDirectlyAndSchemaValidation:
         assert "match" in parsed["error"].lower()
 
 
-class TestGrpcRecipeNoOp:
-    """Test that gRPC sessions get no recipes (deferred to v2)."""
+class TestGrpcRecipeSchemaLoad:
+    """Test that gRPC schema loading works for recipes."""
 
     @pytest.mark.asyncio
-    async def test_load_schema_grpc_returns_empty(self):
-        """gRPC api_type returns empty schema and base_url."""
+    async def test_load_schema_grpc_returns_schema_text(self, monkeypatch):
+        """gRPC api_type fetches schema via reflection and returns raw text."""
+        from unittest.mock import AsyncMock, MagicMock
+
+        from api_agent.grpc.reflection import GrpcSchema
         from api_agent.recipe.runner import load_schema_and_base_url
 
         grpc_ctx = RequestContext(
@@ -621,6 +624,10 @@ class TestGrpcRecipeNoOp:
             poll_paths=(),
         )
 
+        mock_schema = GrpcSchema(services=[], pool=MagicMock(), raw_schema_text="<services>\n")
+        mock_fetch = AsyncMock(return_value=mock_schema)
+        monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
+
         raw_schema, base_url = await load_schema_and_base_url(grpc_ctx)
-        assert raw_schema == ""
+        assert raw_schema == "<services>\n"
         assert base_url == ""

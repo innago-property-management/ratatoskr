@@ -21,7 +21,7 @@ uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 -
 
 **Tests:**
 ```bash
-uv run pytest tests/ -v              # All tests (643 passing)
+uv run pytest tests/ -v              # All tests (665 passing)
 uv run pytest tests/test_foo.py -v   # Single test file
 uv run pytest tests/test_foo.py::test_bar -v  # Single test
 ```
@@ -143,7 +143,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 
 ## Testing
 
-643 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
+665 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
 
 ### Test Patterns
 
@@ -159,7 +159,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 |------|-----------|
 | GraphQL orchestrator | `test_graphql_agent.py` (8 tests) |
 | REST orchestrator | `test_rest_agent.py` (10 tests) |
-| gRPC orchestrator | `test_grpc_agent.py` (46 tests) |
+| gRPC orchestrator | `test_grpc_agent.py` (47 tests) |
 | GraphQL client | `test_graphql_client.py` (15 tests) |
 | gRPC client | `test_grpc_client.py` (37 tests) |
 | gRPC reflection | `test_grpc_reflection.py` (21 tests) |
@@ -170,4 +170,5 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 | Anthropic provider | `test_llm/test_anthropic_complete.py` (8 tests) |
 | OpenAI-compat provider | `test_llm/test_compat_complete.py` (9 tests) |
 | Query tool routing | `test_query_tool.py` (8 tests) |
+| gRPC recipes | `test_grpc_recipe.py` (20 tests) |
 | Middleware | `test_middleware_routing.py` (8 tests) |

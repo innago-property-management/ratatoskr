@@ -23,6 +23,7 @@ from ..grpc.reflection import GrpcSchema, MethodInfo, fetch_schema
 from ..llm.provider import MaxTurnsExceeded
 from ..llm.tools import tool
 from ..recipe import _return_directly_flag, build_partial_result
+from ..recipe.common import build_api_id, maybe_extract_and_save_recipe, search_recipes
 from ..tracing import trace_metadata
 from .contextvar_utils import safe_append_contextvar_list
 from .model import get_inject_instructions, provider
@@ -812,6 +813,12 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
         # Store raw schema for search_schema
         _raw_schema.set(schema.raw_schema_text)
 
+        # Pre-flight recipe search
+        recipe_context = ""
+        if settings.ENABLE_RECIPES:
+            api_id = build_api_id(ctx, "grpc")
+            _, recipe_context = search_recipes(api_id, schema.raw_schema_text, question)
+
         # Truncate schema for LLM context
         schema_text = schema.raw_schema_text
         max_schema = settings.MAX_TOOL_RESPONSE_CHARS
@@ -837,6 +844,8 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
 
         # Build prompt
         instructions = _build_system_prompt()
+        if recipe_context:
+            instructions += recipe_context
         augmented_query = f"{schema_text}\n\nQuestion: {question}"
 
         def _should_stop(results):
@@ -901,6 +910,16 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
         else:
             agent_output = str(result.final_output)
             _log(f"DONE calls={len(rpc_calls)} output={agent_output[:100]}")
+
+        # Extract recipe from successful run
+        await maybe_extract_and_save_recipe(
+            api_type="grpc",
+            api_id=build_api_id(ctx, "grpc"),
+            question=question,
+            steps=[{**c, "kind": "grpc"} for c in rpc_calls],
+            sql_steps=_sql_steps.get(),
+            raw_schema=schema.raw_schema_text,
+        )
 
         return {
             "ok": True,
