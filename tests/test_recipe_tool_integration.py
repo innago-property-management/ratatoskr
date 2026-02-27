@@ -1,26 +1,35 @@
 """Integration tests for recipe tool registration with agent."""
 
+from contextvars import ContextVar
 from unittest.mock import patch
 
 import pytest
 
-from api_agent.agent.graphql_agent import _create_individual_recipe_tools as graphql_create_tools
-from api_agent.agent.rest_agent import _create_individual_recipe_tools as rest_create_tools
-from api_agent.context import RequestContext
+from api_agent.agent.orchestrator import AgentContextVars, create_recipe_tools
 
+
+# Shared test fixtures
 
 @pytest.fixture
-def mock_context():
-    """Create a mock request context."""
-    return RequestContext(
-        target_url="https://test.api.com/graphql",
-        target_headers={},
-        api_type="graphql",
-        base_url=None,
-        include_result=False,
-        allow_unsafe_paths=(),
-        poll_paths=(),
+def ctx_vars():
+    """Create a test AgentContextVars bundle."""
+    return AgentContextVars(
+        api_calls=ContextVar("test_api_calls"),
+        recipe_steps=ContextVar("test_recipe_steps"),
+        query_results=ContextVar("test_query_results"),
+        last_result=ContextVar("test_last_result"),
+        raw_schema=ContextVar("test_raw_schema"),
+        sql_steps=ContextVar("test_sql_steps"),
     )
+
+
+def _dummy_step_executor_factory(recipe_id):
+    """Dummy executor — tests don't exercise recipe execution."""
+
+    async def executor(step_idx, step, params, results):
+        return False, None, '{"success": false, "error": "dummy"}', None
+
+    return executor
 
 
 @pytest.fixture
@@ -38,34 +47,31 @@ def sample_recipe_suggestions():
     ]
 
 
-def test_graphql_create_tools_basic(mock_context, sample_recipe_suggestions):
+def test_graphql_create_tools_basic(ctx_vars, sample_recipe_suggestions):
     """Test that recipe tools are created successfully."""
 
-    with patch("api_agent.agent.graphql_agent.RECIPE_STORE") as mock_store:
-        # Mock the recipe store to return our test recipe
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
         mock_store.get_recipe.return_value = {
             "params": sample_recipe_suggestions[0]["params"],
             "steps": sample_recipe_suggestions[0]["steps"],
             "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
         }
 
-        # Create recipe tools
-        tools = graphql_create_tools(mock_context, sample_recipe_suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, sample_recipe_suggestions, "graphql", _dummy_step_executor_factory
+        )
 
-        # Verify tools were created
         assert len(tools) == 1
         tool = tools[0]
 
-        # Verify tool has correct name
         assert tool.name == "list_managers_starting_with_b"
 
-        # Verify tool is a ToolDefinition
         from api_agent.llm.types import ToolDefinition
 
         assert isinstance(tool, ToolDefinition)
 
 
-def test_create_multiple_recipe_tools(mock_context):
+def test_create_multiple_recipe_tools(ctx_vars):
     """Test creating multiple recipe tools with different params."""
 
     suggestions = [
@@ -87,8 +93,8 @@ def test_create_multiple_recipe_tools(mock_context):
         },
     ]
 
-    with patch("api_agent.agent.graphql_agent.RECIPE_STORE") as mock_store:
-        # Mock recipe store for both recipes
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
+
         def get_recipe(recipe_id):
             for s in suggestions:
                 if s["recipe_id"] == recipe_id:
@@ -101,41 +107,40 @@ def test_create_multiple_recipe_tools(mock_context):
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        # Create tools
-        tools = graphql_create_tools(mock_context, suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
+        )
 
-        # Verify both tools created
         assert len(tools) == 2
 
-        # Verify tool names are different
         tool_names = [t.name for t in tools]
         assert "get_users_by_role" in tool_names
         assert "list_teams_with_limit" in tool_names
         assert len(set(tool_names)) == 2  # All unique
 
 
-def test_recipe_tool_has_correct_signature(mock_context, sample_recipe_suggestions):
+def test_recipe_tool_has_correct_signature(ctx_vars, sample_recipe_suggestions):
     """Test that recipe tool has correct parameter signature."""
 
-    with patch("api_agent.agent.graphql_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
         mock_store.get_recipe.return_value = {
             "params": sample_recipe_suggestions[0]["params"],
             "steps": sample_recipe_suggestions[0]["steps"],
             "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
         }
 
-        tools = graphql_create_tools(mock_context, sample_recipe_suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, sample_recipe_suggestions, "graphql", _dummy_step_executor_factory
+        )
         tool = tools[0]
 
-        # Verify tool has parameters schema
         assert isinstance(tool.parameters, dict)
         assert "properties" in tool.parameters
 
-        # Verify tool name is correct
         assert tool.name == "list_managers_starting_with_b"
 
 
-def test_recipe_tool_without_params(mock_context):
+def test_recipe_tool_without_params(ctx_vars):
     """Test creating recipe tool with no parameters."""
 
     suggestions = [
@@ -143,26 +148,27 @@ def test_recipe_tool_without_params(mock_context):
             "recipe_id": "r_noparams",
             "question": "Get all users",
             "tool_name": "get_all_users",
-            "params": {},  # No params
+            "params": {},
             "steps": [{"kind": "graphql"}],
             "sql_steps": [],
         }
     ]
 
-    with patch("api_agent.agent.graphql_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
         mock_store.get_recipe.return_value = {
             "params": {},
             "steps": suggestions[0]["steps"],
             "sql_steps": suggestions[0]["sql_steps"],
         }
 
-        # Should still create tool successfully
-        tools = graphql_create_tools(mock_context, suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
+        )
         assert len(tools) == 1
         assert tools[0].name == "get_all_users"
 
 
-def test_recipe_tool_name_deduplication(mock_context):
+def test_recipe_tool_name_deduplication(ctx_vars):
     """Test that duplicate tool names get numbered suffixes."""
 
     suggestions = [
@@ -184,65 +190,55 @@ def test_recipe_tool_name_deduplication(mock_context):
         },
     ]
 
-    with patch("api_agent.agent.graphql_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
 
         def get_recipe(recipe_id):
             for s in suggestions:
                 if s["recipe_id"] == recipe_id:
-                    return {"params": s["params"], "steps": s["steps"], "sql_steps": s["sql_steps"]}
+                    return {
+                        "params": s["params"],
+                        "steps": s["steps"],
+                        "sql_steps": s["sql_steps"],
+                    }
             return None
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        tools = graphql_create_tools(mock_context, suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
+        )
 
-        # Should have 2 tools with unique names
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
         assert "get_users" in tool_names
-        assert "get_users_2" in tool_names  # Second one gets _2 suffix
+        assert "get_users_2" in tool_names
 
 
-def test_recipe_tool_return_directly_default(mock_context, sample_recipe_suggestions):
+def test_recipe_tool_return_directly_default(ctx_vars, sample_recipe_suggestions):
     """Test that recipe tools have return_directly=True by default."""
 
-    with patch("api_agent.agent.graphql_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
         mock_store.get_recipe.return_value = {
             "params": sample_recipe_suggestions[0]["params"],
             "steps": sample_recipe_suggestions[0]["steps"],
             "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
         }
 
-        tools = graphql_create_tools(mock_context, sample_recipe_suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, sample_recipe_suggestions, "graphql", _dummy_step_executor_factory
+        )
         tool = tools[0]
 
-        # Check the schema has return_directly with default=True
         schema = tool.parameters
         return_directly_param = schema["properties"]["return_directly"]
         assert return_directly_param["default"] is True
-        # Recipe params are wrapped in a 'params' Pydantic model field
         assert "params" in schema["properties"]
         assert "return_directly" in schema["properties"]
 
-        # Verify tool name
         assert tool.name == "list_managers_starting_with_b"
 
 
-# REST Agent Integration Tests
-
-
-@pytest.fixture
-def rest_context():
-    """Create a REST request context."""
-    return RequestContext(
-        target_url="https://test.api.com",
-        target_headers={},
-        api_type="rest",
-        base_url="/v1",
-        include_result=False,
-        allow_unsafe_paths=(),
-        poll_paths=(),
-    )
+# REST-specific tests (now use same create_recipe_tools with "rest" api_type)
 
 
 @pytest.fixture
@@ -260,16 +256,18 @@ def rest_recipe_suggestions():
     ]
 
 
-def test_rest_create_tools_basic(rest_context, rest_recipe_suggestions):
+def test_rest_create_tools_basic(ctx_vars, rest_recipe_suggestions):
     """Test REST recipe tools are created successfully."""
-    with patch("api_agent.agent.rest_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
         mock_store.get_recipe.return_value = {
             "params": rest_recipe_suggestions[0]["params"],
             "steps": rest_recipe_suggestions[0]["steps"],
             "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
         }
 
-        tools = rest_create_tools(rest_context, "/v1", rest_recipe_suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, rest_recipe_suggestions, "rest", _dummy_step_executor_factory
+        )
 
         assert len(tools) == 1
         tool = tools[0]
@@ -280,7 +278,7 @@ def test_rest_create_tools_basic(rest_context, rest_recipe_suggestions):
         assert isinstance(tool, ToolDefinition)
 
 
-def test_rest_create_multiple_tools(rest_context):
+def test_rest_create_multiple_tools(ctx_vars):
     """Test creating multiple REST recipe tools."""
     suggestions = [
         {
@@ -301,17 +299,23 @@ def test_rest_create_multiple_tools(rest_context):
         },
     ]
 
-    with patch("api_agent.agent.rest_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
 
         def get_recipe(recipe_id):
             for s in suggestions:
                 if s["recipe_id"] == recipe_id:
-                    return {"params": s["params"], "steps": s["steps"], "sql_steps": s["sql_steps"]}
+                    return {
+                        "params": s["params"],
+                        "steps": s["steps"],
+                        "sql_steps": s["sql_steps"],
+                    }
             return None
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        tools = rest_create_tools(rest_context, "/v1", suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, suggestions, "rest", _dummy_step_executor_factory
+        )
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
@@ -319,16 +323,18 @@ def test_rest_create_multiple_tools(rest_context):
         assert "get_user_posts" in tool_names
 
 
-def test_rest_tool_strict_schema(rest_context, rest_recipe_suggestions):
+def test_rest_tool_strict_schema(ctx_vars, rest_recipe_suggestions):
     """Test REST recipe tools have strict JSON schema."""
-    with patch("api_agent.agent.rest_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
         mock_store.get_recipe.return_value = {
             "params": rest_recipe_suggestions[0]["params"],
             "steps": rest_recipe_suggestions[0]["steps"],
             "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
         }
 
-        tools = rest_create_tools(rest_context, "/v1", rest_recipe_suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, rest_recipe_suggestions, "rest", _dummy_step_executor_factory
+        )
         tool = tools[0]
 
         assert isinstance(tool.parameters, dict)
@@ -336,7 +342,7 @@ def test_rest_tool_strict_schema(rest_context, rest_recipe_suggestions):
         assert tool.name == "get_user_by_id"
 
 
-def test_rest_tool_name_deduplication(rest_context):
+def test_rest_tool_name_deduplication(ctx_vars):
     """Test REST recipe tool name deduplication."""
     suggestions = [
         {
@@ -357,17 +363,23 @@ def test_rest_tool_name_deduplication(rest_context):
         },
     ]
 
-    with patch("api_agent.agent.rest_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
 
         def get_recipe(recipe_id):
             for s in suggestions:
                 if s["recipe_id"] == recipe_id:
-                    return {"params": s["params"], "steps": s["steps"], "sql_steps": s["sql_steps"]}
+                    return {
+                        "params": s["params"],
+                        "steps": s["steps"],
+                        "sql_steps": s["sql_steps"],
+                    }
             return None
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        tools = rest_create_tools(rest_context, "/v1", suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, suggestions, "rest", _dummy_step_executor_factory
+        )
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
@@ -375,16 +387,18 @@ def test_rest_tool_name_deduplication(rest_context):
         assert "get_data_2" in tool_names
 
 
-def test_rest_tool_return_directly_default(rest_context, rest_recipe_suggestions):
+def test_rest_tool_return_directly_default(ctx_vars, rest_recipe_suggestions):
     """Test REST recipe tools have return_directly=True by default."""
-    with patch("api_agent.agent.rest_agent.RECIPE_STORE") as mock_store:
+    with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
         mock_store.get_recipe.return_value = {
             "params": rest_recipe_suggestions[0]["params"],
             "steps": rest_recipe_suggestions[0]["steps"],
             "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
         }
 
-        tools = rest_create_tools(rest_context, "/v1", rest_recipe_suggestions)
+        tools = create_recipe_tools(
+            ctx_vars, rest_recipe_suggestions, "rest", _dummy_step_executor_factory
+        )
         tool = tools[0]
 
         schema = tool.parameters
