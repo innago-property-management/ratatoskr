@@ -1,15 +1,17 @@
 """Tests for the _execute MCP tool in api_agent.tools.execute.
 
-T011: Direct API execution — GraphQL path, REST path, truncation, missing params, missing headers.
+T011: Direct API execution — GraphQL path, REST path, gRPC path, truncation,
+missing params, missing headers.
 """
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
 from fastmcp import FastMCP
 
 from api_agent.context import MissingHeaderError, RequestContext
+from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
 from api_agent.tools.execute import register_execute_tool
 
 
@@ -407,3 +409,319 @@ class TestExecuteMissingHeader:
 
         assert result["ok"] is False
         assert "X-API-Type" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# gRPC execute helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_grpc_schema() -> GrpcSchema:
+    """Build a minimal GrpcSchema for execute tool tests."""
+    pool = MagicMock()
+    services = [
+        ServiceInfo(
+            full_name="helloworld.Greeter",
+            methods=[
+                MethodInfo(
+                    name="SayHello",
+                    full_method_path="/helloworld.Greeter/SayHello",
+                    input_type="helloworld.HelloRequest",
+                    output_type="helloworld.HelloReply",
+                ),
+                MethodInfo(
+                    name="StreamGreetings",
+                    full_method_path="/helloworld.Greeter/StreamGreetings",
+                    input_type="helloworld.HelloRequest",
+                    output_type="helloworld.HelloReply",
+                    server_streaming=True,
+                ),
+            ],
+        )
+    ]
+    raw_text = (
+        "<services>\nhelloworld.Greeter\n"
+        "  SayHello(helloworld.HelloRequest) -> helloworld.HelloReply\n"
+    )
+    return GrpcSchema(services=services, pool=pool, raw_schema_text=raw_text)
+
+
+@pytest.fixture
+def grpc_ctx():
+    """RequestContext configured for gRPC."""
+    return RequestContext(
+        target_url="grpc://localhost:50051",
+        api_type="grpc",
+        target_headers={"authorization": "Bearer grpc-token"},
+        allow_unsafe_paths=(),
+        base_url=None,
+        include_result=False,
+        poll_paths=(),
+    )
+
+
+class TestExecuteGRPC:
+    """T011: gRPC execution path."""
+
+    @pytest.mark.asyncio
+    async def test_grpc_success(self, execute_tool, grpc_ctx, monkeypatch):
+        """gRPC execute with valid method and request returns ok=True with data."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        mock_execute_rpc = AsyncMock(
+            return_value={"success": True, "data": {"message": "Hello, world!"}}
+        )
+        monkeypatch.setattr(
+            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
+        )
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/SayHello",
+            grpc_request='{"name": "world"}',
+        )
+
+        assert result["ok"] is True
+        assert result["data"]["message"] == "Hello, world!"
+
+        # Verify fetch_schema called with target URL and metadata
+        mock_fetch_schema.assert_awaited_once_with(
+            "grpc://localhost:50051",
+            metadata=[("authorization", "Bearer grpc-token")],
+        )
+
+        # Verify execute_unary_rpc called correctly
+        mock_execute_rpc.assert_awaited_once()
+        call_kwargs = mock_execute_rpc.call_args
+        assert call_kwargs[1]["method_path"] == "/helloworld.Greeter/SayHello"
+        assert call_kwargs[1]["request_json"] == {"name": "world"}
+        assert call_kwargs[1]["input_type_name"] == "helloworld.HelloRequest"
+        assert call_kwargs[1]["output_type_name"] == "helloworld.HelloReply"
+
+    @pytest.mark.asyncio
+    async def test_grpc_missing_method(self, execute_tool, grpc_ctx, monkeypatch):
+        """gRPC execute without grpc_method returns error."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        result = await execute_tool()
+
+        assert result["ok"] is False
+        assert "grpc_method" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_grpc_method_not_found(self, execute_tool, grpc_ctx, monkeypatch):
+        """gRPC execute with unknown method returns method-not-found error."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        result = await execute_tool(
+            grpc_method="nonexistent.Service/DoThing",
+            grpc_request="{}",
+        )
+
+        assert result["ok"] is False
+        assert "not found" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_grpc_rpc_error(self, execute_tool, grpc_ctx, monkeypatch):
+        """gRPC execute handles RPC failures from execute_unary_rpc."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        mock_execute_rpc = AsyncMock(
+            return_value={
+                "success": False,
+                "error": "gRPC error [UNAVAILABLE]: Connection refused",
+            }
+        )
+        monkeypatch.setattr(
+            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
+        )
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/SayHello",
+            grpc_request='{"name": "world"}',
+        )
+
+        assert result["ok"] is False
+        assert "UNAVAILABLE" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_grpc_reflection_failure(self, execute_tool, grpc_ctx, monkeypatch):
+        """gRPC execute handles reflection failure gracefully."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        mock_fetch_schema = AsyncMock(
+            side_effect=Exception("UNIMPLEMENTED: reflection not enabled")
+        )
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/SayHello",
+            grpc_request='{"name": "world"}',
+        )
+
+        assert result["ok"] is False
+        assert "reflection" in result["error"].lower() or "schema" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_grpc_truncation(self, execute_tool, grpc_ctx, monkeypatch):
+        """Large gRPC response is truncated."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        large_data = {"items": [{"value": "z" * 1000} for _ in range(100)]}
+        mock_execute_rpc = AsyncMock(
+            return_value={"success": True, "data": large_data}
+        )
+        monkeypatch.setattr(
+            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
+        )
+
+        monkeypatch.setattr("api_agent.tools.execute.settings.MAX_RESPONSE_CHARS", 500)
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/SayHello",
+            grpc_request="{}",
+        )
+
+        assert result["ok"] is True
+        assert isinstance(result["data"], str)
+        assert "[TRUNCATED" in result["data"]
+
+    @pytest.mark.asyncio
+    async def test_grpc_invalid_json_request(self, execute_tool, grpc_ctx, monkeypatch):
+        """gRPC execute with invalid JSON in grpc_request returns error."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/SayHello",
+            grpc_request="{bad json",
+        )
+
+        assert result["ok"] is False
+        assert "json" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_grpc_streaming_method_blocked(
+        self, execute_tool, grpc_ctx, monkeypatch
+    ):
+        """gRPC execute rejects streaming methods."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/StreamGreetings",
+            grpc_request="{}",
+        )
+
+        assert result["ok"] is False
+        assert "streaming" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_grpc_metadata_forwarded(self, execute_tool, grpc_ctx, monkeypatch):
+        """Target headers are forwarded as gRPC metadata to execute_unary_rpc."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        mock_execute_rpc = AsyncMock(
+            return_value={"success": True, "data": {"message": "ok"}}
+        )
+        monkeypatch.setattr(
+            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
+        )
+
+        await execute_tool(
+            grpc_method="/helloworld.Greeter/SayHello",
+            grpc_request='{"name": "world"}',
+        )
+
+        call_kwargs = mock_execute_rpc.call_args[1]
+        assert call_kwargs["metadata"] == [("authorization", "Bearer grpc-token")]
+
+    @pytest.mark.asyncio
+    async def test_grpc_default_empty_request(
+        self, execute_tool, grpc_ctx, monkeypatch
+    ):
+        """gRPC execute with no grpc_request defaults to empty dict."""
+        monkeypatch.setattr(
+            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
+        )
+
+        schema = _make_grpc_schema()
+        mock_fetch_schema = AsyncMock(return_value=schema)
+        monkeypatch.setattr(
+            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
+        )
+
+        mock_execute_rpc = AsyncMock(
+            return_value={"success": True, "data": {"message": "Hello!"}}
+        )
+        monkeypatch.setattr(
+            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
+        )
+
+        result = await execute_tool(
+            grpc_method="/helloworld.Greeter/SayHello",
+        )
+
+        assert result["ok"] is True
+        # Request JSON should be empty dict
+        call_kwargs = mock_execute_rpc.call_args[1]
+        assert call_kwargs["request_json"] == {}

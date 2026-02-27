@@ -133,7 +133,7 @@ def build_schema_text(services: list[ServiceInfo], pool: Any) -> str:
         <services>
         package.ServiceName
           MethodName(input.Type) -> output.Type
-          StreamMethod(input.Type) -> output.Type  [server-streaming, unsupported-v1]
+          StreamMethod(input.Type) -> output.Type  [server-streaming]
 
         <message_types>
         input.Type {
@@ -150,10 +150,9 @@ def build_schema_text(services: list[ServiceInfo], pool: Any) -> str:
             streaming_tags = []
             if m.client_streaming:
                 streaming_tags.append("client-streaming")
+                streaming_tags.append("unsupported")
             if m.server_streaming:
                 streaming_tags.append("server-streaming")
-            if streaming_tags:
-                streaming_tags.append("unsupported-v1")
 
             tag_str = f"  [{', '.join(streaming_tags)}]" if streaming_tags else ""
             svc_lines.append(f"  {m.name}({m.input_type}) -> {m.output_type}{tag_str}")

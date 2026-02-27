@@ -1,12 +1,17 @@
-"""Tests for gRPC client — unary RPC execution, serialization, error handling."""
+"""Tests for gRPC client — unary RPC execution, serialization, error handling, streaming."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import grpc
 import grpc.aio
 import pytest
 
-from api_agent.grpc.client import _error_hint, execute_unary_rpc
+from api_agent.grpc.client import (
+    _error_hint,
+    execute_server_streaming_rpc,
+    execute_unary_rpc,
+)
 
 
 def _make_mock_pool(input_name="test.Req", output_name="test.Resp"):
@@ -428,3 +433,329 @@ class TestErrorHint:
         for code in codes_with_hints:
             hint = _error_hint(code)
             assert hint, f"Expected non-empty hint for {code.name}"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for server-streaming tests
+# ---------------------------------------------------------------------------
+
+
+class MockAsyncStreamIterator:
+    """Simulates a gRPC async stream response (UnaryStreamCall).
+
+    Yields messages from a list, optionally raising an error mid-stream.
+    """
+
+    def __init__(
+        self,
+        messages: list,
+        error_after: int | None = None,
+        error: Exception | None = None,
+    ):
+        self._messages = messages
+        self._error_after = error_after
+        self._error = error
+        self._index = 0
+        self._cancelled = False
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._cancelled:
+            raise StopAsyncIteration
+        if self._error_after is not None and self._index >= self._error_after:
+            if self._error:
+                raise self._error
+            raise StopAsyncIteration
+        if self._index >= len(self._messages):
+            raise StopAsyncIteration
+        msg = self._messages[self._index]
+        self._index += 1
+        return msg
+
+    def cancel(self):
+        self._cancelled = True
+
+
+def _make_streaming_channel(stream_iterator=None, error=None):
+    """Create a mock gRPC channel for server-streaming RPCs.
+
+    unary_stream() is sync (returns a callable stub).
+    The stub, when called, returns the stream_iterator (async iterable).
+    close() is async.
+    """
+    channel = MagicMock()
+    if error:
+        # Error on the call itself (before streaming starts)
+        stub = MagicMock(side_effect=error)
+    else:
+        stub = MagicMock(return_value=stream_iterator or MockAsyncStreamIterator([]))
+    channel.unary_stream.return_value = stub
+    channel.close = AsyncMock()
+    return channel
+
+
+class TestExecuteServerStreamingRpc:
+    """Test execute_server_streaming_rpc with mocked channels and protobuf."""
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_happy_path_three_messages(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Stream returning 3 messages collects all into a list."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        # MessageToDict called once per streamed message
+        mock_to_dict.side_effect = [
+            {"id": 1, "name": "alpha"},
+            {"id": 2, "name": "beta"},
+            {"id": 3, "name": "gamma"},
+        ]
+
+        stream = MockAsyncStreamIterator([MagicMock(), MagicMock(), MagicMock()])
+        mock_channel = _make_streaming_channel(stream_iterator=stream)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_server_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/ListItems",
+            request_json={"filter": "all"},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is True
+        assert result["message_count"] == 3
+        assert len(result["data"]) == 3
+        assert result["data"][0] == {"id": 1, "name": "alpha"}
+        assert result["data"][1] == {"id": 2, "name": "beta"}
+        assert result["data"][2] == {"id": 3, "name": "gamma"}
+        mock_channel.unary_stream.assert_called_once()
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_empty_stream(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Empty stream returns success with empty list."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        stream = MockAsyncStreamIterator([])
+        mock_channel = _make_streaming_channel(stream_iterator=stream)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_server_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/ListItems",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is True
+        assert result["message_count"] == 0
+        assert result["data"] == []
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_max_messages_caps_collection(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Stream with 200 messages but max_messages=5 -- only 5 collected."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        # Generate 200 mock messages
+        messages = [MagicMock() for _ in range(200)]
+        mock_to_dict.side_effect = [{"index": i} for i in range(200)]
+
+        stream = MockAsyncStreamIterator(messages)
+        mock_channel = _make_streaming_channel(stream_iterator=stream)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_server_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/ListItems",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+            max_messages=5,
+        )
+
+        assert result["success"] is True
+        assert result["message_count"] == 5
+        assert len(result["data"]) == 5
+        # First 5 messages should be collected
+        for i in range(5):
+            assert result["data"][i] == {"index": i}
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_rpc_error_during_stream_returns_partial(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """RPC error mid-stream returns partial results + error info."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        mock_to_dict.side_effect = [
+            {"id": 1, "val": "first"},
+            {"id": 2, "val": "second"},
+        ]
+
+        rpc_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.INTERNAL,
+            initial_metadata=grpc.aio.Metadata(),
+            trailing_metadata=grpc.aio.Metadata(),
+            details="stream broken",
+        )
+
+        # Stream yields 2 messages then raises error
+        stream = MockAsyncStreamIterator(
+            [MagicMock(), MagicMock()],
+            error_after=2,
+            error=rpc_error,
+        )
+        mock_channel = _make_streaming_channel(stream_iterator=stream)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_server_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/ListItems",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "INTERNAL" in result["error"]
+        assert "stream broken" in result["error"]
+        assert len(result["partial_data"]) == 2
+        assert result["partial_data"][0] == {"id": 1, "val": "first"}
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_timeout_handled_gracefully(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Timeout (asyncio.TimeoutError) during streaming returns partial data."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        mock_to_dict.side_effect = [{"id": 1}]
+
+        # Custom stream that raises TimeoutError after first message
+        class TimeoutStream:
+            def __init__(self):
+                self._yielded = False
+                self._cancelled = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self._cancelled:
+                    raise StopAsyncIteration
+                if not self._yielded:
+                    self._yielded = True
+                    return MagicMock()
+                raise asyncio.TimeoutError()
+
+            def cancel(self):
+                self._cancelled = True
+
+        stream = TimeoutStream()
+        mock_channel = _make_streaming_channel(stream_iterator=stream)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_server_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/ListItems",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+            timeout_s=0.1,
+        )
+
+        assert result["success"] is False
+        assert "timeout" in result["error"].lower() or "timed out" in result["error"].lower()
+        assert len(result["partial_data"]) == 1
+        mock_channel.close.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client.GetMessageClass")
+    @patch("api_agent.grpc.client.ParseDict")
+    @patch("api_agent.grpc.client.MessageToDict")
+    async def test_channel_closed_after_error(
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+    ):
+        """Channel is always closed, even when the stream raises a generic exception."""
+        pool = _make_mock_pool()
+        mock_get_class.return_value = MagicMock()
+        mock_parse_dict.return_value = MagicMock()
+
+        # Stream that raises a non-gRPC exception immediately
+        class ErrorStream:
+            def __init__(self):
+                self._cancelled = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise RuntimeError("unexpected stream error")
+
+            def cancel(self):
+                self._cancelled = True
+
+        stream = ErrorStream()
+        mock_channel = _make_streaming_channel(stream_iterator=stream)
+        mock_create_channel.return_value = mock_channel
+
+        result = await execute_server_streaming_rpc(
+            target_url="grpc://localhost:50051",
+            method_path="/test.Svc/ListItems",
+            request_json={},
+            pool=pool,
+            input_type_name="test.Req",
+            output_type_name="test.Resp",
+        )
+
+        assert result["success"] is False
+        assert "unexpected stream error" in result["error"]
+        # CRITICAL: channel must be closed even after errors
+        mock_channel.close.assert_awaited_once()
