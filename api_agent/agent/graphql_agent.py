@@ -9,36 +9,24 @@ from typing import Any
 
 from ..config import settings
 from ..context import RequestContext
-from ..executor import (
-    execute_sql,
-    extract_tables_from_response,
-    truncate_for_context,
-)
 from ..graphql import execute_query as graphql_fetch
-from ..llm.provider import MaxTurnsExceeded
-from ..llm.tools import tool
-from ..llm.types import ToolDefinition
 from ..recipe import (
-    RECIPE_STORE,
-    _return_directly_flag,
     _set_return_directly,
     build_api_id,
-    build_partial_result,
-    build_recipe_docstring,
-    create_params_model,
-    deduplicate_tool_name,
-    execute_recipe_steps,
-    format_recipe_response,
     maybe_extract_and_save_recipe,
     render_text_template,
-    search_recipes,
-    validate_and_prepare_recipe,
-    validate_recipe_params,
 )
-from ..tracing import trace_metadata
 from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
-from .model import get_inject_instructions, provider
-from .progress import get_turn_context, reset_progress
+from .model import provider
+from .orchestrator import (
+    AgentContextVars,
+    ProtocolConfig,
+    create_sql_query_tool,
+    format_tool_response,
+    make_logger,
+    run_agent_orchestration,
+    store_result,
+)
 from .prompts import (
     CONTEXT_SECTION,
     DECISION_GUIDANCE,
@@ -56,12 +44,7 @@ from .schema_search import create_search_schema_tool
 
 logger = logging.getLogger(__name__)
 
-
-def _log(msg: str) -> None:
-    """Log agent activity only in debug mode."""
-    if settings.DEBUG:
-        logger.info(f"[GQL] {msg}")
-
+_log = make_logger("[GQL]")
 
 # Context-local storage (isolated per async request)
 # NOTE: Use mutable containers for values that need to be modified by tool functions,
@@ -72,6 +55,21 @@ _query_results: ContextVar[dict[str, Any]] = ContextVar("query_results")
 _last_result: ContextVar[list] = ContextVar("last_result")  # Mutable container: [result_value]
 _raw_schema: ContextVar[str] = ContextVar("raw_schema")  # Raw introspection JSON for search
 _sql_steps: ContextVar[list[str]] = ContextVar("sql_steps")
+
+# Bundle for orchestrator
+_ctx_vars = AgentContextVars(
+    api_calls=_graphql_queries,
+    recipe_steps=_recipe_steps,
+    query_results=_query_results,
+    last_result=_last_result,
+    raw_schema=_raw_schema,
+    sql_steps=_sql_steps,
+)
+
+
+# ---------------------------------------------------------------------------
+# GraphQL-specific: schema introspection + formatting
+# ---------------------------------------------------------------------------
 
 
 def _format_type(t: dict | None) -> str:
@@ -274,6 +272,11 @@ async def fetch_graphql_schema_raw(endpoint: str, headers: dict[str, str] | None
     return json.dumps(schema, indent=2)
 
 
+# ---------------------------------------------------------------------------
+# GraphQL-specific: system prompt
+# ---------------------------------------------------------------------------
+
+
 def _build_system_prompt(recipe_context: str = "") -> str:
     """Build system prompt for GraphQL agent."""
     current_date = datetime.now().strftime("%Y-%m-%d")
@@ -328,7 +331,12 @@ Join: graphql_query('{{ users {{ id name }} }}', name='u'); graphql_query('{{ po
 """
 
 
-def _create_graphql_query_tool(ctx: RequestContext) -> ToolDefinition:
+# ---------------------------------------------------------------------------
+# GraphQL-specific: API call tool
+# ---------------------------------------------------------------------------
+
+
+def _create_graphql_query_tool(ctx: RequestContext) -> Any:
     """Create graphql_query tool with bound context."""
 
     async def graphql_query(query: str, name: str = "data", return_directly: bool = False) -> str:
@@ -345,22 +353,10 @@ def _create_graphql_query_tool(ctx: RequestContext) -> ToolDefinition:
         """
         result = await graphql_fetch(query, None, ctx.target_url, ctx.target_headers)
 
-        schema_info = None
-        stored_data = None
+        stored_data, schema_info = None, None
         if result.get("success"):
-            try:
-                results = _query_results.get()
-                data = result.get("data", {})
-                tables, schema_info = extract_tables_from_response(data, name)
-                results.update(tables)
-                _query_results.set(results)
-                # Store full data for final response (the extracted list)
-                # Mutate in-place so changes propagate from task group child
-                stored_data = tables.get(name)
-                if stored_data is not None:
-                    _last_result.get()[0] = stored_data
-            except LookupError:
-                pass
+            data = result.get("data", {})
+            stored_data, schema_info = store_result(_ctx_vars, data, name)
 
             # Track successful step for recipe extraction
             safe_append_contextvar_list(
@@ -374,23 +370,9 @@ def _create_graphql_query_tool(ctx: RequestContext) -> ToolDefinition:
         if return_directly and result.get("success"):
             _set_return_directly()
 
-        # Smart context optimization - cap by chars for LLM safety
-        if result.get("success") and stored_data:
-            # Wrapped dict (1-row) → return schema info
-            if schema_info:
-                return json.dumps(
-                    {"success": True, "table": name, **schema_info},
-                    indent=2,
-                )
+        return format_tool_response(stored_data, schema_info, name, result)
 
-            # Apply char-based truncation (normalized format)
-            if isinstance(stored_data, list):
-                return json.dumps(
-                    {"success": True, **truncate_for_context(stored_data, name)},
-                    indent=2,
-                )
-
-        return json.dumps(result, indent=2)
+    from ..llm.tools import tool
 
     return tool(graphql_query)
 
@@ -398,172 +380,71 @@ def _create_graphql_query_tool(ctx: RequestContext) -> ToolDefinition:
 # Create search_schema tool bound to GraphQL schema context var
 search_schema = create_search_schema_tool(_raw_schema)
 
+# Create sql_query tool via shared factory
+sql_query_tool = create_sql_query_tool(_ctx_vars, _log, "Call graphql_query first.")
 
-def sql_query(sql: str, return_directly: bool = False) -> str:
-    """Run DuckDB SQL on stored GraphQL results.
 
-    Args:
-        sql: DuckDB SQL query
-        return_directly: Skip LLM processing, return results directly to client
+# ---------------------------------------------------------------------------
+# GraphQL-specific: recipe step executor
+# ---------------------------------------------------------------------------
 
-    Returns:
-        JSON string with query results
+
+def _make_graphql_step_executor_factory(ctx: RequestContext):
+    """Build a GraphQL step executor factory for recipe tools.
+
+    Returns a factory: (recipe_id) -> async step_executor
+    Captures ctx at factory-creation time to avoid race conditions.
     """
-    try:
-        data = _query_results.get()
-    except LookupError:
-        return json.dumps({"success": False, "error": "No data. Call graphql_query first."})
 
-    if not data:
-        return json.dumps({"success": False, "error": "No data. Call graphql_query first."})
-
-    result = execute_sql(data, sql)
-
-    _log(f"SQL {json.dumps(result)[:200]}")
-
-    # Store full result for final response + apply char truncation for LLM
-    if result.get("success"):
-        rows = result.get("result", [])
-        # Mutate in-place so changes propagate from task group child
-        try:
-            _last_result.get()[0] = rows
-        except LookupError:
-            pass
-
-        # Track successful SQL for recipe extraction
-        safe_append_contextvar_list(_sql_steps, sql)
-
-        if return_directly:
-            _set_return_directly()
-
-        if isinstance(rows, list):
-            return json.dumps(
-                {"success": True, **truncate_for_context(rows, "sql_result")},
-                indent=2,
-            )
-
-    return json.dumps(result, indent=2)
-
-
-sql_query_tool = tool(sql_query)
-
-
-def _create_individual_recipe_tools(
-    ctx: RequestContext,
-    suggestions: list[dict[str, Any]],
-) -> list:
-    """Generate ToolDefinition per recipe suggestion."""
-    tools = []
-    seen_names: set[str] = set()
-
-    for s in suggestions:
-        recipe = RECIPE_STORE.get_recipe(s["recipe_id"])
-        if not recipe:
-            continue
-
-        tool_name = deduplicate_tool_name(s.get("tool_name", "unknown_recipe"), seen_names)
-        params_spec = recipe.get("params", {})
-        docstring = build_recipe_docstring(
-            s["question"], recipe.get("steps", []), recipe.get("sql_steps", []), "graphql",
-            params_spec=params_spec,
-        )
-
-        def make_tool(rid: str, pspec: dict[str, Any], doc: str, tname: str):
-            ParamsModel = create_params_model(pspec, tname)
-
-            async def dynamic_recipe_tool(
-                params: ParamsModel,
-                return_directly: bool = True,
-            ) -> str:
-                kwargs = params.model_dump()
-                validated_params, error = validate_recipe_params(pspec, kwargs)
-                if error:
-                    return error
-
-                recipe, validated_params, error = validate_and_prepare_recipe(
-                    rid, json.dumps(kwargs), _raw_schema
-                )
-                if error:
-                    return error
-
-                async def graphql_step_executor(step_idx, step, params, results):
-                    if not isinstance(step, dict) or step.get("kind") != "graphql":
-                        return (
-                            False,
-                            None,
-                            json.dumps(
-                                {"success": False, "error": "invalid recipe step"}, indent=2
-                            ),
-                            None,
-                        )
-
-                    name = step.get("name") or "data"
-                    tmpl = step.get("query_template")
-                    if not isinstance(tmpl, str):
-                        return (
-                            False,
-                            None,
-                            json.dumps(
-                                {"success": False, "error": "missing query_template"}, indent=2
-                            ),
-                            None,
-                        )
-
-                    query = render_text_template(tmpl, params)
-                    res = await graphql_fetch(query, None, ctx.target_url, ctx.target_headers)
-                    if not res.get("success"):
-                        return (
-                            False,
-                            None,
-                            json.dumps(
-                                {"success": False, "error": res.get("error", "query failed")},
-                                indent=2,
-                            ),
-                            None,
-                        )
-
-                    data = res.get("data", {})
-                    tables, _ = extract_tables_from_response(data, str(name))
-                    results.update(tables)
-                    _query_results.set(results)
-                    safe_append_contextvar_list(_graphql_queries, query)
-                    return True, tables.get(str(name)), "", query
-
-                executed_queries: list[str] = []
-                if recipe is None or validated_params is None:
-                    return json.dumps({"success": False, "error": "recipe validation failed"})
-                success, last_data, executed_sql, error = await execute_recipe_steps(
-                    recipe,
-                    validated_params,
-                    _query_results,
-                    _last_result,
-                    graphql_step_executor,
-                    executed_queries,
-                )
-                if not success:
-                    return error
-
-                # Track executed SQL for tracing
-                for sql in executed_sql:
-                    safe_append_contextvar_list(_sql_steps, sql)
-
-                if return_directly:
-                    _set_return_directly()
-
-                return format_recipe_response(
-                    _last_result,
-                    executed_queries,
-                    executed_sql,
-                    "executed_queries",
+    def factory(recipe_id: str):
+        async def graphql_step_executor(step_idx, step, params, results):
+            if not isinstance(step, dict) or step.get("kind") != "graphql":
+                return (
+                    False,
+                    None,
+                    json.dumps({"success": False, "error": "invalid recipe step"}, indent=2),
+                    None,
                 )
 
-            dynamic_recipe_tool.__name__ = tname
-            dynamic_recipe_tool.__doc__ = doc
-            return tool(dynamic_recipe_tool)
+            name = step.get("name") or "data"
+            tmpl = step.get("query_template")
+            if not isinstance(tmpl, str):
+                return (
+                    False,
+                    None,
+                    json.dumps({"success": False, "error": "missing query_template"}, indent=2),
+                    None,
+                )
 
-        tools.append(make_tool(s["recipe_id"], params_spec, docstring, tool_name))
+            query = render_text_template(tmpl, params)
+            res = await graphql_fetch(query, None, ctx.target_url, ctx.target_headers)
+            if not res.get("success"):
+                return (
+                    False,
+                    None,
+                    json.dumps(
+                        {"success": False, "error": res.get("error", "query failed")}, indent=2
+                    ),
+                    None,
+                )
 
-    return tools
+            data = res.get("data", {})
+            from ..executor import extract_tables_from_response
+
+            tables, _ = extract_tables_from_response(data, str(name))
+            results.update(tables)
+            _query_results.set(results)
+            safe_append_contextvar_list(_graphql_queries, query)
+            return True, tables.get(str(name)), "", query
+
+        return graphql_step_executor
+
+    return factory
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
 
 
 async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
@@ -573,113 +454,37 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
         question: Natural language question
         ctx: Request context with target_url and target_headers
     """
-    try:
-        _log(f"QUERY {question[:80]}")
+    # Fetch schema (protocol-specific)
+    schema_ctx = await _fetch_schema_context(ctx.target_url, ctx.target_headers)
+    raw_schema = safe_get_contextvar(_raw_schema, "")
 
-        # Reset per-request storage
-        # Use mutable containers so tool functions can modify in-place
-        # (ContextVar.set() in child tasks doesn't propagate to parent)
-        _graphql_queries.set([])
-        _recipe_steps.set([])
-        _sql_steps.set([])
-        _query_results.set({})
-        _last_result.set([None])  # Mutable list: [result_value]
-        _return_directly_flag.set([])  # Reset direct return flag
-        reset_progress()  # Reset turn counter
+    # Create protocol-specific tools
+    gql_tool = _create_graphql_query_tool(ctx)
+    tools = [gql_tool, sql_query_tool, search_schema]
 
-        # Fetch schema with dynamic endpoint
-        schema_ctx = await _fetch_schema_context(ctx.target_url, ctx.target_headers)
+    # Build system prompt
+    instructions = _build_system_prompt()
 
-        # Pre-flight recipe search
-        suggestions, recipe_context = [], ""
-        if settings.ENABLE_RECIPES:
-            raw_schema = safe_get_contextvar(_raw_schema, "")
-            api_id = build_api_id(ctx, "graphql")
-            suggestions, recipe_context = search_recipes(api_id, raw_schema, question)
-            if suggestions:
-                _log(
-                    f"PRE-FLIGHT found={len(suggestions)} ids={[s['recipe_id'] for s in suggestions]}"
-                )
-            elif raw_schema:
-                _log(f"PRE-FLIGHT no matches for api_id={api_id[:50]}")
+    # Package config and run orchestration
+    config = ProtocolConfig(
+        agent_type="graphql",
+        log_prefix="[GQL]",
+        call_key="queries",
+        ctx_vars=_ctx_vars,
+        schema_text=schema_ctx,
+        raw_schema=raw_schema,
+        provider=provider,
+        tools=tools,
+        instructions=instructions,
+        api_id=build_api_id(ctx, "graphql"),
+        recipe_step_executor_factory=_make_graphql_step_executor_factory(ctx),
+        recipe_item_key="executed_queries",
+    )
 
-        # Create tools with bound context
-        gql_tool = _create_graphql_query_tool(ctx)
-        tools = [gql_tool, sql_query_tool, search_schema]
-        if suggestions:  # Create individual recipe tools for each suggestion
-            recipe_tools = _create_individual_recipe_tools(ctx, suggestions)
-            tools = [*recipe_tools, *tools]
+    result = await run_agent_orchestration(question, config)
 
-        # Build system prompt and user message
-        instructions = _build_system_prompt(recipe_context)
-        augmented_query = f"{schema_ctx}\n\nQuestion: {question}" if schema_ctx else question
-
-        def _should_stop(results):
-            try:
-                return bool(_return_directly_flag.get())
-            except LookupError:
-                return False
-
-        # Run tool-calling loop
-        queries = []
-        last_data = None
-        turn_info = ""
-        try:
-            with trace_metadata({"mcp_name": settings.MCP_SLUG, "agent_type": "graphql"}):
-                result = await provider.run_tool_loop(
-                    instructions=instructions,
-                    user_message=augmented_query,
-                    tool_defs=tools,
-                    max_turns=settings.MAX_AGENT_TURNS,
-                    should_stop=_should_stop,
-                    inject_instructions=get_inject_instructions(),
-                )
-
-            queries = _graphql_queries.get()
-            last_data = _last_result.get()[0]
-            turn_info = get_turn_context(settings.MAX_AGENT_TURNS)
-
-        except MaxTurnsExceeded:
-            # Return partial results when turn limit exceeded
-            queries = _graphql_queries.get()
-            last_data = _last_result.get()[0]
-            turn_info = get_turn_context(settings.MAX_AGENT_TURNS)
-            return build_partial_result(last_data, queries, turn_info, "queries")
-
-        # Check if tool requested direct return (detected by marker)
-        is_direct_return = False
-        try:
-            is_direct_return = result.final_output == "__DIRECT_RETURN__" or bool(
-                _return_directly_flag.get()
-            )
-        except LookupError:
-            pass
-
-        # Early return for error cases (no extraction needed)
-        if not result.final_output and not is_direct_return:
-            if last_data:
-                return {
-                    "ok": True,
-                    "data": f"[Partial - {turn_info}] Data retrieved but agent didn't complete.",
-                    "result": last_data,
-                    "queries": queries,
-                    "error": None,
-                }
-            return {
-                "ok": False,
-                "data": None,
-                "result": None,
-                "queries": queries,
-                "error": f"No output ({turn_info})",
-            }
-
-        # Build result for success paths
-        if is_direct_return:
-            agent_output = None
-        else:
-            agent_output = str(result.final_output)
-            _log(f"DONE queries={len(queries)} output={agent_output[:100]}")
-
+    # Recipe extraction (stays here to preserve monkeypatch targets)
+    if result.should_extract_recipe:
         await maybe_extract_and_save_recipe(
             api_type="graphql",
             api_id=build_api_id(ctx, "graphql"),
@@ -689,19 +494,4 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
             raw_schema=safe_get_contextvar(_raw_schema, ""),
         )
 
-        return {
-            "ok": True,
-            "data": agent_output,
-            "result": last_data,
-            "queries": queries,
-            "error": None,
-        }
-
-    except Exception as e:
-        logger.exception("Agent error")
-        return {
-            "ok": False,
-            "data": None,
-            "queries": [],
-            "error": str(e),
-        }
+    return result.result_dict
