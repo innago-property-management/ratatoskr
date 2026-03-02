@@ -86,6 +86,10 @@ def _is_grpc_method_safe(method_path: str, allow_unsafe_rpcs: tuple[str, ...]) -
     configured unsafe patterns (e.g., Create*, Delete*). If the method is
     unsafe, checks the allow_unsafe_rpcs allowlist for an override.
 
+    Note: Leading '/' is stripped from method_path before allowlist matching.
+    Allowlist entries should NOT include a leading slash
+    (e.g., "users.UserService/CreateUser", not "/users.UserService/CreateUser").
+
     Returns True if safe to call, False if blocked.
     """
     method_name = method_path.rsplit("/", 1)[-1]
@@ -816,6 +820,15 @@ def _make_grpc_step_executor_factory(ctx: RequestContext, schema: GrpcSchema):
                         {"success": False, "error": f"Method not found: {method_path}"},
                         indent=2,
                     ),
+                    None,
+                )
+
+            # Mutation safety check (same as tool functions)
+            if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
+                return (
+                    False,
+                    None,
+                    _blocked_method_response(method_path),
                     None,
                 )
 

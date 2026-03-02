@@ -9,7 +9,7 @@ import json
 
 import pytest
 
-from api_agent.graphql.client import execute_query
+from api_agent.graphql.client import _is_mutation, execute_query
 
 
 # ---------------------------------------------------------------------------
@@ -20,47 +20,33 @@ from api_agent.graphql.client import execute_query
 class TestGraphQLCommentStripping:
     """Verify GraphQL mutation detection handles comments correctly."""
 
-    @pytest.mark.asyncio
-    async def test_comment_before_mutation_blocked(self):
-        """A mutation preceded by a comment should still be blocked."""
-        query = "# this is a comment\nmutation { deleteUser(id: 1) { id } }"
-        result = await execute_query(query, endpoint="https://api.example.com/graphql")
-        assert result["success"] is False
-        assert "not allowed" in result["error"].lower()
+    def test_comment_before_mutation_detected(self):
+        """A mutation preceded by a comment should still be detected."""
+        assert _is_mutation("# this is a comment\nmutation { deleteUser(id: 1) { id } }") is True
 
-    @pytest.mark.asyncio
-    async def test_multiline_comments_before_mutation_blocked(self):
-        """Multiple comment lines before mutation should still be blocked."""
-        query = "# line 1\n# line 2\n# line 3\nmutation { createUser { id } }"
-        result = await execute_query(query, endpoint="https://api.example.com/graphql")
-        assert result["success"] is False
-        assert "not allowed" in result["error"].lower()
+    def test_multiline_comments_before_mutation_detected(self):
+        """Multiple comment lines before mutation should still be detected."""
+        assert _is_mutation("# line 1\n# line 2\n# line 3\nmutation { createUser { id } }") is True
 
-    @pytest.mark.asyncio
-    async def test_comment_mentioning_mutation_passes(self):
-        """A query with a comment that mentions 'mutation' should NOT be blocked."""
-        # This is a pure query — the word 'mutation' appears only in a comment
-        query = "# mutation info query\nquery { users { id } }"
-        # Would actually fail at HTTP layer, but mutation check should pass
-        # We just need to verify it doesn't return the mutation-blocked error
-        result = await execute_query(query, endpoint="https://invalid.test")
-        # If it got past mutation check, the error will be a network error, not mutation error
-        if not result["success"]:
-            assert "not allowed" not in result["error"].lower()
+    def test_comment_mentioning_mutation_not_detected(self):
+        """A query with 'mutation' only in a comment should NOT be detected."""
+        assert _is_mutation("# mutation info query\nquery { users { id } }") is False
 
-    @pytest.mark.asyncio
-    async def test_inline_comment_with_mutation_word_passes(self):
-        """Query with inline comment mentioning mutation should pass."""
-        query = "query { users { id } } # mutation"
-        result = await execute_query(query, endpoint="https://invalid.test")
-        if not result["success"]:
-            assert "not allowed" not in result["error"].lower()
+    def test_inline_comment_with_mutation_word_not_detected(self):
+        """Query with inline comment mentioning mutation should NOT be detected."""
+        assert _is_mutation("query { users { id } } # mutation") is False
 
-    @pytest.mark.asyncio
-    async def test_comment_disguised_mutation_blocked(self):
+    def test_comment_disguised_mutation_detected(self):
         """Comment hiding a real mutation on next line should still be caught."""
-        query = "# innocent comment\n  mutation { deleteAll { count } }"
-        result = await execute_query(query, endpoint="https://api.example.com/graphql")
+        assert _is_mutation("# innocent comment\n  mutation { deleteAll { count } }") is True
+
+    @pytest.mark.asyncio
+    async def test_mutation_blocked_at_execute_level(self):
+        """Integration: mutation actually blocked by execute_query."""
+        result = await execute_query(
+            "# comment\nmutation { deleteUser(id: 1) { id } }",
+            endpoint="https://api.example.com/graphql",
+        )
         assert result["success"] is False
         assert "not allowed" in result["error"].lower()
 
@@ -127,6 +113,36 @@ class TestGrpcMethodSafety:
         from api_agent.agent.grpc_agent import _is_grpc_method_safe
 
         assert _is_grpc_method_safe("package.Service/WriteData", ()) is False
+
+    def test_put_method_blocked(self):
+        from api_agent.agent.grpc_agent import _is_grpc_method_safe
+
+        assert _is_grpc_method_safe("package.Service/PutItem", ()) is False
+
+    def test_add_method_blocked(self):
+        from api_agent.agent.grpc_agent import _is_grpc_method_safe
+
+        assert _is_grpc_method_safe("package.Service/AddEntry", ()) is False
+
+    def test_modify_method_blocked(self):
+        from api_agent.agent.grpc_agent import _is_grpc_method_safe
+
+        assert _is_grpc_method_safe("package.Service/ModifyRecord", ()) is False
+
+    def test_patch_method_blocked(self):
+        from api_agent.agent.grpc_agent import _is_grpc_method_safe
+
+        assert _is_grpc_method_safe("package.Service/PatchField", ()) is False
+
+    def test_insert_method_blocked(self):
+        from api_agent.agent.grpc_agent import _is_grpc_method_safe
+
+        assert _is_grpc_method_safe("package.Service/InsertRow", ()) is False
+
+    def test_drop_method_blocked(self):
+        from api_agent.agent.grpc_agent import _is_grpc_method_safe
+
+        assert _is_grpc_method_safe("package.Service/DropTable", ()) is False
 
 
 class TestGrpcAllowUnsafeRpcs:
@@ -335,6 +351,127 @@ class TestGrpcUnsafeRpcsHeader:
         )
         assert ctx.grpc_allow_unsafe_rpcs == ()
 
+    def test_header_parsing_valid_json(self):
+        """get_request_context parses X-Allow-Unsafe-RPCs JSON array."""
+        from unittest.mock import patch
+
+        from api_agent.context import get_request_context
+
+        headers = {
+            "x-target-url": "https://api.example.com/graphql",
+            "x-api-type": "graphql",
+            "x-allow-unsafe-rpcs": '["users.Svc/CreateUser", "orders.Svc/*"]',
+        }
+        with patch("api_agent.context.get_http_headers", return_value=headers):
+            ctx = get_request_context()
+        assert ctx.grpc_allow_unsafe_rpcs == ("users.Svc/CreateUser", "orders.Svc/*")
+
+    def test_header_parsing_invalid_json_falls_back(self):
+        """Invalid JSON in X-Allow-Unsafe-RPCs falls back to empty tuple."""
+        from unittest.mock import patch
+
+        from api_agent.context import get_request_context
+
+        headers = {
+            "x-target-url": "https://api.example.com/graphql",
+            "x-api-type": "graphql",
+            "x-allow-unsafe-rpcs": "not-valid-json",
+        }
+        with patch("api_agent.context.get_http_headers", return_value=headers):
+            ctx = get_request_context()
+        assert ctx.grpc_allow_unsafe_rpcs == ()
+
+
+class TestGrpcRecipeExecutorSafety:
+    """Verify recipe step executor also enforces mutation safety."""
+
+    def _make_schema(self):
+        from unittest.mock import MagicMock
+
+        from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
+
+        pool = MagicMock()
+        services = [
+            ServiceInfo(
+                full_name="users.UserService",
+                methods=[
+                    MethodInfo(
+                        name="CreateUser",
+                        full_method_path="/users.UserService/CreateUser",
+                        input_type="users.CreateUserRequest",
+                        output_type="users.UserResponse",
+                    ),
+                ],
+            )
+        ]
+        raw_text = "<services>\nusers.UserService\n</services>"
+        return GrpcSchema(services=services, raw_schema_text=raw_text, pool=pool)
+
+    @pytest.mark.asyncio
+    async def test_recipe_executor_blocks_unsafe_method(self):
+        """Recipe step executor should block unsafe methods (M1 fix)."""
+        from api_agent.agent.grpc_agent import _make_grpc_step_executor_factory
+        from api_agent.context import RequestContext
+
+        schema = self._make_schema()
+        ctx = RequestContext(
+            target_url="grpc://localhost:50051",
+            target_headers={},
+            api_type="grpc",
+            base_url=None,
+            include_result=False,
+            allow_unsafe_paths=(),
+            poll_paths=(),
+            grpc_allow_unsafe_rpcs=(),  # no allowlist
+        )
+
+        factory = _make_grpc_step_executor_factory(ctx, schema)
+        executor = factory("test-recipe-id")
+
+        step = {
+            "kind": "grpc",
+            "method": "users.UserService/CreateUser",
+            "request_template": '{"name": "Alice"}',
+            "name": "data",
+        }
+        success, data, error_json, call_rec = await executor(0, step, {}, {})
+        assert success is False
+        result = json.loads(error_json)
+        assert "not allowed" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_recipe_executor_allows_with_allowlist(self):
+        """Recipe step executor should allow unsafe methods when allowlisted."""
+        from api_agent.agent.grpc_agent import _make_grpc_step_executor_factory
+        from api_agent.context import RequestContext
+
+        schema = self._make_schema()
+        ctx = RequestContext(
+            target_url="grpc://localhost:50051",
+            target_headers={},
+            api_type="grpc",
+            base_url=None,
+            include_result=False,
+            allow_unsafe_paths=(),
+            poll_paths=(),
+            grpc_allow_unsafe_rpcs=("users.UserService/CreateUser",),
+        )
+
+        factory = _make_grpc_step_executor_factory(ctx, schema)
+        executor = factory("test-recipe-id")
+
+        step = {
+            "kind": "grpc",
+            "method": "users.UserService/CreateUser",
+            "request_template": '{"name": "Alice"}',
+            "name": "data",
+        }
+        # Will fail at RPC layer (no real server), but should NOT fail at safety check
+        success, data, error_json, call_rec = await executor(0, step, {}, {})
+        if not success and error_json:
+            result = json.loads(error_json)
+            assert "not allowed" not in result.get("error", "").lower()
+
 
 class TestGrpcUnsafeConfigPatterns:
     """Verify config setting for unsafe method patterns."""
@@ -347,3 +484,9 @@ class TestGrpcUnsafeConfigPatterns:
         assert "Create*" in patterns
         assert "Delete*" in patterns
         assert "Update*" in patterns
+        assert "Put*" in patterns
+        assert "Add*" in patterns
+        assert "Modify*" in patterns
+        assert "Patch*" in patterns
+        assert "Insert*" in patterns
+        assert "Drop*" in patterns
