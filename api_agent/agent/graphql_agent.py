@@ -255,7 +255,10 @@ async def _fetch_schema_context(
 
     # Apply endpoint allowlist filter (if configured)
     if config_patterns is not None or header_patterns is not None:
+        total = len(schema.get("queryType", {}).get("fields", []))
         schema = filter_graphql_schema(schema, config_patterns, header_patterns)
+        allowed = len(schema.get("queryType", {}).get("fields", []))
+        logger.info("Endpoint allowlist: %d/%d query fields allowed", allowed, total)
 
     # Store raw introspection JSON for grep-like search (FILTERED)
     _raw_schema.set(json.dumps(schema, indent=2))
@@ -478,6 +481,22 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
         ctx.target_url, ctx.target_headers, config_pats, header_pats
     )
     raw_schema = safe_get_contextvar(_raw_schema, "")
+
+    # Check if allowlist filtered out all query fields
+    if (config_pats is not None or header_pats is not None) and raw_schema:
+        try:
+            parsed = json.loads(raw_schema)
+            query_fields = parsed.get("queryType", {}).get("fields", [])
+            if not query_fields:
+                return {
+                    "ok": False,
+                    "data": None,
+                    "queries": [],
+                    "error": "No GraphQL query fields match the configured endpoint allowlist. "
+                    "Check ALLOW_ENDPOINTS_GRAPHQL config and X-Allow-Endpoints header.",
+                }
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     # Create protocol-specific tools
     gql_tool = _create_graphql_query_tool(ctx)

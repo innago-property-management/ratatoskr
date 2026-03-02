@@ -548,6 +548,27 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
             ctx.target_url, ctx.target_headers, spec_filter=spec_filter
         )
 
+        # Check if allowlist filtered out all endpoints (log stats + early return)
+        if spec_filter is not None and raw_spec_json:
+            try:
+                filtered_spec = json.loads(raw_spec_json)
+                paths = filtered_spec.get("paths", {})
+                total_ops = sum(
+                    1 for p in paths.values() if isinstance(p, dict)
+                    for m in ("get", "post", "put", "delete", "patch") if m in p
+                )
+                logger.info("Endpoint allowlist: %d REST operations allowed", total_ops)
+                if not paths:
+                    return {
+                        "ok": False,
+                        "data": None,
+                        "api_calls": [],
+                        "error": "No REST endpoints match the configured endpoint allowlist. "
+                        "Check ALLOW_ENDPOINTS_REST config and X-Allow-Endpoints header.",
+                    }
+            except (json.JSONDecodeError, TypeError):
+                pass
+
         # Use header override or spec-derived base URL
         base_url = ctx.base_url or spec_base_url
         if not base_url:

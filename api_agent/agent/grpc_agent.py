@@ -916,18 +916,6 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
                 "error": f"Failed to connect to gRPC server: {error_msg}",
             }
 
-        # Apply endpoint allowlist filtering
-        config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRPC)
-        header_pats = ctx.allow_endpoints or None
-        if config_pats is not None or header_pats is not None:
-            filtered_services = filter_grpc_services(schema.services, config_pats, header_pats)
-            filtered_text = build_schema_text(filtered_services, schema.pool)
-            schema = GrpcSchema(
-                services=filtered_services,
-                pool=schema.pool,
-                raw_schema_text=filtered_text,
-            )
-
         if not schema.services:
             return {
                 "ok": False,
@@ -935,6 +923,29 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
                 "rpc_calls": [],
                 "error": "No services found via reflection. The server may not expose any services.",
             }
+
+        # Apply endpoint allowlist filtering
+        config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRPC)
+        header_pats = ctx.allow_endpoints or None
+        if config_pats is not None or header_pats is not None:
+            total_methods = sum(len(s.methods) for s in schema.services)
+            filtered_services = filter_grpc_services(schema.services, config_pats, header_pats)
+            allowed_methods = sum(len(s.methods) for s in filtered_services)
+            logger.info("Endpoint allowlist: %d/%d gRPC methods allowed", allowed_methods, total_methods)
+            if not filtered_services:
+                return {
+                    "ok": False,
+                    "data": None,
+                    "rpc_calls": [],
+                    "error": "No gRPC methods match the configured endpoint allowlist. "
+                    "Check ALLOW_ENDPOINTS_GRPC config and X-Allow-Endpoints header.",
+                }
+            filtered_text = build_schema_text(filtered_services, schema.pool)
+            schema = GrpcSchema(
+                services=filtered_services,
+                pool=schema.pool,
+                raw_schema_text=filtered_text,
+            )
 
         # Truncate schema for LLM context
         schema_text = schema.raw_schema_text
