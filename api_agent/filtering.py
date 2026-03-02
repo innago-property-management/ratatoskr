@@ -105,3 +105,37 @@ def filter_openapi_spec(
 
     result["paths"] = filtered_paths
     return result
+
+
+# ---------------------------------------------------------------------------
+# gRPC: Service/method filtering
+# ---------------------------------------------------------------------------
+
+
+def filter_grpc_services(
+    services: list[Any],
+    config_patterns: tuple[str, ...] | None,
+    header_patterns: tuple[str, ...] | None,
+) -> list[Any]:
+    """Filter gRPC services to only allowed methods.
+
+    Match target: "package.Service/Method" (e.g., "helloworld.Greeter/SayHello").
+    Returns new list — does not mutate the originals.
+    Services with zero remaining methods are excluded.
+    """
+    if config_patterns is None and header_patterns is None:
+        return services
+
+    from .grpc.reflection import ServiceInfo
+
+    filtered: list[Any] = []
+    for svc in services:
+        allowed_methods = [
+            m
+            for m in svc.methods
+            if is_endpoint_allowed(f"{svc.full_name}/{m.name}", config_patterns, header_patterns)
+        ]
+        if allowed_methods:
+            filtered.append(ServiceInfo(full_name=svc.full_name, methods=allowed_methods))
+
+    return filtered

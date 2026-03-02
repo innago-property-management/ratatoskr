@@ -3,11 +3,13 @@
 import pytest
 
 from api_agent.filtering import (
+    filter_grpc_services,
     filter_openapi_spec,
     is_endpoint_allowed,
     matches_any_pattern,
     parse_config_allowlist,
 )
+from api_agent.grpc.reflection import MethodInfo, ServiceInfo
 
 
 # ---------------------------------------------------------------------------
@@ -238,3 +240,105 @@ class TestFilterOpenapiSpec:
         }
         result = filter_openapi_spec(spec, ("GET /users",), None)
         assert result["paths"]["/users"].get("x-custom") == "value"
+
+
+# ---------------------------------------------------------------------------
+# filter_grpc_services (gRPC)
+# ---------------------------------------------------------------------------
+
+
+def _make_method(svc: str, name: str) -> MethodInfo:
+    return MethodInfo(
+        name=name,
+        full_method_path=f"/{svc}/{name}",
+        input_type=f"{svc}.{name}Request",
+        output_type=f"{svc}.{name}Response",
+    )
+
+
+_SAMPLE_GRPC_SERVICES = [
+    ServiceInfo(
+        full_name="users.UserService",
+        methods=[
+            _make_method("users.UserService", "GetUser"),
+            _make_method("users.UserService", "ListUsers"),
+            _make_method("users.UserService", "CreateUser"),
+        ],
+    ),
+    ServiceInfo(
+        full_name="orders.OrderService",
+        methods=[
+            _make_method("orders.OrderService", "GetOrder"),
+            _make_method("orders.OrderService", "ListOrders"),
+        ],
+    ),
+]
+
+
+class TestFilterGrpcServices:
+    """Filter gRPC services/methods by allowlist."""
+
+    def test_none_patterns_returns_all(self):
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, None, None)
+        assert len(result) == 2
+        assert len(result[0].methods) == 3
+
+    def test_filter_by_exact_method(self):
+        result = filter_grpc_services(
+            _SAMPLE_GRPC_SERVICES, ("users.UserService/GetUser",), None
+        )
+        assert len(result) == 1
+        assert result[0].full_name == "users.UserService"
+        assert len(result[0].methods) == 1
+        assert result[0].methods[0].name == "GetUser"
+
+    def test_filter_by_service_wildcard(self):
+        """'service/*' matches all methods in a service."""
+        result = filter_grpc_services(
+            _SAMPLE_GRPC_SERVICES, ("orders.OrderService/*",), None
+        )
+        assert len(result) == 1
+        assert result[0].full_name == "orders.OrderService"
+        assert len(result[0].methods) == 2
+
+    def test_filter_by_partial_method_name(self):
+        """'*/Get*' matches Get methods across all services."""
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, ("*/Get*",), None)
+        assert len(result) == 2
+        for svc in result:
+            for m in svc.methods:
+                assert m.name.startswith("Get")
+
+    def test_all_methods_filtered_removes_service(self):
+        """Service with zero matching methods is excluded."""
+        result = filter_grpc_services(
+            _SAMPLE_GRPC_SERVICES, ("orders.OrderService/*",), None
+        )
+        svc_names = [s.full_name for s in result]
+        assert "users.UserService" not in svc_names
+
+    def test_empty_result(self):
+        result = filter_grpc_services(
+            _SAMPLE_GRPC_SERVICES, ("nonexistent/*",), None
+        )
+        assert result == []
+
+    def test_intersection_narrows(self):
+        config = ("users.UserService/*", "orders.OrderService/*")
+        header = ("users.UserService/*",)
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, config, header)
+        assert len(result) == 1
+        assert result[0].full_name == "users.UserService"
+
+    def test_does_not_mutate_original(self):
+        original_len = len(_SAMPLE_GRPC_SERVICES[0].methods)
+        filter_grpc_services(
+            _SAMPLE_GRPC_SERVICES, ("users.UserService/GetUser",), None
+        )
+        assert len(_SAMPLE_GRPC_SERVICES[0].methods) == original_len
+
+    def test_multiple_patterns(self):
+        patterns = ("users.UserService/GetUser", "orders.OrderService/GetOrder")
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, patterns, None)
+        assert len(result) == 2
+        assert all(len(s.methods) == 1 for s in result)

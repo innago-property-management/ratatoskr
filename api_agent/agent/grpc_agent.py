@@ -10,13 +10,14 @@ from typing import Any
 from ..config import settings
 from ..context import RequestContext
 from ..executor import extract_tables_from_response, truncate_for_context
+from ..filtering import filter_grpc_services, parse_config_allowlist
 from ..grpc.client import (
     execute_bidi_streaming_rpc,
     execute_client_streaming_rpc,
     execute_server_streaming_rpc,
     execute_unary_rpc,
 )
-from ..grpc.reflection import GrpcSchema, MethodInfo, fetch_schema
+from ..grpc.reflection import GrpcSchema, MethodInfo, build_schema_text, fetch_schema
 from ..llm.tools import tool
 from ..recipe import (
     _set_return_directly,
@@ -914,6 +915,18 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
                 "rpc_calls": [],
                 "error": f"Failed to connect to gRPC server: {error_msg}",
             }
+
+        # Apply endpoint allowlist filtering
+        config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRPC)
+        header_pats = ctx.allow_endpoints or None
+        if config_pats is not None or header_pats is not None:
+            filtered_services = filter_grpc_services(schema.services, config_pats, header_pats)
+            filtered_text = build_schema_text(filtered_services, schema.pool)
+            schema = GrpcSchema(
+                services=filtered_services,
+                pool=schema.pool,
+                raw_schema_text=filtered_text,
+            )
 
         if not schema.services:
             return {
