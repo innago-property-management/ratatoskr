@@ -419,7 +419,7 @@ Planned improvements (contributions welcome):
 git clone https://github.com/innago-property-management/ratatoskr.git
 cd ratatoskr
 uv sync --group dev
-uv run pytest tests/ -v      # Tests (511 passing)
+uv run pytest tests/ -v      # Tests (848 passing)
 uv run ruff check api_agent/  # Lint
 uv run ty check               # Type check
 ```
