@@ -95,12 +95,12 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
 
         conn = _connect_duckdb()
         safe_name = _safe_table_name(table_name)
-        conn.execute(
-            f'CREATE TABLE "{safe_name}" AS SELECT * FROM read_json_auto(?)',
-            [temp_file],
-        )
-        _sandbox(conn)  # Lock down after data load
         try:
+            conn.execute(
+                f'CREATE TABLE "{safe_name}" AS SELECT * FROM read_json_auto(?)',
+                [temp_file],
+            )
+            _sandbox(conn)  # Lock down after data load
             schema = conn.execute(f'DESCRIBE "{safe_name}"').fetchall()
         finally:
             conn.close()

@@ -26,9 +26,9 @@ def to_csv(data: Any) -> str:
             temp_file = f.name
 
         conn = _connect_duckdb()
-        conn.execute("CREATE TABLE t AS SELECT * FROM read_json_auto(?)", [temp_file])
-        _sandbox(conn)  # Lock down after data load
         try:
+            conn.execute("CREATE TABLE t AS SELECT * FROM read_json_auto(?)", [temp_file])
+            _sandbox(conn)  # Lock down after data load
             result = conn.execute("SELECT * FROM t")
 
             output = io.StringIO()
