@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/servers/main/schema/mcp-config.json",
+  "_comment": "Sample MCP client configs for ratatoskr. Copy any entry into your MCP client settings.",
+  "mcpServers": {
+    "star-wars-graphql": {
+      "_comment": "Star Wars GraphQL API — characters, films, planets, species, starships",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "X-Target-URL": "https://swapi-graphql.netlify.app/.netlify/functions/graphql",
+        "X-API-Type": "graphql",
+        "X-API-Name": "starwars"
+      }
+    },
+    "star-wars-graphql-filtered": {
+      "_comment": "Star Wars GraphQL — only character queries (demonstrates endpoint allowlist)",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "X-Target-URL": "https://swapi-graphql.netlify.app/.netlify/functions/graphql",
+        "X-API-Type": "graphql",
+        "X-API-Name": "starwars",
+        "X-Allow-Endpoints": "[\"Query.person*\", \"Query.allPeople\"]"
+      }
+    },
+    "dad-jokes-rest": {
+      "_comment": "icanhazdadjoke.com — random jokes, search, lookup by ID. No auth needed.",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "X-Target-URL": "https://raw.githubusercontent.com/innago-property-management/ratatoskr/main/samples/dad-jokes-openapi.json",
+        "X-API-Type": "rest",
+        "X-API-Name": "dadjokes",
+        "X-Target-Headers": "{\"Accept\": \"application/json\", \"User-Agent\": \"ratatoskr-demo (https://github.com/innago-property-management/ratatoskr)\"}"
+      }
+    },
+    "dad-jokes-graphql": {
+      "_comment": "icanhazdadjoke.com GraphQL endpoint — alternative to REST",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "X-Target-URL": "https://icanhazdadjoke.com/graphql",
+        "X-API-Type": "graphql",
+        "X-API-Name": "dadjokes"
+      }
+    },
+    "nasa-apod": {
+      "_comment": "NASA Astronomy Picture of the Day — pass date param for historical images. Free DEMO_KEY included.",
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "X-Target-URL": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/nasa.gov/apod/1.0.0/openapi.yaml",
+        "X-API-Type": "rest",
+        "X-API-Name": "nasa",
+        "X-Target-Headers": "{\"Accept\": \"application/json\"}",
+        "X-Base-URL": "https://api.nasa.gov/planetary"
+      }
+    }
+  }
+}
