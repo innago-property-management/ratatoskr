@@ -10,6 +10,7 @@ from typing import Any
 from ..config import settings
 from ..context import RequestContext
 from ..executor import extract_tables_from_response, truncate_for_context
+from ..filtering import filter_openapi_spec, parse_config_allowlist
 from ..llm.tools import tool
 from ..recipe import (
     _set_return_directly,
@@ -534,9 +535,48 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
     """
     try:
         # Fetch schema context (target_url = OpenAPI spec URL)
+        # Build spec filter from config + header allowlist
+        config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_REST)
+        # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
+        header_pats = ctx.allow_endpoints or None
+        spec_filter = None
+        _filter_stats: dict[str, int] = {}  # captures total/allowed from inside closure
+        if config_pats is not None or header_pats is not None:
+
+            def spec_filter(spec: dict) -> dict:
+                # Count total ops before filtering for logging
+                pre_paths = spec.get("paths", {})
+                _filter_stats["total"] = sum(
+                    1 for p in pre_paths.values() if isinstance(p, dict)
+                    for m in ("get", "post", "put", "delete", "patch") if m in p
+                )
+                filtered = filter_openapi_spec(spec, config_pats, header_pats)
+                post_paths = filtered.get("paths", {})
+                _filter_stats["allowed"] = sum(
+                    1 for p in post_paths.values() if isinstance(p, dict)
+                    for m in ("get", "post", "put", "delete", "patch") if m in p
+                )
+                return filtered
+
         schema_ctx, spec_base_url, raw_spec_json = await fetch_schema_context(
-            ctx.target_url, ctx.target_headers
+            ctx.target_url, ctx.target_headers, spec_filter=spec_filter
         )
+
+        # Check if allowlist filtered out all endpoints (log stats + early return)
+        if spec_filter is not None and _filter_stats:
+            logger.info(
+                "Endpoint allowlist: %d/%d REST operations allowed",
+                _filter_stats.get("allowed", 0),
+                _filter_stats.get("total", 0),
+            )
+            if _filter_stats.get("allowed", 0) == 0 and _filter_stats.get("total", 0) > 0:
+                return {
+                    "ok": False,
+                    "data": None,
+                    "api_calls": [],
+                    "error": "No REST endpoints match the configured endpoint allowlist. "
+                    "Check ALLOW_ENDPOINTS_REST config and X-Allow-Endpoints header.",
+                }
 
         # Use header override or spec-derived base URL
         base_url = ctx.base_url or spec_base_url

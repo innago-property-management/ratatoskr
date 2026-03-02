@@ -2,6 +2,7 @@
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import httpx
@@ -337,12 +338,15 @@ def build_schema_context(spec: dict[str, Any]) -> str:
 async def fetch_schema_context(
     spec_url: str,
     headers: dict[str, str] | None = None,
+    spec_filter: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> tuple[str, str, str]:
     """Fetch and build schema context.
 
     Args:
         spec_url: URL to OpenAPI spec
         headers: Optional auth headers
+        spec_filter: Optional filter to apply to spec before building DSL
+            (used by endpoint allowlist to remove non-allowed paths)
 
     Returns:
         Tuple of (truncated_context, base_url, raw_spec_json)
@@ -351,13 +355,17 @@ async def fetch_schema_context(
     if not spec:
         return "", "", ""
 
-    # Raw spec JSON for grep-like search (preserves all info)
+    # Apply endpoint allowlist filter (if configured)
+    if spec_filter is not None:
+        spec = spec_filter(spec)
+
+    # Raw spec JSON for grep-like search (preserves all info — FILTERED)
     try:
         raw_spec_json = json.dumps(spec, indent=2)
     except TypeError:
         raw_spec_json = json.dumps(spec, indent=2, default=str)
 
-    # Build DSL for LLM context
+    # Build DSL for LLM context (from FILTERED spec)
     try:
         dsl_context = build_schema_context(spec)
     except Exception:
