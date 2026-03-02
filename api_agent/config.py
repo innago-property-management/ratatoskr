@@ -78,6 +78,12 @@ class Settings(BaseSettings):
         "Destroy*,Drop*,Insert*,Add*,Modify*,Patch*,Upsert*,Write*"
     )
 
+    # Default target (optional — fallback when headers omitted, useful for single-API instances)
+    DEFAULT_TARGET_URL: str = ""  # e.g. "https://swapi-graphql.netlify.app/.netlify/functions/graphql"
+    DEFAULT_API_TYPE: str = ""  # "graphql", "rest", or "grpc"
+    DEFAULT_BASE_URL: str = ""  # REST base URL override
+    DEFAULT_TARGET_HEADERS: str = ""  # JSON object, e.g. '{"Accept": "application/json"}'
+
     # Endpoint allowlist (empty = all endpoints exposed, backwards compatible)
     ALLOW_ENDPOINTS_REST: str = ""  # CSV: "GET /users/*,GET /orders/*"
     ALLOW_ENDPOINTS_GRAPHQL: str = ""  # CSV: "Query.user*,Query.orders"
