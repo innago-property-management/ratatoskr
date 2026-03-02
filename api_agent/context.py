@@ -89,7 +89,10 @@ def get_request_context() -> RequestContext:
         poll_paths = ()
 
     try:
-        grpc_allow_unsafe_rpcs = tuple(json.loads(grpc_allow_unsafe_rpcs_raw))
+        parsed = json.loads(grpc_allow_unsafe_rpcs_raw)
+        grpc_allow_unsafe_rpcs = (
+            tuple(v for v in parsed if isinstance(v, str)) if isinstance(parsed, list) else ()
+        )
     except json.JSONDecodeError:
         grpc_allow_unsafe_rpcs = ()
 

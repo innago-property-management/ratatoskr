@@ -381,6 +381,21 @@ class TestGrpcUnsafeRpcsHeader:
             ctx = get_request_context()
         assert ctx.grpc_allow_unsafe_rpcs == ()
 
+    def test_header_parsing_non_string_items_filtered(self):
+        """Non-string items in JSON array are silently filtered out."""
+        from unittest.mock import patch
+
+        from api_agent.context import get_request_context
+
+        headers = {
+            "x-target-url": "https://api.example.com/graphql",
+            "x-api-type": "graphql",
+            "x-allow-unsafe-rpcs": '["valid.Svc/Create", 42, true, null]',
+        }
+        with patch("api_agent.context.get_http_headers", return_value=headers):
+            ctx = get_request_context()
+        assert ctx.grpc_allow_unsafe_rpcs == ("valid.Svc/Create",)
+
 
 class TestGrpcRecipeExecutorSafety:
     """Verify recipe step executor also enforces mutation safety."""
