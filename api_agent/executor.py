@@ -100,15 +100,17 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
             [temp_file],
         )
         _sandbox(conn)  # Lock down after data load
-        schema = conn.execute(f'DESCRIBE "{safe_name}"').fetchall()
-        conn.close()
+        try:
+            schema = conn.execute(f'DESCRIBE "{safe_name}"').fetchall()
+        finally:
+            conn.close()
 
         schema_str = ", ".join([f"{col[0]}: {col[1]}" for col in schema])
 
         return {
             "rows": len(data),
             "schema": schema_str,
-            "hint": f"Use sql_query() to access fields. Example: SELECT {schema[0][0]} FROM {safe_name}",
+            "hint": f'Use sql_query() to access fields. Example: SELECT "{schema[0][0]}" FROM "{safe_name}"',
         }
     except Exception as e:
         logger.exception("Schema extraction error")
@@ -183,6 +185,7 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
         Dict with success/result or error
     """
     temp_files = []
+    conn = None
     try:
         conn = _connect_duckdb()
 
@@ -217,7 +220,6 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
         # Convert to list of dicts
         rows = [dict(zip(columns, row)) for row in result]
 
-        conn.close()
         return {"success": True, "result": rows}
 
     except duckdb.Error as e:
@@ -226,6 +228,8 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
         logger.exception("SQL execution error")
         return {"success": False, "error": str(e)}
     finally:
+        if conn:
+            conn.close()
         # Cleanup temp files
         for temp_file in temp_files:
             try:

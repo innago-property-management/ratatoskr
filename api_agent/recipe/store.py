@@ -85,8 +85,8 @@ def render_sql_safe(template: str, params: dict[str, Any]) -> str:
             return "null"
         if isinstance(v, (int, float)):
             return str(v)
-        # String values: escape single quotes + strip semicolons
-        s = str(v).replace("'", "''").replace(";", "")
+        # String values: escape single quotes + strip injection vectors
+        s = str(v).replace("'", "''").replace(";", "").replace("--", "").replace("/*", "").replace("*/", "")
         return s
 
     def repl(m: re.Match[str]) -> str:

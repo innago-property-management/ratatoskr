@@ -61,6 +61,16 @@ class TestDuckDBSandbox:
         assert "id" in result
         assert "Alice" in result
 
+    def test_csv_to_csv_sandbox_called(self):
+        """to_csv code path must invoke _sandbox on the DuckDB connection."""
+        from unittest.mock import patch
+
+        from api_agent.utils import csv as csv_mod
+
+        with patch.object(csv_mod, "_sandbox", wraps=csv_mod._sandbox) as mock_sandbox:
+            csv_mod.to_csv([{"id": 1}])
+            mock_sandbox.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # F3: Table name sanitization
@@ -208,6 +218,23 @@ class TestRenderSqlSafe:
             {"x": "hello", "y": 10},
         )
         assert result == "SELECT * FROM data WHERE a = 'hello' AND b = 10"
+
+    def test_strips_line_comments(self):
+        """SQL line comment sequences (--) are stripped."""
+        result = render_sql_safe(
+            "SELECT * FROM data WHERE name = '{{name}}'",
+            {"name": "x' -- injected comment"},
+        )
+        assert "--" not in result
+
+    def test_strips_block_comments(self):
+        """SQL block comment sequences (/* */) are stripped."""
+        result = render_sql_safe(
+            "SELECT * FROM data WHERE name = '{{name}}'",
+            {"name": "x' /* block */ OR '1'='1"},
+        )
+        assert "/*" not in result
+        assert "*/" not in result
 
     def test_end_to_end_safe_sql_execution(self):
         """Full pipeline: render_sql_safe → execute_sql is safe."""
