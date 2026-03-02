@@ -419,7 +419,7 @@ Planned improvements (contributions welcome):
 git clone https://github.com/innago-property-management/ratatoskr.git
 cd ratatoskr
 uv sync --group dev
-uv run pytest tests/ -v      # Tests (511 passing)
+uv run pytest tests/ -v      # Tests (848 passing)
 uv run ruff check api_agent/  # Lint
 uv run ty check               # Type check
 ```
@@ -437,7 +437,7 @@ Ratatoskr is a fork of **[api-agent](https://github.com/agoda-com/api-agent)** b
 The core architecture — FastMCP server, dynamic tool naming, agent orchestration, DuckDB post-processing, and recipe learning — is entirely Agoda's work. Ratatoskr extends it with:
 
 - **Polyglot LLM support** — Anthropic, OpenAI, and OpenAI-compatible providers via a pluggable `LLMProvider` abstraction
-- **Expanded test coverage** — 511 tests covering orchestration, safety boundaries, configuration contracts, and provider SDK surfaces
+- **Expanded test coverage** — 848 tests covering orchestration, safety boundaries, configuration contracts, and provider SDK surfaces
 - **GraphQL partial success fix** — Returns both `data` and `errors` when both present, per the GraphQL specification
 
 The name **Ratatoskr** comes from the Norse squirrel who runs up and down Yggdrasil carrying messages between realms — a fitting metaphor for a universal API-to-LLM bridge.
