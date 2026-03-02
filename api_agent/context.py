@@ -1,5 +1,6 @@
 """Request context extraction from HTTP headers."""
 
+import ipaddress
 import json
 import re
 from dataclasses import dataclass
@@ -7,11 +8,87 @@ from urllib.parse import urlparse
 
 from fastmcp.server.dependencies import get_http_headers
 
+from .config import settings
+
+_PRIVATE_NETWORKS = [
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+]
+
 
 class MissingHeaderError(Exception):
     """Required header missing from request."""
 
     pass
+
+
+def validate_target_url(url: str, api_type: str) -> str:
+    """Validate target URL against SSRF protections.
+
+    Checks: scheme whitelist, private IP blocklist, cloud metadata blocklist,
+    optional host allowlist.
+
+    Raises MissingHeaderError on validation failure.
+    Returns the URL unchanged if valid.
+    """
+    parsed = urlparse(url)
+
+    # Scheme validation (per protocol)
+    allowed_schemes = {s.strip() for s in settings.ALLOWED_URL_SCHEMES.split(",")}
+    if api_type == "grpc":
+        valid_schemes = allowed_schemes & {"grpc", "grpcs"}
+        if parsed.scheme not in valid_schemes:
+            raise MissingHeaderError(
+                f"Invalid scheme '{parsed.scheme}' for gRPC. Allowed: {sorted(valid_schemes)}"
+            )
+    else:
+        valid_schemes = allowed_schemes & {"http", "https"}
+        if parsed.scheme not in valid_schemes:
+            raise MissingHeaderError(
+                f"Invalid scheme '{parsed.scheme}' for {api_type}. Allowed: {sorted(valid_schemes)}"
+            )
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise MissingHeaderError("X-Target-URL must include a hostname")
+
+    # Blocked hosts (cloud metadata, etc.)
+    blocked = [h.strip().lower() for h in settings.BLOCKED_HOSTS.split(",") if h.strip()]
+    if hostname.lower() in blocked:
+        raise MissingHeaderError(f"Host '{hostname}' is blocked (security policy)")
+
+    # Private IP blocking
+    if settings.BLOCK_PRIVATE_IPS:
+        try:
+            ip = ipaddress.ip_address(hostname)
+            # Unwrap IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1 → 10.0.0.1)
+            check_ip = getattr(ip, "ipv4_mapped", None) or ip
+            for network in _PRIVATE_NETWORKS:
+                try:
+                    if check_ip in network:
+                        raise MissingHeaderError(
+                            f"Private/internal IP addresses are blocked: {hostname}"
+                        )
+                except TypeError:
+                    continue  # IPv4/IPv6 version mismatch — skip this network
+        except ValueError:
+            pass  # DNS name, not an IP literal — acceptable
+
+    # Host allowlist (if configured)
+    if settings.ALLOWED_TARGET_HOSTS:
+        allowed_hosts = [
+            h.strip().lower() for h in settings.ALLOWED_TARGET_HOSTS.split(",") if h.strip()
+        ]
+        if hostname.lower() not in allowed_hosts:
+            raise MissingHeaderError(f"Host '{hostname}' not in allowed target hosts")
+
+    return url
 
 
 @dataclass(frozen=True)
@@ -72,6 +149,9 @@ def get_request_context() -> RequestContext:
         raise MissingHeaderError(
             f"X-API-Type must be 'graphql', 'rest', or 'grpc', got '{api_type}'"
         )
+
+    # SSRF protection: validate URL before using it
+    validate_target_url(target_url, api_type)
 
     try:
         target_headers = json.loads(target_headers_raw)

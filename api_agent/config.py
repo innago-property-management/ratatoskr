@@ -66,6 +66,12 @@ class Settings(BaseSettings):
     ENABLE_RECIPES: bool = True
     RECIPE_CACHE_SIZE: int = 64
 
+    # Security — SSRF protection
+    ALLOWED_URL_SCHEMES: str = "http,https,grpc,grpcs"
+    BLOCK_PRIVATE_IPS: bool = True
+    BLOCKED_HOSTS: str = "169.254.169.254,metadata.google.internal"
+    ALLOWED_TARGET_HOSTS: str = ""  # empty = allow all non-blocked; comma-separated allowlist
+
     # gRPC mutation safety
     GRPC_UNSAFE_METHOD_PATTERNS: str = (
         "Create*,Delete*,Remove*,Update*,Set*,Put*,"
