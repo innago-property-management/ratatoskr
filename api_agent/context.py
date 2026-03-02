@@ -25,6 +25,9 @@ class RequestContext:
     base_url: str | None  # X-Base-URL: override base URL (REST only)
     include_result: bool  # X-Include-Result: whether to include full result in output
     poll_paths: tuple[str, ...]  # X-Poll-Paths: paths that require polling (enables poll tool)
+    grpc_allow_unsafe_rpcs: tuple[
+        str, ...
+    ] = ()  # X-Allow-Unsafe-RPCs: glob patterns for gRPC mutations
 
 
 def get_request_context() -> RequestContext:
@@ -40,6 +43,7 @@ def get_request_context() -> RequestContext:
         X-Base-URL: Override base URL for REST API calls
         X-Include-Result: Include full uncapped result in output (default: false)
         X-Poll-Paths: JSON array of paths requiring polling (enables poll tool)
+        X-Allow-Unsafe-RPCs: JSON array of glob patterns for gRPC mutations
 
     Raises:
         MissingHeaderError: If required headers are missing or invalid
@@ -53,6 +57,7 @@ def get_request_context() -> RequestContext:
     base_url_raw = headers.get("x-base-url")
     include_result_raw = headers.get("x-include-result", "false")
     poll_paths_raw = headers.get("x-poll-paths") or "[]"
+    grpc_allow_unsafe_rpcs_raw = headers.get("x-allow-unsafe-rpcs") or "[]"
 
     base_url = base_url_raw if base_url_raw else None
     include_result = (include_result_raw or "").lower() in ("true", "1", "yes")
@@ -83,6 +88,14 @@ def get_request_context() -> RequestContext:
     except json.JSONDecodeError:
         poll_paths = ()
 
+    try:
+        parsed = json.loads(grpc_allow_unsafe_rpcs_raw)
+        grpc_allow_unsafe_rpcs = (
+            tuple(v for v in parsed if isinstance(v, str)) if isinstance(parsed, list) else ()
+        )
+    except json.JSONDecodeError:
+        grpc_allow_unsafe_rpcs = ()
+
     return RequestContext(
         target_url=target_url,
         api_type=api_type,
@@ -91,6 +104,7 @@ def get_request_context() -> RequestContext:
         base_url=base_url,
         include_result=include_result,
         poll_paths=poll_paths,
+        grpc_allow_unsafe_rpcs=grpc_allow_unsafe_rpcs,
     )
 
 

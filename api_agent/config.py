@@ -25,9 +25,7 @@ class Settings(BaseSettings):
     PROVIDER: str = "openai"  # "openai", "anthropic", or "openai-compat"
     API_KEY: str = Field(
         default="",
-        validation_alias=AliasChoices(
-            "API_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"
-        ),
+        validation_alias=AliasChoices("API_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
     )
     BASE_URL: str = Field(
         default="",
@@ -67,6 +65,12 @@ class Settings(BaseSettings):
     # Recipes (in-process reuse)
     ENABLE_RECIPES: bool = True
     RECIPE_CACHE_SIZE: int = 64
+
+    # gRPC mutation safety
+    GRPC_UNSAFE_METHOD_PATTERNS: str = (
+        "Create*,Delete*,Remove*,Update*,Set*,Put*,"
+        "Destroy*,Drop*,Insert*,Add*,Modify*,Patch*,Upsert*,Write*"
+    )
 
 
 settings = Settings()
