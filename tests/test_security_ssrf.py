@@ -123,6 +123,26 @@ class TestPrivateIPBlocking:
         with pytest.raises(MissingHeaderError, match="(?i)private|blocked"):
             validate_target_url("http://[::1]:8080/api", "rest")
 
+    def test_ipv4_mapped_ipv6_private_blocked(self):
+        """IPv4-mapped IPv6 (::ffff:10.x) must be unwrapped and blocked."""
+        with pytest.raises(MissingHeaderError, match="(?i)private|blocked"):
+            validate_target_url("http://[::ffff:10.0.0.1]/api", "rest")
+
+    def test_ipv4_mapped_ipv6_loopback_blocked(self):
+        """IPv4-mapped IPv6 loopback (::ffff:127.0.0.1) must be blocked."""
+        with pytest.raises(MissingHeaderError, match="(?i)private|blocked"):
+            validate_target_url("http://[::ffff:127.0.0.1]/api", "rest")
+
+    def test_ipv6_unique_local_blocked(self):
+        """IPv6 unique-local (fc00::/7) must be blocked."""
+        with pytest.raises(MissingHeaderError, match="(?i)private|blocked"):
+            validate_target_url("http://[fd00::1]/api", "rest")
+
+    def test_ipv6_link_local_blocked(self):
+        """IPv6 link-local (fe80::/10) must be blocked."""
+        with pytest.raises(MissingHeaderError, match="(?i)private|blocked"):
+            validate_target_url("http://[fe80::1]/api", "rest")
+
     def test_public_ip_passes(self):
         assert validate_target_url("http://93.184.216.34/api", "rest")
 

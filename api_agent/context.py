@@ -67,11 +67,16 @@ def validate_target_url(url: str, api_type: str) -> str:
     if settings.BLOCK_PRIVATE_IPS:
         try:
             ip = ipaddress.ip_address(hostname)
+            # Unwrap IPv4-mapped IPv6 (e.g. ::ffff:10.0.0.1 → 10.0.0.1)
+            check_ip = getattr(ip, "ipv4_mapped", None) or ip
             for network in _PRIVATE_NETWORKS:
-                if ip in network:
-                    raise MissingHeaderError(
-                        f"Private/internal IP addresses are blocked: {hostname}"
-                    )
+                try:
+                    if check_ip in network:
+                        raise MissingHeaderError(
+                            f"Private/internal IP addresses are blocked: {hostname}"
+                        )
+                except TypeError:
+                    continue  # IPv4/IPv6 version mismatch — skip this network
         except ValueError:
             pass  # DNS name, not an IP literal — acceptable
 
