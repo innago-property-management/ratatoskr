@@ -232,7 +232,7 @@ async def _fetch_schema_context(
     headers: dict[str, str] | None,
     config_patterns: tuple[str, ...] | None = None,
     header_patterns: tuple[str, ...] | None = None,
-) -> str:
+) -> tuple[str, int | None]:
     """Fetch schema in compact SDL format. Falls back to shallow query on depth limit.
 
     Args:
@@ -240,6 +240,10 @@ async def _fetch_schema_context(
         headers: Optional auth headers
         config_patterns: Config-level allowlist patterns (fnmatch)
         header_patterns: Header-level allowlist patterns (fnmatch)
+
+    Returns:
+        Tuple of (schema_context, allowed_field_count).
+        allowed_field_count is None when no allowlist is active; 0+ when filtering applied.
     """
     result = await graphql_fetch(_INTROSPECTION_QUERY, None, endpoint, headers)
 
@@ -249,16 +253,19 @@ async def _fetch_schema_context(
         result = await graphql_fetch(_INTROSPECTION_QUERY_SHALLOW, None, endpoint, headers)
 
     if not result.get("success") or not result.get("data"):
-        return ""
+        return "", None
 
     schema = result["data"]["__schema"]
+    allowed_count: int | None = None
 
     # Apply endpoint allowlist filter (if configured)
     if config_patterns is not None or header_patterns is not None:
-        total = len(schema.get("queryType", {}).get("fields", []))
+        qt = (schema.get("queryType") or {})
+        total = len(qt.get("fields") or [])
         schema = filter_graphql_schema(schema, config_patterns, header_patterns)
-        allowed = len(schema.get("queryType", {}).get("fields", []))
-        logger.info("Endpoint allowlist: %d/%d query fields allowed", allowed, total)
+        qt_filtered = (schema.get("queryType") or {})
+        allowed_count = len(qt_filtered.get("fields") or [])
+        logger.info("Endpoint allowlist: %d/%d query fields allowed", allowed_count, total)
 
     # Store raw introspection JSON for grep-like search (FILTERED)
     _raw_schema.set(json.dumps(schema, indent=2))
@@ -274,7 +281,7 @@ async def _fetch_schema_context(
                 + "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
             )
 
-    return context
+    return context, allowed_count
 
 
 async def fetch_graphql_schema_raw(endpoint: str, headers: dict[str, str] | None) -> str:
@@ -477,26 +484,20 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
     # Fetch schema (protocol-specific) — with endpoint allowlist filtering
     config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRAPHQL)
     header_pats = ctx.allow_endpoints or None
-    schema_ctx = await _fetch_schema_context(
+    schema_ctx, allowed_count = await _fetch_schema_context(
         ctx.target_url, ctx.target_headers, config_pats, header_pats
     )
     raw_schema = safe_get_contextvar(_raw_schema, "")
 
-    # Check if allowlist filtered out all query fields
-    if (config_pats is not None or header_pats is not None) and raw_schema:
-        try:
-            parsed = json.loads(raw_schema)
-            query_fields = parsed.get("queryType", {}).get("fields", [])
-            if not query_fields:
-                return {
-                    "ok": False,
-                    "data": None,
-                    "queries": [],
-                    "error": "No GraphQL query fields match the configured endpoint allowlist. "
-                    "Check ALLOW_ENDPOINTS_GRAPHQL config and X-Allow-Endpoints header.",
-                }
-        except (json.JSONDecodeError, TypeError):
-            pass
+    # Check if allowlist filtered out all query fields (uses count from _fetch_schema_context)
+    if allowed_count is not None and allowed_count == 0:
+        return {
+            "ok": False,
+            "data": None,
+            "queries": [],
+            "error": "No GraphQL query fields match the configured endpoint allowlist. "
+            "Check ALLOW_ENDPOINTS_GRAPHQL config and X-Allow-Endpoints header.",
+        }
 
     # Create protocol-specific tools
     gql_tool = _create_graphql_query_tool(ctx)

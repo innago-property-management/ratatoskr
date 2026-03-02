@@ -395,7 +395,7 @@ class TestSearchSchemaNoLeak:
         from api_agent.agent.graphql_agent import _fetch_schema_context, _raw_schema
 
         ctx = _graphql_ctx(allow_endpoints=("Query.users",))
-        schema_ctx = await _fetch_schema_context(
+        schema_ctx, allowed_count = await _fetch_schema_context(
             ctx.target_url,
             ctx.target_headers,
             config_patterns=None,
@@ -409,3 +409,124 @@ class TestSearchSchemaNoLeak:
         assert "User" in type_names
         assert "Post" not in type_names
         assert "posts" not in schema_ctx
+        assert allowed_count == 1
+
+
+# ---------------------------------------------------------------------------
+# gRPC: empty allowlist → error
+# ---------------------------------------------------------------------------
+
+
+class TestGrpcAllowlistEmpty:
+    """When allowlist filters ALL gRPC methods, return error."""
+
+    @pytest.mark.asyncio
+    async def test_config_filters_all_returns_error(self, monkeypatch):
+        """Config allowlist that matches nothing → error with clear message."""
+        from unittest.mock import MagicMock
+
+        from api_agent.agent.grpc_agent import process_grpc_query
+        from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.settings.ALLOW_ENDPOINTS_GRPC",
+            "nonexistent.Service/*",
+        )
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.settings.ENABLE_RECIPES", False
+        )
+
+        schema = GrpcSchema(
+            services=[
+                ServiceInfo(
+                    full_name="helloworld.Greeter",
+                    methods=[
+                        MethodInfo(
+                            name="SayHello",
+                            full_method_path="/helloworld.Greeter/SayHello",
+                            input_type="helloworld.HelloRequest",
+                            output_type="helloworld.HelloReply",
+                        ),
+                    ],
+                )
+            ],
+            pool=MagicMock(),
+            raw_schema_text="<services>\nhelloworld.Greeter\n  SayHello\n",
+        )
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        ctx = RequestContext(
+            target_url="grpc://localhost:50051",
+            target_headers={"authorization": "Bearer test-token"},
+            api_type="grpc",
+            base_url=None,
+            include_result=False,
+            allow_unsafe_paths=(),
+            poll_paths=(),
+            allow_endpoints=(),
+        )
+        result = await process_grpc_query("Say hello", ctx)
+
+        assert result["ok"] is False
+        assert "allowlist" in result["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_header_filters_all_returns_error(self, monkeypatch):
+        """Header allowlist that matches nothing → error."""
+        from unittest.mock import MagicMock
+
+        from api_agent.agent.grpc_agent import process_grpc_query
+        from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.settings.ALLOW_ENDPOINTS_GRPC", ""
+        )
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.settings.ENABLE_RECIPES", False
+        )
+
+        schema = GrpcSchema(
+            services=[
+                ServiceInfo(
+                    full_name="helloworld.Greeter",
+                    methods=[
+                        MethodInfo(
+                            name="SayHello",
+                            full_method_path="/helloworld.Greeter/SayHello",
+                            input_type="helloworld.HelloRequest",
+                            output_type="helloworld.HelloReply",
+                        ),
+                    ],
+                )
+            ],
+            pool=MagicMock(),
+            raw_schema_text="<services>\nhelloworld.Greeter\n  SayHello\n",
+        )
+
+        async def mock_fetch_schema(*args, **kwargs):
+            return schema
+
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
+        )
+
+        ctx = RequestContext(
+            target_url="grpc://localhost:50051",
+            target_headers={"authorization": "Bearer test-token"},
+            api_type="grpc",
+            base_url=None,
+            include_result=False,
+            allow_unsafe_paths=(),
+            poll_paths=(),
+            allow_endpoints=("nonexistent.Service/Method",),
+        )
+        result = await process_grpc_query("Say hello", ctx)
+
+        assert result["ok"] is False
+        assert "allowlist" in result["error"].lower()

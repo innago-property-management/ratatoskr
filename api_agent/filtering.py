@@ -126,6 +126,7 @@ def filter_grpc_services(
     if config_patterns is None and header_patterns is None:
         return services
 
+    # Lazy import to avoid circular dependency: filtering → grpc.reflection → ...
     from .grpc.reflection import ServiceInfo
 
     filtered: list[Any] = []
@@ -177,6 +178,10 @@ def _collect_referenced_types(
     type_def = all_types_by_name.get(type_name)
     if not type_def:
         return
+    # Skip scalar types (custom scalars have no fields to recurse into)
+    if type_def.get("kind") == "SCALAR":
+        collected.add(type_name)
+        return
     collected.add(type_name)
 
     # Walk fields and their args
@@ -223,7 +228,13 @@ def filter_graphql_schema(
         return schema
 
     result = copy.deepcopy(schema)
-    query_fields = result.get("queryType", {}).get("fields", [])
+
+    # Guard against missing or null queryType (e.g. subscription-only schemas)
+    query_type = result.get("queryType") or {}
+    query_fields = query_type.get("fields") or []
+
+    if "queryType" not in result or result["queryType"] is None:
+        return result
 
     # Filter query fields
     allowed_fields = [
@@ -249,10 +260,12 @@ def filter_graphql_schema(
             if arg_type:
                 _collect_referenced_types(arg_type, types_by_name, referenced)
 
-    # Always keep Query type
+    # Always keep Query type + built-in scalars (present in introspection but not rendered)
     referenced.add("Query")
 
-    # Filter types list
-    result["types"] = [t for t in all_types if t["name"] in referenced]
+    # Filter types list — keep referenced types and built-in scalars
+    result["types"] = [
+        t for t in all_types if t["name"] in referenced or t["name"] in _BUILTIN_SCALARS
+    ]
 
     return result
