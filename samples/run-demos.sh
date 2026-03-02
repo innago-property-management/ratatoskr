@@ -23,7 +23,7 @@ echo "[starwars] GraphQL on :3941"
 API_AGENT_DEFAULT_TARGET_URL="https://swapi-graphql.netlify.app/.netlify/functions/graphql" \
 API_AGENT_DEFAULT_API_TYPE="graphql" \
 API_AGENT_MCP_NAME="Star Wars" \
-  uv run api-agent --port 3941 &
+  uv run python -m api_agent --port 3941 &
 
 # Dad Jokes REST — port 3942
 echo "[dadjokes] REST on :3942"
@@ -31,7 +31,7 @@ API_AGENT_DEFAULT_TARGET_URL="https://raw.githubusercontent.com/innago-property-
 API_AGENT_DEFAULT_API_TYPE="rest" \
 API_AGENT_DEFAULT_TARGET_HEADERS='{"Accept":"application/json","User-Agent":"ratatoskr-demo"}' \
 API_AGENT_MCP_NAME="Dad Jokes" \
-  uv run api-agent --port 3942 &
+  uv run python -m api_agent --port 3942 &
 
 # NASA APOD REST — port 3943
 echo "[nasa]     REST on :3943"
@@ -40,7 +40,7 @@ API_AGENT_DEFAULT_API_TYPE="rest" \
 API_AGENT_DEFAULT_BASE_URL="https://api.nasa.gov/planetary" \
 API_AGENT_DEFAULT_TARGET_HEADERS='{"Accept":"application/json"}' \
 API_AGENT_MCP_NAME="NASA APOD" \
-  uv run api-agent --port 3943 &
+  uv run python -m api_agent --port 3943 &
 
 echo ""
 echo "Instances starting on ports 3941-3943."
