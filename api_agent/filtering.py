@@ -139,3 +139,120 @@ def filter_grpc_services(
             filtered.append(ServiceInfo(full_name=svc.full_name, methods=allowed_methods))
 
     return filtered
+
+
+# ---------------------------------------------------------------------------
+# GraphQL: Introspection schema filtering with transitive type closure
+# ---------------------------------------------------------------------------
+
+_BUILTIN_SCALARS = {"String", "Int", "Float", "Boolean", "ID"}
+
+
+def _extract_type_name(type_ref: dict[str, Any] | None) -> str | None:
+    """Extract leaf type name from a GraphQL introspection type reference.
+
+    Unwraps NON_NULL and LIST wrappers:
+        {kind: NON_NULL, ofType: {kind: LIST, ofType: {name: "User"}}} → "User"
+    """
+    if not type_ref:
+        return None
+    kind = type_ref.get("kind")
+    if kind in ("NON_NULL", "LIST"):
+        return _extract_type_name(type_ref.get("ofType"))
+    return type_ref.get("name")
+
+
+def _collect_referenced_types(
+    type_name: str,
+    all_types_by_name: dict[str, dict[str, Any]],
+    collected: set[str],
+) -> None:
+    """Recursively collect all types referenced by the given type.
+
+    Walks fields, args, inputFields, interfaces, possibleTypes.
+    Skips built-in scalars.
+    """
+    if type_name in collected or type_name in _BUILTIN_SCALARS:
+        return
+    type_def = all_types_by_name.get(type_name)
+    if not type_def:
+        return
+    collected.add(type_name)
+
+    # Walk fields and their args
+    for field in type_def.get("fields") or []:
+        ref = _extract_type_name(field.get("type"))
+        if ref:
+            _collect_referenced_types(ref, all_types_by_name, collected)
+        for arg in field.get("args") or []:
+            ref = _extract_type_name(arg.get("type"))
+            if ref:
+                _collect_referenced_types(ref, all_types_by_name, collected)
+
+    # Walk input fields (INPUT_OBJECT types)
+    for field in type_def.get("inputFields") or []:
+        ref = _extract_type_name(field.get("type"))
+        if ref:
+            _collect_referenced_types(ref, all_types_by_name, collected)
+
+    # Walk interfaces
+    for iface in type_def.get("interfaces") or []:
+        name = iface.get("name")
+        if name:
+            _collect_referenced_types(name, all_types_by_name, collected)
+
+    # Walk union possible types
+    for pt in type_def.get("possibleTypes") or []:
+        name = pt.get("name")
+        if name:
+            _collect_referenced_types(name, all_types_by_name, collected)
+
+
+def filter_graphql_schema(
+    schema: dict[str, Any],
+    config_patterns: tuple[str, ...] | None,
+    header_patterns: tuple[str, ...] | None,
+) -> dict[str, Any]:
+    """Filter GraphQL introspection schema to only allowed query fields.
+
+    Match target: "Query.fieldName" (e.g., "Query.users").
+    Computes transitive closure of types referenced by allowed fields.
+    Returns a new schema dict — does not mutate the original.
+    """
+    if config_patterns is None and header_patterns is None:
+        return schema
+
+    result = copy.deepcopy(schema)
+    query_fields = result.get("queryType", {}).get("fields", [])
+
+    # Filter query fields
+    allowed_fields = [
+        f
+        for f in query_fields
+        if is_endpoint_allowed(f"Query.{f['name']}", config_patterns, header_patterns)
+    ]
+    result["queryType"]["fields"] = allowed_fields
+
+    # Compute transitive closure of referenced types
+    all_types = result.get("types", [])
+    types_by_name = {t["name"]: t for t in all_types if not t["name"].startswith("__")}
+
+    referenced: set[str] = set()
+    for field in allowed_fields:
+        # Collect return type
+        ret_type = _extract_type_name(field.get("type"))
+        if ret_type:
+            _collect_referenced_types(ret_type, types_by_name, referenced)
+        # Collect argument types
+        for arg in field.get("args") or []:
+            arg_type = _extract_type_name(arg.get("type"))
+            if arg_type:
+                _collect_referenced_types(arg_type, types_by_name, referenced)
+
+    # Always keep Query type
+    referenced.add("Query")
+
+    # Filter types list
+    result["types"] = [t for t in all_types if t["name"] in referenced]
+
+    return result

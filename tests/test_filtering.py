@@ -3,6 +3,9 @@
 import pytest
 
 from api_agent.filtering import (
+    _collect_referenced_types,
+    _extract_type_name,
+    filter_graphql_schema,
     filter_grpc_services,
     filter_openapi_spec,
     is_endpoint_allowed,
@@ -342,3 +345,273 @@ class TestFilterGrpcServices:
         result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, patterns, None)
         assert len(result) == 2
         assert all(len(s.methods) == 1 for s in result)
+
+
+# ---------------------------------------------------------------------------
+# GraphQL: type name extraction + transitive closure + schema filtering
+# ---------------------------------------------------------------------------
+
+# Helper to build type refs in introspection format
+def _scalar(name: str) -> dict:
+    return {"kind": "SCALAR", "name": name, "ofType": None}
+
+
+def _object_ref(name: str) -> dict:
+    return {"kind": "OBJECT", "name": name, "ofType": None}
+
+
+def _non_null(inner: dict) -> dict:
+    return {"kind": "NON_NULL", "name": None, "ofType": inner}
+
+
+def _list_of(inner: dict) -> dict:
+    return {"kind": "LIST", "name": None, "ofType": inner}
+
+
+def _field(name: str, type_ref: dict, args: list | None = None) -> dict:
+    return {"name": name, "args": args or [], "type": type_ref, "description": None}
+
+
+def _input_field(name: str, type_ref: dict) -> dict:
+    return {"name": name, "type": type_ref}
+
+
+# A schema with: Query.users -> [User], Query.posts -> [Post]
+# User has field address -> Address
+# Post has field category -> Category (enum)
+# Address is a plain object with scalar fields
+_GRAPHQL_SCHEMA = {
+    "queryType": {
+        "fields": [
+            _field("users", _non_null(_list_of(_object_ref("User"))), [
+                {"name": "limit", "type": _scalar("Int"), "defaultValue": None},
+            ]),
+            _field("posts", _non_null(_list_of(_object_ref("Post")))),
+            _field("internal", _object_ref("InternalData")),
+        ]
+    },
+    "types": [
+        {
+            "name": "User", "kind": "OBJECT",
+            "fields": [
+                _field("id", _non_null(_scalar("ID"))),
+                _field("name", _scalar("String")),
+                _field("address", _object_ref("Address")),
+            ],
+            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+        },
+        {
+            "name": "Address", "kind": "OBJECT",
+            "fields": [
+                _field("city", _scalar("String")),
+                _field("country", _object_ref("Country")),
+            ],
+            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+        },
+        {
+            "name": "Country", "kind": "OBJECT",
+            "fields": [_field("code", _scalar("String")), _field("name", _scalar("String"))],
+            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+        },
+        {
+            "name": "Post", "kind": "OBJECT",
+            "fields": [
+                _field("id", _non_null(_scalar("ID"))),
+                _field("title", _scalar("String")),
+                _field("category", _object_ref("Category")),
+            ],
+            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+        },
+        {
+            "name": "Category", "kind": "ENUM",
+            "fields": None,
+            "enumValues": [{"name": "NEWS"}, {"name": "TECH"}],
+            "interfaces": None, "inputFields": None, "possibleTypes": None,
+        },
+        {
+            "name": "InternalData", "kind": "OBJECT",
+            "fields": [_field("secret", _scalar("String"))],
+            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+        },
+        {
+            "name": "Query", "kind": "OBJECT",
+            "fields": [], "interfaces": [], "enumValues": None,
+            "inputFields": None, "possibleTypes": None,
+        },
+    ],
+}
+
+
+class TestExtractTypeName:
+    """Unwrap NON_NULL/LIST wrappers to get leaf type name."""
+
+    def test_scalar(self):
+        assert _extract_type_name(_scalar("String")) == "String"
+
+    def test_object(self):
+        assert _extract_type_name(_object_ref("User")) == "User"
+
+    def test_non_null_wrapping(self):
+        assert _extract_type_name(_non_null(_scalar("ID"))) == "ID"
+
+    def test_list_wrapping(self):
+        assert _extract_type_name(_list_of(_object_ref("User"))) == "User"
+
+    def test_nested_wrapping(self):
+        assert _extract_type_name(_non_null(_list_of(_non_null(_object_ref("User"))))) == "User"
+
+    def test_none_returns_none(self):
+        assert _extract_type_name(None) is None
+
+
+class TestCollectReferencedTypes:
+    """Transitive closure of type references."""
+
+    def _build_types_map(self):
+        return {t["name"]: t for t in _GRAPHQL_SCHEMA["types"]}
+
+    def test_user_includes_address_and_country(self):
+        types_map = self._build_types_map()
+        collected: set[str] = set()
+        _collect_referenced_types("User", types_map, collected)
+        assert "User" in collected
+        assert "Address" in collected
+        assert "Country" in collected
+
+    def test_user_does_not_include_post(self):
+        types_map = self._build_types_map()
+        collected: set[str] = set()
+        _collect_referenced_types("User", types_map, collected)
+        assert "Post" not in collected
+        assert "Category" not in collected
+
+    def test_post_includes_category_enum(self):
+        types_map = self._build_types_map()
+        collected: set[str] = set()
+        _collect_referenced_types("Post", types_map, collected)
+        assert "Post" in collected
+        assert "Category" in collected
+
+    def test_scalar_not_collected(self):
+        types_map = self._build_types_map()
+        collected: set[str] = set()
+        _collect_referenced_types("User", types_map, collected)
+        assert "String" not in collected
+        assert "ID" not in collected
+        assert "Int" not in collected
+
+    def test_circular_reference_safe(self):
+        """Circular type refs don't cause infinite recursion."""
+        circular_types = {
+            "A": {
+                "name": "A", "kind": "OBJECT",
+                "fields": [_field("b", _object_ref("B"))],
+                "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+            },
+            "B": {
+                "name": "B", "kind": "OBJECT",
+                "fields": [_field("a", _object_ref("A"))],
+                "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+            },
+        }
+        collected: set[str] = set()
+        _collect_referenced_types("A", circular_types, collected)
+        assert collected == {"A", "B"}
+
+
+class TestFilterGraphqlSchema:
+    """Filter GraphQL introspection schema by query field allowlist."""
+
+    def test_none_patterns_returns_unchanged(self):
+        result = filter_graphql_schema(_GRAPHQL_SCHEMA, None, None)
+        assert len(result["queryType"]["fields"]) == 3
+
+    def test_filter_single_query_field(self):
+        """Allow only Query.users — should keep User, Address, Country."""
+        result = filter_graphql_schema(_GRAPHQL_SCHEMA, ("Query.users",), None)
+        fields = result["queryType"]["fields"]
+        assert len(fields) == 1
+        assert fields[0]["name"] == "users"
+        type_names = {t["name"] for t in result["types"]}
+        assert "User" in type_names
+        assert "Address" in type_names
+        assert "Country" in type_names
+        assert "Post" not in type_names
+        assert "Category" not in type_names
+        assert "InternalData" not in type_names
+
+    def test_filter_with_wildcard(self):
+        """'Query.user*' matches 'users' only (not 'posts')."""
+        result = filter_graphql_schema(_GRAPHQL_SCHEMA, ("Query.user*",), None)
+        field_names = [f["name"] for f in result["queryType"]["fields"]]
+        assert "users" in field_names
+        assert "posts" not in field_names
+
+    def test_multiple_allowed_fields(self):
+        result = filter_graphql_schema(
+            _GRAPHQL_SCHEMA, ("Query.users", "Query.posts"), None
+        )
+        field_names = {f["name"] for f in result["queryType"]["fields"]}
+        assert field_names == {"users", "posts"}
+        type_names = {t["name"] for t in result["types"]}
+        assert "User" in type_names
+        assert "Post" in type_names
+        assert "Category" in type_names
+
+    def test_all_fields_filtered(self):
+        result = filter_graphql_schema(_GRAPHQL_SCHEMA, ("Query.nonexistent",), None)
+        assert result["queryType"]["fields"] == []
+
+    def test_intersection_narrows(self):
+        config = ("Query.users", "Query.posts")
+        header = ("Query.users",)
+        result = filter_graphql_schema(_GRAPHQL_SCHEMA, config, header)
+        assert len(result["queryType"]["fields"]) == 1
+        assert result["queryType"]["fields"][0]["name"] == "users"
+
+    def test_query_type_always_in_types(self):
+        """Query type is always preserved in types list."""
+        result = filter_graphql_schema(_GRAPHQL_SCHEMA, ("Query.users",), None)
+        type_names = {t["name"] for t in result["types"]}
+        assert "Query" in type_names
+
+    def test_does_not_mutate_original(self):
+        import copy
+
+        original = copy.deepcopy(_GRAPHQL_SCHEMA)
+        filter_graphql_schema(_GRAPHQL_SCHEMA, ("Query.users",), None)
+        assert _GRAPHQL_SCHEMA == original
+
+    def test_args_type_refs_included(self):
+        """Types referenced by field arguments are included in closure."""
+        schema = {
+            "queryType": {
+                "fields": [
+                    _field("search", _object_ref("Result"), [
+                        {"name": "input", "type": _object_ref("SearchInput"), "defaultValue": None},
+                    ]),
+                ]
+            },
+            "types": [
+                {
+                    "name": "Result", "kind": "OBJECT",
+                    "fields": [_field("id", _scalar("ID"))],
+                    "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+                },
+                {
+                    "name": "SearchInput", "kind": "INPUT_OBJECT",
+                    "fields": None,
+                    "inputFields": [_input_field("query", _scalar("String"))],
+                    "interfaces": None, "enumValues": None, "possibleTypes": None,
+                },
+                {
+                    "name": "Query", "kind": "OBJECT",
+                    "fields": [], "interfaces": [], "enumValues": None,
+                    "inputFields": None, "possibleTypes": None,
+                },
+            ],
+        }
+        result = filter_graphql_schema(schema, ("Query.search",), None)
+        type_names = {t["name"] for t in result["types"]}
+        assert "SearchInput" in type_names
+        assert "Result" in type_names
