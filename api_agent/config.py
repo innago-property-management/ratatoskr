@@ -25,9 +25,7 @@ class Settings(BaseSettings):
     PROVIDER: str = "openai"  # "openai", "anthropic", or "openai-compat"
     API_KEY: str = Field(
         default="",
-        validation_alias=AliasChoices(
-            "API_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"
-        ),
+        validation_alias=AliasChoices("API_AGENT_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"),
     )
     BASE_URL: str = Field(
         default="",
@@ -67,6 +65,12 @@ class Settings(BaseSettings):
     # Recipes (in-process reuse)
     ENABLE_RECIPES: bool = True
     RECIPE_CACHE_SIZE: int = 64
+
+    # Security — SSRF protection
+    ALLOWED_URL_SCHEMES: str = "http,https,grpc,grpcs"
+    BLOCK_PRIVATE_IPS: bool = True
+    BLOCKED_HOSTS: str = "169.254.169.254,metadata.google.internal"
+    ALLOWED_TARGET_HOSTS: str = ""  # empty = allow all non-blocked; comma-separated allowlist
 
 
 settings = Settings()
