@@ -3,6 +3,7 @@
 import pytest
 
 from api_agent.filtering import (
+    filter_openapi_spec,
     is_endpoint_allowed,
     matches_any_pattern,
     parse_config_allowlist,
@@ -129,3 +130,111 @@ class TestIsEndpointAllowed:
         header = ("*",)  # wildcard header
         assert is_endpoint_allowed("GET /users/1", config, header) is True
         assert is_endpoint_allowed("GET /orders/1", config, header) is False
+
+
+# ---------------------------------------------------------------------------
+# filter_openapi_spec (REST)
+# ---------------------------------------------------------------------------
+
+_SAMPLE_SPEC = {
+    "openapi": "3.0.0",
+    "paths": {
+        "/users": {
+            "get": {"summary": "List users", "responses": {}},
+            "post": {"summary": "Create user", "responses": {}},
+        },
+        "/users/{id}": {
+            "get": {"summary": "Get user", "responses": {}},
+            "delete": {"summary": "Delete user", "responses": {}},
+        },
+        "/orders": {
+            "get": {"summary": "List orders", "responses": {}},
+        },
+    },
+    "components": {
+        "schemas": {"User": {"type": "object"}, "Order": {"type": "object"}}
+    },
+}
+
+
+class TestFilterOpenapiSpec:
+    """Filter OpenAPI spec paths by allowlist."""
+
+    def test_none_patterns_returns_unchanged(self):
+        """No constraints = full spec."""
+        result = filter_openapi_spec(_SAMPLE_SPEC, None, None)
+        assert set(result["paths"].keys()) == {"/users", "/users/{id}", "/orders"}
+
+    def test_filter_by_method_and_path(self):
+        """Only GET /users/* allowed."""
+        result = filter_openapi_spec(_SAMPLE_SPEC, ("GET /users*",), None)
+        assert "/users" in result["paths"]
+        assert "get" in result["paths"]["/users"]
+        assert "post" not in result["paths"]["/users"]
+        assert "/users/{id}" in result["paths"]
+        assert "/orders" not in result["paths"]
+
+    def test_multiple_patterns(self):
+        result = filter_openapi_spec(_SAMPLE_SPEC, ("GET /users*", "GET /orders"), None)
+        assert "/users" in result["paths"]
+        assert "/orders" in result["paths"]
+
+    def test_wildcard_method(self):
+        """'* /users' matches any method on /users."""
+        result = filter_openapi_spec(_SAMPLE_SPEC, ("* /users",), None)
+        assert "get" in result["paths"]["/users"]
+        assert "post" in result["paths"]["/users"]
+        assert "/orders" not in result["paths"]
+
+    def test_all_filtered_empty_paths(self):
+        """Nothing matches = empty paths."""
+        result = filter_openapi_spec(_SAMPLE_SPEC, ("GET /nonexistent",), None)
+        assert result["paths"] == {}
+
+    def test_components_preserved(self):
+        """Schemas/components always preserved regardless of path filtering."""
+        result = filter_openapi_spec(_SAMPLE_SPEC, ("GET /users",), None)
+        assert result["components"]["schemas"]["User"] == {"type": "object"}
+        assert result["components"]["schemas"]["Order"] == {"type": "object"}
+
+    def test_intersection_narrows(self):
+        """Config allows users+orders, header narrows to users only."""
+        config = ("GET /users*", "GET /orders")
+        header = ("GET /users*",)
+        result = filter_openapi_spec(_SAMPLE_SPEC, config, header)
+        assert "/users" in result["paths"]
+        assert "/orders" not in result["paths"]
+
+    def test_does_not_mutate_original(self):
+        """Filtering returns a new dict, original is unchanged."""
+        import copy
+
+        original = copy.deepcopy(_SAMPLE_SPEC)
+        filter_openapi_spec(_SAMPLE_SPEC, ("GET /users",), None)
+        assert _SAMPLE_SPEC == original
+
+    def test_path_level_params_preserved(self):
+        """Path-level keys other than methods are preserved."""
+        spec = {
+            "paths": {
+                "/users": {
+                    "parameters": [{"name": "limit", "in": "query"}],
+                    "get": {"summary": "List", "responses": {}},
+                }
+            }
+        }
+        result = filter_openapi_spec(spec, ("GET /users",), None)
+        assert "parameters" in result["paths"]["/users"]
+
+    def test_extension_keys_preserved(self):
+        """x- extension keys on path items are preserved."""
+        spec = {
+            "paths": {
+                "/users": {
+                    "x-custom": "value",
+                    "get": {"summary": "List", "responses": {}},
+                }
+            }
+        }
+        result = filter_openapi_spec(spec, ("GET /users",), None)
+        assert result["paths"]["/users"].get("x-custom") == "value"
