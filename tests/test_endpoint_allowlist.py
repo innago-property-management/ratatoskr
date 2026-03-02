@@ -322,6 +322,7 @@ class TestRestAllowlistIntersection:
             # Build simple schema text from remaining paths
             paths = spec.get("paths", {})
             lines = ["<endpoints>"]
+            assert isinstance(paths, dict)
             for path, item in paths.items():
                 for m in ("get", "post", "put", "delete", "patch"):
                     if m in item:

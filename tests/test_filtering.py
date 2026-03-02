@@ -468,7 +468,9 @@ class TestCollectReferencedTypes:
     """Transitive closure of type references."""
 
     def _build_types_map(self):
-        return {t["name"]: t for t in _GRAPHQL_SCHEMA["types"]}
+        types = _GRAPHQL_SCHEMA["types"]
+        assert isinstance(types, list)
+        return {t["name"]: t for t in types}
 
     def test_user_includes_address_and_country(self):
         types_map = self._build_types_map()
