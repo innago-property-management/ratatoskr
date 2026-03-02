@@ -10,6 +10,13 @@ logger = logging.getLogger(__name__)
 
 # Block mutations (read-only mode)
 _MUTATION_PATTERN = re.compile(r"^\s*mutation\b", re.IGNORECASE | re.MULTILINE)
+_COMMENT_RE = re.compile(r"#[^\n]*")
+
+
+def _is_mutation(query: str) -> bool:
+    """Check if a GraphQL query is a mutation, stripping comments first."""
+    stripped = _COMMENT_RE.sub("", query)
+    return bool(_MUTATION_PATTERN.search(stripped))
 
 
 async def execute_query(
@@ -33,7 +40,7 @@ async def execute_query(
         return {"success": False, "error": "No endpoint provided"}
 
     # Block mutations
-    if _MUTATION_PATTERN.search(query):
+    if _is_mutation(query):
         return {"success": False, "error": "Mutations are not allowed (read-only mode)"}
 
     request_headers = {"Content-Type": "application/json"}

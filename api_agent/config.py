@@ -72,5 +72,11 @@ class Settings(BaseSettings):
     BLOCKED_HOSTS: str = "169.254.169.254,metadata.google.internal"
     ALLOWED_TARGET_HOSTS: str = ""  # empty = allow all non-blocked; comma-separated allowlist
 
+    # gRPC mutation safety
+    GRPC_UNSAFE_METHOD_PATTERNS: str = (
+        "Create*,Delete*,Remove*,Update*,Set*,Put*,"
+        "Destroy*,Drop*,Insert*,Add*,Modify*,Patch*,Upsert*,Write*"
+    )
+
 
 settings = Settings()

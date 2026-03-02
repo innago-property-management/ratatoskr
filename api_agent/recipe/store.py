@@ -66,6 +66,38 @@ def render_text_template(template: str, params: dict[str, Any]) -> str:
     return _PLACEHOLDER_RE.sub(repl, template)
 
 
+def render_sql_safe(template: str, params: dict[str, Any]) -> str:
+    """Render {{param}} placeholders with SQL-safe escaping.
+
+    Unlike render_text_template(), this escapes string values to prevent
+    SQL injection. Use for recipe SQL steps only (not GraphQL/gRPC templates).
+
+    Escaping:
+    - Single quotes doubled (SQL standard: ' → '')
+    - Semicolons stripped (prevent multi-statement injection)
+    - Numeric/bool/None pass through unquoted
+    """
+
+    def _safe_text(v: Any) -> str:
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if v is None:
+            return "null"
+        if isinstance(v, (int, float)):
+            return str(v)
+        # String values: escape single quotes + strip injection vectors
+        s = str(v).replace("'", "''").replace(";", "").replace("--", "").replace("/*", "").replace("*/", "")
+        return s
+
+    def repl(m: re.Match[str]) -> str:
+        name = m.group(1)
+        if name not in params:
+            raise KeyError(f"missing param: {name}")
+        return _safe_text(params[name])
+
+    return _PLACEHOLDER_RE.sub(repl, template)
+
+
 def render_param_refs(obj: Any, params: dict[str, Any]) -> Any:
     """Recursively replace {'$param': 'x'} nodes with params['x']."""
     if isinstance(obj, dict):

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import re
 import tempfile
 from typing import Any
 
@@ -11,6 +12,35 @@ import duckdb
 from .graphql import execute_query as graphql_execute
 
 logger = logging.getLogger(__name__)
+
+_SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_]")
+
+
+def _connect_duckdb() -> duckdb.DuckDBPyConnection:
+    """Create a DuckDB in-memory connection."""
+    return duckdb.connect()
+
+
+def _sandbox(conn: duckdb.DuckDBPyConnection) -> None:
+    """Disable external file/network access on a DuckDB connection.
+
+    Call AFTER loading data (read_json_auto needs file access) but
+    BEFORE executing user-provided or template-rendered SQL.
+
+    Prevents: read_csv_auto(), COPY TO, httpfs, and all external I/O.
+    """
+    conn.execute("SET enable_external_access = false")
+
+
+def _safe_table_name(name: str) -> str:
+    """Sanitize table name to alphanumeric + underscore only.
+
+    Prevents SQL injection via table name interpolation.
+    """
+    sanitized = _SAFE_NAME_RE.sub("", name)
+    if not sanitized or sanitized[0].isdigit():
+        sanitized = "t_" + sanitized
+    return sanitized[:64]
 
 
 def extract_tables_from_response(
@@ -63,17 +93,24 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
             json.dump(data, f)
             temp_file = f.name
 
-        conn = duckdb.connect()
-        conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM read_json_auto('{temp_file}')")
-        schema = conn.execute(f"DESCRIBE {table_name}").fetchall()
-        conn.close()
+        conn = _connect_duckdb()
+        safe_name = _safe_table_name(table_name)
+        try:
+            conn.execute(
+                f'CREATE TABLE "{safe_name}" AS SELECT * FROM read_json_auto(?)',
+                [temp_file],
+            )
+            _sandbox(conn)  # Lock down after data load
+            schema = conn.execute(f'DESCRIBE "{safe_name}"').fetchall()
+        finally:
+            conn.close()
 
         schema_str = ", ".join([f"{col[0]}: {col[1]}" for col in schema])
 
         return {
             "rows": len(data),
             "schema": schema_str,
-            "hint": f"Use sql_query() to access fields. Example: SELECT {schema[0][0]} FROM {table_name}",
+            "hint": f'Use sql_query() to access fields. Example: SELECT "{schema[0][0]}" FROM "{safe_name}"',
         }
     except Exception as e:
         logger.exception("Schema extraction error")
@@ -148,23 +185,33 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
         Dict with success/result or error
     """
     temp_files = []
+    conn = None
     try:
-        conn = duckdb.connect()
+        conn = _connect_duckdb()
 
         # Register top-level keys as tables via temp JSON files
         if isinstance(data, dict):
             for key, value in data.items():
                 if isinstance(value, list) and value:
-                    # Write to temp file for DuckDB to read
+                    safe_key = _safe_table_name(key)
                     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
                         json.dump(value, f)
                         temp_files.append(f.name)
-                    conn.execute(f"CREATE TABLE {key} AS SELECT * FROM read_json_auto('{f.name}')")
+                    conn.execute(
+                        f'CREATE TABLE "{safe_key}" AS SELECT * FROM read_json_auto(?)',
+                        [f.name],
+                    )
         elif isinstance(data, list):
             with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
                 json.dump(data, f)
                 temp_files.append(f.name)
-            conn.execute(f"CREATE TABLE data AS SELECT * FROM read_json_auto('{f.name}')")
+            conn.execute(
+                'CREATE TABLE "data" AS SELECT * FROM read_json_auto(?)',
+                [f.name],
+            )
+
+        # Sandbox: disable external access before running user-provided SQL
+        _sandbox(conn)
 
         # Execute query
         result = conn.execute(query).fetchall()
@@ -173,7 +220,6 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
         # Convert to list of dicts
         rows = [dict(zip(columns, row)) for row in result]
 
-        conn.close()
         return {"success": True, "result": rows}
 
     except duckdb.Error as e:
@@ -182,6 +228,8 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
         logger.exception("SQL execution error")
         return {"success": False, "error": str(e)}
     finally:
+        if conn:
+            conn.close()
         # Cleanup temp files
         for temp_file in temp_files:
             try:

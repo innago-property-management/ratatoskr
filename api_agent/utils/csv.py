@@ -9,7 +9,7 @@ import os
 import tempfile
 from typing import Any
 
-import duckdb
+from ..executor import _connect_duckdb, _sandbox
 
 
 def to_csv(data: Any) -> str:
@@ -25,8 +25,10 @@ def to_csv(data: Any) -> str:
             json.dump(data, f)
             temp_file = f.name
 
-        with duckdb.connect() as conn:
-            conn.execute(f"CREATE TABLE t AS SELECT * FROM read_json_auto('{temp_file}')")
+        conn = _connect_duckdb()
+        try:
+            conn.execute("CREATE TABLE t AS SELECT * FROM read_json_auto(?)", [temp_file])
+            _sandbox(conn)  # Lock down after data load
             result = conn.execute("SELECT * FROM t")
 
             output = io.StringIO()
@@ -34,6 +36,8 @@ def to_csv(data: Any) -> str:
             writer.writerow([desc[0] for desc in result.description])
             writer.writerows(result.fetchall())
             return output.getvalue()
+        finally:
+            conn.close()
     finally:
         if temp_file:
             try:
