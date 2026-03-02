@@ -105,6 +105,7 @@ class RequestContext:
     grpc_allow_unsafe_rpcs: tuple[
         str, ...
     ] = ()  # X-Allow-Unsafe-RPCs: glob patterns for gRPC mutations
+    allow_endpoints: tuple[str, ...] = ()  # X-Allow-Endpoints: glob patterns for endpoint allowlist
 
 
 def get_request_context() -> RequestContext:
@@ -135,6 +136,7 @@ def get_request_context() -> RequestContext:
     include_result_raw = headers.get("x-include-result", "false")
     poll_paths_raw = headers.get("x-poll-paths") or "[]"
     grpc_allow_unsafe_rpcs_raw = headers.get("x-allow-unsafe-rpcs") or "[]"
+    allow_endpoints_raw = headers.get("x-allow-endpoints") or "[]"
 
     base_url = base_url_raw if base_url_raw else None
     include_result = (include_result_raw or "").lower() in ("true", "1", "yes")
@@ -176,6 +178,16 @@ def get_request_context() -> RequestContext:
     except json.JSONDecodeError:
         grpc_allow_unsafe_rpcs = ()
 
+    try:
+        parsed_endpoints = json.loads(allow_endpoints_raw)
+        allow_endpoints = (
+            tuple(v for v in parsed_endpoints if isinstance(v, str))
+            if isinstance(parsed_endpoints, list)
+            else ()
+        )
+    except json.JSONDecodeError:
+        allow_endpoints = ()
+
     return RequestContext(
         target_url=target_url,
         api_type=api_type,
@@ -185,6 +197,7 @@ def get_request_context() -> RequestContext:
         include_result=include_result,
         poll_paths=poll_paths,
         grpc_allow_unsafe_rpcs=grpc_allow_unsafe_rpcs,
+        allow_endpoints=allow_endpoints,
     )
 
 

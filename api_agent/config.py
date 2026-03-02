@@ -78,5 +78,10 @@ class Settings(BaseSettings):
         "Destroy*,Drop*,Insert*,Add*,Modify*,Patch*,Upsert*,Write*"
     )
 
+    # Endpoint allowlist (empty = all endpoints exposed, backwards compatible)
+    ALLOW_ENDPOINTS_REST: str = ""  # CSV: "GET /users/*,GET /orders/*"
+    ALLOW_ENDPOINTS_GRAPHQL: str = ""  # CSV: "Query.user*,Query.orders"
+    ALLOW_ENDPOINTS_GRPC: str = ""  # CSV: "helloworld.Greeter/*"
+
 
 settings = Settings()
