@@ -537,6 +537,7 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
         # Fetch schema context (target_url = OpenAPI spec URL)
         # Build spec filter from config + header allowlist
         config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_REST)
+        # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
         header_pats = ctx.allow_endpoints or None
         spec_filter = None
         _filter_stats: dict[str, int] = {}  # captures total/allowed from inside closure
@@ -568,7 +569,7 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
                 _filter_stats.get("allowed", 0),
                 _filter_stats.get("total", 0),
             )
-            if _filter_stats.get("allowed", 0) == 0:
+            if _filter_stats.get("allowed", 0) == 0 and _filter_stats.get("total", 0) > 0:
                 return {
                     "ok": False,
                     "data": None,

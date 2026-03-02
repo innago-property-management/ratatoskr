@@ -122,6 +122,7 @@ def get_request_context() -> RequestContext:
         X-Include-Result: Include full uncapped result in output (default: false)
         X-Poll-Paths: JSON array of paths requiring polling (enables poll tool)
         X-Allow-Unsafe-RPCs: JSON array of glob patterns for gRPC mutations
+        X-Allow-Endpoints: JSON array of glob patterns to restrict exposed endpoints
 
     Raises:
         MissingHeaderError: If required headers are missing or invalid

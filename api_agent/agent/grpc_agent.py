@@ -926,6 +926,7 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
 
         # Apply endpoint allowlist filtering
         config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRPC)
+        # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
         header_pats = ctx.allow_endpoints or None
         if config_pats is not None or header_pats is not None:
             total_methods = sum(len(s.methods) for s in schema.services)

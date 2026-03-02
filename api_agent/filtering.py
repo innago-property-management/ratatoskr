@@ -230,11 +230,11 @@ def filter_graphql_schema(
     result = copy.deepcopy(schema)
 
     # Guard against missing or null queryType (e.g. subscription-only schemas)
-    query_type = result.get("queryType") or {}
-    query_fields = query_type.get("fields") or []
-
     if "queryType" not in result or result["queryType"] is None:
         return result
+
+    query_type = result["queryType"]
+    query_fields = query_type.get("fields") or []
 
     # Filter query fields
     allowed_fields = [

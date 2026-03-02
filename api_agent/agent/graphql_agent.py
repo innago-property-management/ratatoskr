@@ -483,6 +483,7 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
     """
     # Fetch schema (protocol-specific) — with endpoint allowlist filtering
     config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRAPHQL)
+    # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
     header_pats = ctx.allow_endpoints or None
     schema_ctx, allowed_count = await _fetch_schema_context(
         ctx.target_url, ctx.target_headers, config_pats, header_pats

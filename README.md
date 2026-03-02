@@ -269,6 +269,7 @@ uv run api-agent --provider openai-compat \
 | `X-Allow-Unsafe-Paths` | No       | Header string containing JSON array of `fnmatch` globs (`*`, `?`) for POST/PUT/DELETE/PATCH |
 | `X-Poll-Paths`         | No       | Header string containing JSON array of polling path patterns (enables poll tool) |
 | `X-Include-Result`     | No       | Include full uncapped `result` field in output             |
+| `X-Allow-Endpoints`    | No       | JSON array of glob patterns to restrict exposed endpoints  |
 
 #### Header value examples
 
@@ -344,6 +345,9 @@ CLI arguments override environment variables.
 | `API_AGENT_PORT`               | No       | 3000                      | Server port                        |
 | `API_AGENT_ENABLE_RECIPES`     | No       | true                      | Enable recipe learning & caching   |
 | `API_AGENT_RECIPE_CACHE_SIZE`  | No       | 64                        | Max cached recipes (LRU eviction)  |
+| `API_AGENT_ALLOW_ENDPOINTS_REST` | No     | -                         | CSV glob patterns for REST endpoint allowlist |
+| `API_AGENT_ALLOW_ENDPOINTS_GRAPHQL` | No  | -                         | CSV glob patterns for GraphQL endpoint allowlist |
+| `API_AGENT_ALLOW_ENDPOINTS_GRPC` | No     | -                         | CSV glob patterns for gRPC endpoint allowlist |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | No       | -                         | OpenTelemetry tracing endpoint     |
 
 **Provider defaults:**
@@ -353,6 +357,47 @@ CLI arguments override environment variables.
 | `openai`        | `gpt-4o`                    | `OPENAI_API_KEY`    |
 | `anthropic`     | `claude-sonnet-4-20250514`  | `ANTHROPIC_API_KEY` |
 | `openai-compat` | `gpt-4o`                    | (optional)          |
+
+---
+
+## Endpoint Allowlisting
+
+Large APIs (500+ endpoints) can overwhelm LLM context. Endpoint allowlisting filters schemas **before the LLM sees them**, so agents only operate on permitted endpoints.
+
+### Config (ops ceiling)
+
+Set per-protocol env vars with comma-separated [fnmatch](https://docs.python.org/3/library/fnmatch.html) glob patterns:
+
+```bash
+API_AGENT_ALLOW_ENDPOINTS_REST="GET /users/*,GET /accounts/*"
+API_AGENT_ALLOW_ENDPOINTS_GRAPHQL="Query.users*,Query.accounts*"
+API_AGENT_ALLOW_ENDPOINTS_GRPC="myapp.UserService/*,myapp.AccountService/*"
+```
+
+### Per-session header (narrows config)
+
+Clients send `X-Allow-Endpoints` as a JSON array of glob patterns:
+
+```json
+{ "X-Allow-Endpoints": "[\"GET /users/*\"]" }
+```
+
+**Intersection semantics:** When both config and header are set, an endpoint must match a pattern from **each**. The header can only narrow the config ceiling, never widen it.
+
+### Match target format
+
+| Protocol | Format | Examples |
+| -------- | ------ | -------- |
+| REST     | `METHOD /path` | `GET /users/*`, `POST /search`, `* /api/v2/*` |
+| GraphQL  | `Query.fieldName` | `Query.users`, `Query.account*` |
+| gRPC     | `package.Service/Method` | `myapp.UserService/*`, `myapp.*/Get*` |
+
+### Behavior
+
+- **No config + no header** = all endpoints exposed (default)
+- **Allowlist active, some match** = agent sees only matching endpoints
+- **Allowlist active, none match** = clear error returned (agent does not run)
+- **`search_schema()`** operates on the filtered schema — blocked endpoints are invisible
 
 ---
 
