@@ -1,5 +1,6 @@
 """gRPC agent using reflection-based discovery and unary RPC execution."""
 
+import fnmatch
 import json
 import logging
 from contextvars import ContextVar
@@ -68,6 +69,45 @@ _ctx_vars = AgentContextVars(
     raw_schema=_raw_schema,
     sql_steps=_sql_steps,
 )
+
+
+# ---------------------------------------------------------------------------
+# gRPC-specific: mutation safety
+# ---------------------------------------------------------------------------
+
+# Parse unsafe patterns from config at module load
+_UNSAFE_PATTERNS = [p.strip() for p in settings.GRPC_UNSAFE_METHOD_PATTERNS.split(",") if p.strip()]
+
+
+def _is_grpc_method_safe(method_path: str, allow_unsafe_rpcs: tuple[str, ...]) -> bool:
+    """Check if a gRPC method is safe (read-only) to call.
+
+    Extracts the method name (last segment after '/') and checks against
+    configured unsafe patterns (e.g., Create*, Delete*). If the method is
+    unsafe, checks the allow_unsafe_rpcs allowlist for an override.
+
+    Returns True if safe to call, False if blocked.
+    """
+    method_name = method_path.rsplit("/", 1)[-1]
+    is_unsafe = any(fnmatch.fnmatch(method_name, p) for p in _UNSAFE_PATTERNS)
+    if not is_unsafe:
+        return True
+    # Check allowlist — matches against the full method path (without leading /)
+    clean_path = method_path.lstrip("/")
+    return any(fnmatch.fnmatch(clean_path, p) for p in allow_unsafe_rpcs)
+
+
+def _blocked_method_response(method: str) -> str:
+    """Return JSON error for a blocked unsafe method."""
+    return json.dumps(
+        {
+            "success": False,
+            "error": (
+                f"Method '{method}' is not allowed (read-only mode). "
+                "Use X-Allow-Unsafe-RPCs header to permit mutations."
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +308,10 @@ def _create_grpc_call_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
                 }
             )
 
+        # Mutation safety check
+        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
+            return _blocked_method_response(method)
+
         # Parse request JSON
         try:
             request_json = json.loads(request)
@@ -399,6 +443,10 @@ def _create_grpc_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
                 }
             )
 
+        # Mutation safety check
+        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
+            return _blocked_method_response(method)
+
         # Parse request JSON
         try:
             request_json = json.loads(request)
@@ -520,6 +568,10 @@ def _create_grpc_client_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> 
                 }
             )
 
+        # Mutation safety check
+        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
+            return _blocked_method_response(method)
+
         # Parse requests JSON array
         try:
             requests_json = json.loads(requests)
@@ -626,6 +678,10 @@ def _create_grpc_bidi_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> An
                     "error": f"Bidi-streaming method '{method}' not found. Available: {available}",
                 }
             )
+
+        # Mutation safety check
+        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
+            return _blocked_method_response(method)
 
         # Parse requests JSON array
         try:
