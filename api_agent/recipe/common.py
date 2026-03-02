@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 from ..config import settings
 from ..executor import execute_sql, truncate_for_context
 from .extractor import extract_recipe
-from .store import RECIPE_STORE, render_text_template, sha256_hex
+from .store import RECIPE_STORE, render_sql_safe, sha256_hex
 
 logger = logging.getLogger(__name__)
 
@@ -83,9 +83,7 @@ def _recipes_equivalent(existing: dict[str, Any], candidate: dict[str, Any], api
                 return False
         elif api_type == "grpc":
             for key in ("method", "request"):
-                if _normalize_ws_value(e_step.get(key)) != _normalize_ws_value(
-                    c_step.get(key)
-                ):
+                if _normalize_ws_value(e_step.get(key)) != _normalize_ws_value(c_step.get(key)):
                     return False
         else:
             for key in ("method", "path", "path_params", "query_params", "body"):
@@ -201,7 +199,9 @@ def build_recipe_docstring(
     if params_spec:
         param_lines = []
         for pname, spec in params_spec.items():
-            ptype = _JSON_TYPE_NAMES.get(spec.get("type", "str") if isinstance(spec, dict) else "str", "string")
+            ptype = _JSON_TYPE_NAMES.get(
+                spec.get("type", "str") if isinstance(spec, dict) else "str", "string"
+            )
             example = spec.get("default") if isinstance(spec, dict) else None
             hint = f" (e.g. {example})" if example is not None else ""
             param_lines.append(f"  {pname}: {ptype} REQUIRED{hint}")
@@ -269,7 +269,7 @@ def _execute_sql_steps(
                 json.dumps({"success": False, "error": "invalid sql_steps"}, indent=2),
             )
 
-        sql = render_text_template(sql_tmpl, params)
+        sql = render_sql_safe(sql_tmpl, params)
         res = execute_sql(results, sql)
         executed_sql.append(sql)
 
