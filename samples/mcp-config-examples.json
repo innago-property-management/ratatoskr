@@ -22,7 +22,7 @@
       }
     },
     "dad-jokes-rest": {
-      "_comment": "icanhazdadjoke.com — random jokes, search, lookup by ID. No auth needed.",
+      "_comment": "icanhazdadjoke.com REST — random jokes, search, lookup by ID. No auth needed. NOTE: spec URL requires the repo to be accessible; prefer dad-jokes-graphql for simplicity.",
       "url": "http://localhost:3000/mcp",
       "headers": {
         "X-Target-URL": "https://raw.githubusercontent.com/innago-property-management/ratatoskr/main/samples/dad-jokes-openapi.json",
@@ -41,14 +41,14 @@
       }
     },
     "nasa-apod": {
-      "_comment": "NASA Astronomy Picture of the Day — pass date param for historical images. Free DEMO_KEY included.",
+      "_comment": "NASA Astronomy Picture of the Day — pass date param for historical images. Uses DEMO_KEY (free, rate-limited) — register at https://api.nasa.gov for a personal key.",
       "url": "http://localhost:3000/mcp",
       "headers": {
         "X-Target-URL": "https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/nasa.gov/apod/1.0.0/openapi.yaml",
         "X-API-Type": "rest",
         "X-API-Name": "nasa",
         "X-Target-Headers": "{\"Accept\": \"application/json\"}",
-        "X-Base-URL": "https://api.nasa.gov/planetary"
+        "X-Base-URL": "https://api.nasa.gov/planetary?api_key=DEMO_KEY"
       }
     }
   }

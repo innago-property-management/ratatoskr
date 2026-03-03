@@ -93,6 +93,7 @@
     "schemas": {
       "Joke": {
         "type": "object",
+        "required": ["id", "joke", "status"],
         "properties": {
           "id": { "type": "string" },
           "joke": { "type": "string" },
@@ -101,6 +102,7 @@
       },
       "SearchResults": {
         "type": "object",
+        "required": ["current_page", "limit", "next_page", "previous_page", "results", "search_term", "status", "total_jokes", "total_pages"],
         "properties": {
           "current_page": { "type": "integer" },
           "limit": { "type": "integer" },

@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Launch demo ratatoskr instances for MCP Inspector
 #
+# Prerequisites:
+#   export ANTHROPIC_API_KEY="..."  (or set API_AGENT_PROVIDER=openai with OPENAI_API_KEY)
+#
 # Usage:
 #   ./samples/run-demos.sh
 #
-# Then add to mcp-langchain-bridge:
-#   mcp-bridge add sse starwars    → http://localhost:3941/mcp
-#   mcp-bridge add sse dadjokes    → http://localhost:3942/mcp
-#   mcp-bridge add sse nasa        → http://localhost:3943/mcp
+# Then connect MCP Inspector (Streamable HTTP):
+#   Star Wars:  http://localhost:3941/mcp
+#   Dad Jokes:  http://localhost:3942/mcp
+#   NASA APOD:  http://localhost:3943/mcp
 #
 # Then launch inspector:
 #   npx @modelcontextprotocol/inspector --transport stdio -- ../mcp-langchain-bridge/start-bridge.sh
@@ -15,7 +18,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "Starting demo ratatoskr instances..."
+# Use Anthropic provider by default (set ANTHROPIC_API_KEY before running)
+export API_AGENT_PROVIDER="${API_AGENT_PROVIDER:-anthropic}"
+
+echo "Starting demo ratatoskr instances (provider: $API_AGENT_PROVIDER)..."
 echo ""
 
 # Star Wars GraphQL — port 3941
@@ -25,11 +31,10 @@ API_AGENT_DEFAULT_API_TYPE="graphql" \
 API_AGENT_MCP_NAME="Star Wars" \
   uv run python -m api_agent --port 3941 &
 
-# Dad Jokes REST — port 3942
-echo "[dadjokes] REST on :3942"
-API_AGENT_DEFAULT_TARGET_URL="https://raw.githubusercontent.com/innago-property-management/ratatoskr/main/samples/dad-jokes-openapi.json" \
-API_AGENT_DEFAULT_API_TYPE="rest" \
-API_AGENT_DEFAULT_TARGET_HEADERS='{"Accept":"application/json","User-Agent":"ratatoskr-demo"}' \
+# Dad Jokes GraphQL — port 3942
+echo "[dadjokes] GraphQL on :3942"
+API_AGENT_DEFAULT_TARGET_URL="https://icanhazdadjoke.com/graphql" \
+API_AGENT_DEFAULT_API_TYPE="graphql" \
 API_AGENT_MCP_NAME="Dad Jokes" \
   uv run python -m api_agent --port 3942 &
 
@@ -37,7 +42,7 @@ API_AGENT_MCP_NAME="Dad Jokes" \
 echo "[nasa]     REST on :3943"
 API_AGENT_DEFAULT_TARGET_URL="https://raw.githubusercontent.com/APIs-guru/openapi-directory/main/APIs/nasa.gov/apod/1.0.0/openapi.yaml" \
 API_AGENT_DEFAULT_API_TYPE="rest" \
-API_AGENT_DEFAULT_BASE_URL="https://api.nasa.gov/planetary" \
+API_AGENT_DEFAULT_BASE_URL="https://api.nasa.gov/planetary?api_key=DEMO_KEY" \
 API_AGENT_DEFAULT_TARGET_HEADERS='{"Accept":"application/json"}' \
 API_AGENT_MCP_NAME="NASA APOD" \
   uv run python -m api_agent --port 3943 &

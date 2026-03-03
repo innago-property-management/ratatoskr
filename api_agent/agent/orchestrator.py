@@ -216,7 +216,7 @@ def create_sql_query_tool(
 
         result = execute_sql(data, sql)
 
-        log(f"SQL {json.dumps(result)[:200]}")
+        log(f"SQL {json.dumps(result, default=str)[:200]}")
 
         if result.get("success"):
             rows = result.get("result", [])
