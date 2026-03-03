@@ -547,19 +547,25 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
                 # Count total ops before filtering for logging
                 pre_paths = spec.get("paths", {})
                 _filter_stats["total"] = sum(
-                    1 for p in pre_paths.values() if isinstance(p, dict)
-                    for m in ("get", "post", "put", "delete", "patch") if m in p
+                    1
+                    for p in pre_paths.values()
+                    if isinstance(p, dict)
+                    for m in ("get", "post", "put", "delete", "patch")
+                    if m in p
                 )
                 filtered = filter_openapi_spec(spec, config_pats, header_pats)
                 post_paths = filtered.get("paths", {})
                 _filter_stats["allowed"] = sum(
-                    1 for p in post_paths.values() if isinstance(p, dict)
-                    for m in ("get", "post", "put", "delete", "patch") if m in p
+                    1
+                    for p in post_paths.values()
+                    if isinstance(p, dict)
+                    for m in ("get", "post", "put", "delete", "patch")
+                    if m in p
                 )
                 return filtered
 
         schema_ctx, spec_base_url, raw_spec_json = await fetch_schema_context(
-            ctx.target_url, ctx.target_headers, spec_filter=spec_filter
+            ctx.target_url, ctx.target_headers, spec_filter=spec_filter, question=question
         )
 
         # Check if allowlist filtered out all endpoints (log stats + early return)

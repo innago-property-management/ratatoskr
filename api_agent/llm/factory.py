@@ -59,6 +59,5 @@ def create_provider(
 
     else:
         raise ValueError(
-            f"Unknown provider: {provider!r}. "
-            f"Supported: openai, anthropic, openai-compat"
+            f"Unknown provider: {provider!r}. Supported: openai, anthropic, openai-compat"
         )

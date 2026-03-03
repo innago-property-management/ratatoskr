@@ -932,7 +932,9 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
             total_methods = sum(len(s.methods) for s in schema.services)
             filtered_services = filter_grpc_services(schema.services, config_pats, header_pats)
             allowed_methods = sum(len(s.methods) for s in filtered_services)
-            logger.info("Endpoint allowlist: %d/%d gRPC methods allowed", allowed_methods, total_methods)
+            logger.info(
+                "Endpoint allowlist: %d/%d gRPC methods allowed", allowed_methods, total_methods
+            )
             if not filtered_services:
                 return {
                     "ok": False,
@@ -948,13 +950,20 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
                 raw_schema_text=filtered_text,
             )
 
-        # Truncate schema for LLM context
-        schema_text = schema.raw_schema_text
-        max_schema = settings.MAX_TOOL_RESPONSE_CHARS
-        if len(schema_text) > max_schema:
-            schema_text = (
-                schema_text[:max_schema] + "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
-            )
+        # Smart schema reduction (TOON + Haiku + hard truncation fallback)
+        from ..schema.reducer import reduce_schema
+
+        reduction = await reduce_schema(
+            schema_text=schema.raw_schema_text,
+            question=question,
+            threshold=settings.MAX_TOOL_RESPONSE_CHARS,
+            api_key=settings.SCHEMA_REDUCTION_API_KEY,
+            model=settings.SCHEMA_REDUCTION_MODEL,
+            timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
+            enabled=settings.SCHEMA_REDUCTION_ENABLED,
+            max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
+        )
+        schema_text = reduction.schema_text
 
         # Create tools
         grpc_tool = _create_grpc_call_tool(ctx, schema)

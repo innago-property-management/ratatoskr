@@ -232,6 +232,7 @@ async def _fetch_schema_context(
     headers: dict[str, str] | None,
     config_patterns: tuple[str, ...] | None = None,
     header_patterns: tuple[str, ...] | None = None,
+    question: str = "",
 ) -> tuple[str, int | None]:
     """Fetch schema in compact SDL format. Falls back to shallow query on depth limit.
 
@@ -240,6 +241,7 @@ async def _fetch_schema_context(
         headers: Optional auth headers
         config_patterns: Config-level allowlist patterns (fnmatch)
         header_patterns: Header-level allowlist patterns (fnmatch)
+        question: User's NL question (guides smart schema reduction)
 
     Returns:
         Tuple of (schema_context, allowed_field_count).
@@ -260,10 +262,10 @@ async def _fetch_schema_context(
 
     # Apply endpoint allowlist filter (if configured)
     if config_patterns is not None or header_patterns is not None:
-        qt = (schema.get("queryType") or {})
+        qt = schema.get("queryType") or {}
         total = len(qt.get("fields") or [])
         schema = filter_graphql_schema(schema, config_patterns, header_patterns)
-        qt_filtered = (schema.get("queryType") or {})
+        qt_filtered = schema.get("queryType") or {}
         allowed_count = len(qt_filtered.get("fields") or [])
         logger.info("Endpoint allowlist: %d/%d query fields allowed", allowed_count, total)
 
@@ -273,13 +275,24 @@ async def _fetch_schema_context(
     # Build DSL for LLM context (from FILTERED schema)
     context = _build_schema_context(schema)
 
+    # Pre-pass: strip descriptions if oversized (cheap, before TOON/Haiku)
     if len(context) > settings.MAX_SCHEMA_CHARS:
         context = _strip_descriptions(context)
-        if len(context) > settings.MAX_SCHEMA_CHARS:
-            context = (
-                context[: settings.MAX_SCHEMA_CHARS]
-                + "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
-            )
+
+    # Smart schema reduction (TOON + Haiku + hard truncation fallback)
+    from ..schema.reducer import reduce_schema
+
+    result = await reduce_schema(
+        schema_text=context,
+        question=question,
+        threshold=settings.MAX_SCHEMA_CHARS,
+        api_key=settings.SCHEMA_REDUCTION_API_KEY,
+        model=settings.SCHEMA_REDUCTION_MODEL,
+        timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
+        enabled=settings.SCHEMA_REDUCTION_ENABLED,
+        max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
+    )
+    context = result.schema_text
 
     return context, allowed_count
 
@@ -486,7 +499,7 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
     # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
     header_pats = ctx.allow_endpoints or None
     schema_ctx, allowed_count = await _fetch_schema_context(
-        ctx.target_url, ctx.target_headers, config_pats, header_pats
+        ctx.target_url, ctx.target_headers, config_pats, header_pats, question=question
     )
     raw_schema = safe_get_contextvar(_raw_schema, "")
 

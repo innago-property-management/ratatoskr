@@ -161,41 +161,61 @@ async def execute_recipe_tool(
             if method_info.client_streaming and method_info.server_streaming:
                 req_list = request_obj if isinstance(request_obj, list) else [request_obj]
                 res = await execute_bidi_streaming_rpc(
-                    target_url=ctx.target_url, method_path=method_info.full_method_path,
-                    requests_json=req_list, pool=grpc_schema.pool,
-                    input_type_name=method_info.input_type, output_type_name=method_info.output_type,
+                    target_url=ctx.target_url,
+                    method_path=method_info.full_method_path,
+                    requests_json=req_list,
+                    pool=grpc_schema.pool,
+                    input_type_name=method_info.input_type,
+                    output_type_name=method_info.output_type,
                     metadata=metadata,
                 )
             elif method_info.client_streaming:
                 req_list = request_obj if isinstance(request_obj, list) else [request_obj]
                 res = await execute_client_streaming_rpc(
-                    target_url=ctx.target_url, method_path=method_info.full_method_path,
-                    requests_json=req_list, pool=grpc_schema.pool,
-                    input_type_name=method_info.input_type, output_type_name=method_info.output_type,
+                    target_url=ctx.target_url,
+                    method_path=method_info.full_method_path,
+                    requests_json=req_list,
+                    pool=grpc_schema.pool,
+                    input_type_name=method_info.input_type,
+                    output_type_name=method_info.output_type,
                     metadata=metadata,
                 )
             elif method_info.server_streaming:
                 if not isinstance(request_obj, dict):
-                    return False, None, error_json(
-                        f"grpc server-streaming step expects dict request, got {type(request_obj).__name__}"
-                    ), None
+                    return (
+                        False,
+                        None,
+                        error_json(
+                            f"grpc server-streaming step expects dict request, got {type(request_obj).__name__}"
+                        ),
+                        None,
+                    )
                 res = await execute_server_streaming_rpc(
-                    target_url=ctx.target_url, method_path=method_info.full_method_path,
+                    target_url=ctx.target_url,
+                    method_path=method_info.full_method_path,
                     request_json=request_obj,
                     pool=grpc_schema.pool,
-                    input_type_name=method_info.input_type, output_type_name=method_info.output_type,
+                    input_type_name=method_info.input_type,
+                    output_type_name=method_info.output_type,
                     metadata=metadata,
                 )
             else:
                 if not isinstance(request_obj, dict):
-                    return False, None, error_json(
-                        f"grpc unary step expects dict request, got {type(request_obj).__name__}"
-                    ), None
+                    return (
+                        False,
+                        None,
+                        error_json(
+                            f"grpc unary step expects dict request, got {type(request_obj).__name__}"
+                        ),
+                        None,
+                    )
                 res = await execute_unary_rpc(
-                    target_url=ctx.target_url, method_path=method_info.full_method_path,
+                    target_url=ctx.target_url,
+                    method_path=method_info.full_method_path,
                     request_json=request_obj,
                     pool=grpc_schema.pool,
-                    input_type_name=method_info.input_type, output_type_name=method_info.output_type,
+                    input_type_name=method_info.input_type,
+                    output_type_name=method_info.output_type,
                     metadata=metadata,
                 )
 
@@ -210,12 +230,21 @@ async def execute_recipe_tool(
             results.update(tables)
             query_results_var.set(results)
 
-            rpc_rec = {"method": method_path, "request": json.dumps(request_obj), "name": name, "success": True}
+            rpc_rec = {
+                "method": method_path,
+                "request": json.dumps(request_obj),
+                "name": name,
+                "success": True,
+            }
             return True, tables.get(name), "", rpc_rec
 
         success, last_data, executed_sql, error = await execute_recipe_steps(
-            recipe, validated_params or {}, query_results_var, last_result_var,
-            grpc_step_executor, executed_rpcs,
+            recipe,
+            validated_params or {},
+            query_results_var,
+            last_result_var,
+            grpc_step_executor,
+            executed_rpcs,
         )
         if not success:
             return error

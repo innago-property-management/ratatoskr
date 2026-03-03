@@ -7,7 +7,6 @@ import pytest
 
 from api_agent.agent.orchestrator import AgentContextVars, create_recipe_tools
 
-
 # Shared test fixtures
 
 @pytest.fixture

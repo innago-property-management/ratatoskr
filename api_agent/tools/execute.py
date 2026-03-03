@@ -135,9 +135,7 @@ Use this to re-run queries from the query tool or execute known operations.""",
 
             # Fetch schema via reflection
             try:
-                schema = await fetch_grpc_schema(
-                    ctx.target_url, metadata=metadata
-                )
+                schema = await fetch_grpc_schema(ctx.target_url, metadata=metadata)
             except Exception as e:
                 return {
                     "ok": False,
@@ -147,11 +145,7 @@ Use this to re-run queries from the query tool or execute known operations.""",
             # Find the method in the schema
             method_info = _find_grpc_method(schema, grpc_method)
             if method_info is None:
-                available = [
-                    m.full_method_path
-                    for svc in schema.services
-                    for m in svc.methods
-                ]
+                available = [m.full_method_path for svc in schema.services for m in svc.methods]
                 return {
                     "ok": False,
                     "error": f"Method '{grpc_method}' not found in schema. "

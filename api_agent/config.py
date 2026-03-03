@@ -79,7 +79,9 @@ class Settings(BaseSettings):
     )
 
     # Default target (optional — fallback when headers omitted, useful for single-API instances)
-    DEFAULT_TARGET_URL: str = ""  # e.g. "https://swapi-graphql.netlify.app/.netlify/functions/graphql"
+    DEFAULT_TARGET_URL: str = (
+        ""  # e.g. "https://swapi-graphql.netlify.app/.netlify/functions/graphql"
+    )
     DEFAULT_API_TYPE: str = ""  # "graphql", "rest", or "grpc"
     DEFAULT_BASE_URL: str = ""  # REST base URL override
     DEFAULT_TARGET_HEADERS: str = ""  # JSON object, e.g. '{"Accept": "application/json"}'
@@ -95,9 +97,7 @@ class Settings(BaseSettings):
     SCHEMA_REDUCTION_TIMEOUT_MS: int = 30_000
     SCHEMA_REDUCTION_API_KEY: str = Field(
         default="",
-        validation_alias=AliasChoices(
-            "API_AGENT_SCHEMA_REDUCTION_API_KEY", "ANTHROPIC_API_KEY"
-        ),
+        validation_alias=AliasChoices("API_AGENT_SCHEMA_REDUCTION_API_KEY", "ANTHROPIC_API_KEY"),
     )
     SCHEMA_REDUCTION_MAX_INPUT_CHARS: int = 100_000
 

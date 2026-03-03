@@ -144,7 +144,9 @@ def get_request_context() -> RequestContext:
     include_result = (include_result_raw or "").lower() in ("true", "1", "yes")
 
     if not target_url:
-        raise MissingHeaderError("X-Target-URL header required (or set API_AGENT_DEFAULT_TARGET_URL)")
+        raise MissingHeaderError(
+            "X-Target-URL header required (or set API_AGENT_DEFAULT_TARGET_URL)"
+        )
 
     if not api_type:
         raise MissingHeaderError("X-API-Type header required (or set API_AGENT_DEFAULT_API_TYPE)")

@@ -339,6 +339,7 @@ async def fetch_schema_context(
     spec_url: str,
     headers: dict[str, str] | None = None,
     spec_filter: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    question: str = "",
 ) -> tuple[str, str, str]:
     """Fetch and build schema context.
 
@@ -347,9 +348,10 @@ async def fetch_schema_context(
         headers: Optional auth headers
         spec_filter: Optional filter to apply to spec before building DSL
             (used by endpoint allowlist to remove non-allowed paths)
+        question: User's NL question (guides smart schema reduction)
 
     Returns:
-        Tuple of (truncated_context, base_url, raw_spec_json)
+        Tuple of (reduced_context, base_url, raw_spec_json)
     """
     spec = await load_openapi_spec(spec_url, headers)
     if not spec:
@@ -373,12 +375,19 @@ async def fetch_schema_context(
         dsl_context = ""
     base_url = get_base_url_from_spec(spec, spec_url)
 
-    # Truncate DSL if too large
-    context = dsl_context
-    if len(context) > settings.MAX_SCHEMA_CHARS:
-        context = (
-            context[: settings.MAX_SCHEMA_CHARS]
-            + "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
-        )
+    # Smart schema reduction (TOON + Haiku + hard truncation fallback)
+    from ..schema.reducer import reduce_schema
+
+    result = await reduce_schema(
+        schema_text=dsl_context,
+        question=question,
+        threshold=settings.MAX_SCHEMA_CHARS,
+        api_key=settings.SCHEMA_REDUCTION_API_KEY,
+        model=settings.SCHEMA_REDUCTION_MODEL,
+        timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
+        enabled=settings.SCHEMA_REDUCTION_ENABLED,
+        max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
+    )
+    context = result.schema_text
 
     return context, base_url, raw_spec_json

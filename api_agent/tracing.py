@@ -40,12 +40,14 @@ def init_tracing() -> None:
         # Instrument OpenAI/Anthropic clients if available
         try:
             from openinference.instrumentation.openai import OpenAIInstrumentor  # noqa: I001  # type: ignore[unresolved-import]
+
             OpenAIInstrumentor().instrument(tracer_provider=provider)
         except ImportError:
             logger.debug("OpenAI instrumentation not available")
 
         try:
             from openinference.instrumentation.anthropic import AnthropicInstrumentor  # noqa: I001  # type: ignore[unresolved-import]
+
             AnthropicInstrumentor().instrument(tracer_provider=provider)
         except ImportError:
             logger.debug("Anthropic instrumentation not available")
