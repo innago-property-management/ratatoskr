@@ -10,6 +10,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 # Install CA certificates for HTTPS
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
