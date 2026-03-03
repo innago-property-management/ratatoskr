@@ -283,7 +283,7 @@ class TestSchemaReductionDefaults:
         assert Settings().SCHEMA_REDUCTION_ENABLED is True
 
     def test_model_default(self):
-        assert Settings().SCHEMA_REDUCTION_MODEL == "claude-haiku-4-5"
+        assert Settings().SCHEMA_REDUCTION_MODEL == "claude-haiku-4-5-20251001"
 
     def test_timeout_default(self):
         assert Settings().SCHEMA_REDUCTION_TIMEOUT_MS == 30_000

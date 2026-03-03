@@ -306,3 +306,21 @@ class TestHaikuLayer:
 
         assert was_applied is False
         assert result_text == SAMPLE_LARGE_SCHEMA
+
+    @pytest.mark.asyncio
+    async def test_haiku_question_with_curly_braces(self):
+        """Questions containing {curly braces} must not crash prompt building."""
+        with patch("api_agent.schema.reducer.anthropic") as mock_anthropic_mod:
+            mock_client = MagicMock()
+            mock_client.messages.create = AsyncMock(
+                return_value=_make_anthropic_message_response(SAMPLE_REDUCED_SCHEMA)
+            )
+            mock_anthropic_mod.AsyncAnthropic.return_value = mock_client
+
+            layer = HaikuLayer(api_key="test-key")
+            result_text, was_applied = await layer.reduce(
+                SAMPLE_LARGE_SCHEMA, "Get /users/{id} endpoint"
+            )
+
+        assert was_applied is True
+        assert result_text == SAMPLE_REDUCED_SCHEMA

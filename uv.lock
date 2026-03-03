@@ -104,7 +104,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rapidfuzz", specifier = ">=3.0.0" },
     { name = "starlette", specifier = ">=0.50.0" },
-    { name = "toon-format", git = "https://github.com/toon-format/toon-python.git" },
+    { name = "toon-format", git = "https://github.com/toon-format/toon-python.git?rev=6b26984a01279defdcf40ab9d09bc418fe8133ac" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
 
@@ -1841,7 +1841,7 @@ wheels = [
 [[package]]
 name = "toon-format"
 version = "0.9.0b1"
-source = { git = "https://github.com/toon-format/toon-python.git#6b26984a01279defdcf40ab9d09bc418fe8133ac" }
+source = { git = "https://github.com/toon-format/toon-python.git?rev=6b26984a01279defdcf40ab9d09bc418fe8133ac#6b26984a01279defdcf40ab9d09bc418fe8133ac" }
 
 [[package]]
 name = "tqdm"

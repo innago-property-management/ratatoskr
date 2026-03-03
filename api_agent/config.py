@@ -93,7 +93,7 @@ class Settings(BaseSettings):
 
     # Schema reduction pipeline
     SCHEMA_REDUCTION_ENABLED: bool = True
-    SCHEMA_REDUCTION_MODEL: str = "claude-haiku-4-5"
+    SCHEMA_REDUCTION_MODEL: str = "claude-haiku-4-5-20251001"
     SCHEMA_REDUCTION_TIMEOUT_MS: int = 30_000
     SCHEMA_REDUCTION_API_KEY: str = Field(
         default="",

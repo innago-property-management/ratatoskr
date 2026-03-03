@@ -137,7 +137,7 @@ class HaikuLayer:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-haiku-4-5",
+        model: str = "claude-haiku-4-5-20251001",
         timeout_ms: int = 30_000,
     ):
         self.model = model
@@ -157,7 +157,11 @@ class HaikuLayer:
         Never raises — returns (schema_text, False) on ANY error.
         """
         try:
-            prompt = _HAIKU_PROMPT.format(question=question, schema_text=schema_text)
+            prompt = (
+                _HAIKU_PROMPT.replace("{question}", question).replace(
+                    "{schema_text}", schema_text
+                )
+            )
 
             response = await self.client.messages.create(
                 model=self.model,
@@ -240,7 +244,7 @@ async def reduce_schema(
     question: str,
     threshold: int,
     api_key: str = "",
-    model: str = "claude-haiku-4-5",
+    model: str = "claude-haiku-4-5-20251001",
     timeout_ms: int = 30_000,
     enabled: bool = True,
     max_input_chars: int = 100_000,
@@ -301,7 +305,7 @@ async def reduce_schema(
     # Layer 2: Haiku
     ai_applied = False
     resolved_key = _get_api_key(api_key)
-    if resolved_key and original_chars <= max_input_chars:
+    if resolved_key and question and len(current_text) <= max_input_chars:
         haiku_layer = HaikuLayer(resolved_key, model, timeout_ms)
         reduced_text, ai_applied = await haiku_layer.reduce(current_text, question)
         if ai_applied:
