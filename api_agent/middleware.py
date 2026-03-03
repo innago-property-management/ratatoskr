@@ -154,8 +154,8 @@ class DynamicToolNamingMiddleware(Middleware):
                 f"Failed to load {schema_type} schema. Check X-Target-URL and auth headers."
             )
 
-        target_url = headers.get("x-target-url", "")
-        api_type = headers.get("x-api-type", "api")
+        target_url = req_ctx.target_url
+        api_type = req_ctx.api_type or "api"
 
         # Short prefix for tool name, full hostname for description
         name_prefix = extract_api_name(headers)

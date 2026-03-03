@@ -262,6 +262,6 @@ def extract_api_name(headers: dict | None = None) -> str:
     if api_name := headers.get("x-api-name"):
         return _to_snake_case(api_name)[:32]
 
-    # Fall back to semantic prefix from URL
-    target_url = headers.get("x-target-url", "")
+    # Fall back to semantic prefix from URL (check headers, then config defaults)
+    target_url = headers.get("x-target-url") or settings.DEFAULT_TARGET_URL or ""
     return get_tool_name_prefix(target_url)

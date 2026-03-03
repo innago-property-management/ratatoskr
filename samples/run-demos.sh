@@ -12,8 +12,8 @@
 #   Dad Jokes:  http://localhost:3942/mcp
 #   NASA APOD:  http://localhost:3943/mcp
 #
-# Then launch inspector:
-#   npx @modelcontextprotocol/inspector --transport stdio -- ../mcp-langchain-bridge/start-bridge.sh
+# Or launch MCP Inspector directly:
+#   npx @modelcontextprotocol/inspector
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -50,12 +50,10 @@ API_AGENT_MCP_NAME="NASA APOD" \
 echo ""
 echo "Instances starting on ports 3941-3943."
 echo ""
-echo "Add to mcp-langchain-bridge:"
-echo "  mcp-bridge add sse starwars    # url: http://localhost:3941/mcp"
-echo "  mcp-bridge add sse dadjokes    # url: http://localhost:3942/mcp"
-echo "  mcp-bridge add sse nasa        # url: http://localhost:3943/mcp"
-echo ""
-echo "Then: npx @modelcontextprotocol/inspector --transport stdio -- ../mcp-langchain-bridge/start-bridge.sh"
+echo "Connect via MCP Inspector (Streamable HTTP):"
+echo "  Star Wars:  http://localhost:3941/mcp"
+echo "  Dad Jokes:  http://localhost:3942/mcp"
+echo "  NASA APOD:  http://localhost:3943/mcp"
 echo ""
 echo "Press Ctrl+C to stop all."
 wait
