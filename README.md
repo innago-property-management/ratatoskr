@@ -10,6 +10,7 @@
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> &middot;
+  <a href="#try-the-demos">Demos</a> &middot;
   <a href="#how-it-works">How It Works</a> &middot;
   <a href="#providers">Providers</a> &middot;
   <a href="#reference">Reference</a> &middot;
@@ -76,6 +77,40 @@ docker run -p 3000:3000 -e OPENAI_API_KEY=your_key ratatoskr
 - *"Compare alive vs dead by species, only species with 10+ characters"*
 
 That's it. Agent introspects schema, generates queries, runs SQL post-processing.
+
+## Try the Demos
+
+Three public APIs included — just bring an LLM key:
+
+```bash
+# Set your LLM key (Anthropic by default, or override with API_AGENT_PROVIDER=openai)
+export ANTHROPIC_API_KEY="your_key"
+
+# Launch all three demo instances
+./samples/run-demos.sh
+```
+
+Then connect [MCP Inspector](https://github.com/modelcontextprotocol/inspector) to any instance:
+
+```bash
+# Star Wars (GraphQL) — characters, films, planets, species, starships
+npx @modelcontextprotocol/inspector --transport http --server-url http://localhost:3941/mcp
+
+# Dad Jokes (GraphQL) — random jokes, search
+npx @modelcontextprotocol/inspector --transport http --server-url http://localhost:3942/mcp
+
+# NASA APOD (REST) — Astronomy Picture of the Day
+npx @modelcontextprotocol/inspector --transport http --server-url http://localhost:3943/mcp
+```
+
+**Sample questions to try:**
+
+| Demo | Try asking... |
+|------|--------------|
+| Star Wars | *"List all films with their directors, sorted by release date"* |
+| Star Wars | *"Which planet has the most characters? Show top 5"* |
+| Dad Jokes | *"Find me jokes about cats"* |
+| NASA APOD | *"What was the astronomy picture on 2024-01-01?"* |
 
 ## More Examples
 
