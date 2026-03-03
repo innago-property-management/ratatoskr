@@ -89,5 +89,17 @@ class Settings(BaseSettings):
     ALLOW_ENDPOINTS_GRAPHQL: str = ""  # CSV: "Query.user*,Query.orders"
     ALLOW_ENDPOINTS_GRPC: str = ""  # CSV: "helloworld.Greeter/*"
 
+    # Schema reduction pipeline
+    SCHEMA_REDUCTION_ENABLED: bool = True
+    SCHEMA_REDUCTION_MODEL: str = "claude-haiku-4-5"
+    SCHEMA_REDUCTION_TIMEOUT_MS: int = 30_000
+    SCHEMA_REDUCTION_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "API_AGENT_SCHEMA_REDUCTION_API_KEY", "ANTHROPIC_API_KEY"
+        ),
+    )
+    SCHEMA_REDUCTION_MAX_INPUT_CHARS: int = 100_000
+
 
 settings = Settings()
