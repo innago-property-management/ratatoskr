@@ -129,11 +129,12 @@ def get_request_context() -> RequestContext:
     """
     headers = get_http_headers()
 
-    target_url = headers.get("x-target-url")
-    api_type = headers.get("x-api-type")
-    target_headers_raw = headers.get("x-target-headers") or "{}"
+    # Fall back to config defaults when headers are omitted (single-API mode)
+    target_url = headers.get("x-target-url") or settings.DEFAULT_TARGET_URL or None
+    api_type = headers.get("x-api-type") or settings.DEFAULT_API_TYPE or None
+    target_headers_raw = headers.get("x-target-headers") or settings.DEFAULT_TARGET_HEADERS or "{}"
     allow_unsafe_paths_raw = headers.get("x-allow-unsafe-paths") or "[]"
-    base_url_raw = headers.get("x-base-url")
+    base_url_raw = headers.get("x-base-url") or settings.DEFAULT_BASE_URL or None
     include_result_raw = headers.get("x-include-result", "false")
     poll_paths_raw = headers.get("x-poll-paths") or "[]"
     grpc_allow_unsafe_rpcs_raw = headers.get("x-allow-unsafe-rpcs") or "[]"
@@ -143,10 +144,10 @@ def get_request_context() -> RequestContext:
     include_result = (include_result_raw or "").lower() in ("true", "1", "yes")
 
     if not target_url:
-        raise MissingHeaderError("X-Target-URL header required")
+        raise MissingHeaderError("X-Target-URL header required (or set API_AGENT_DEFAULT_TARGET_URL)")
 
     if not api_type:
-        raise MissingHeaderError("X-API-Type header required (graphql|rest|grpc)")
+        raise MissingHeaderError("X-API-Type header required (or set API_AGENT_DEFAULT_API_TYPE)")
 
     if api_type not in ("graphql", "rest", "grpc"):
         raise MissingHeaderError(
@@ -261,6 +262,6 @@ def extract_api_name(headers: dict | None = None) -> str:
     if api_name := headers.get("x-api-name"):
         return _to_snake_case(api_name)[:32]
 
-    # Fall back to semantic prefix from URL
-    target_url = headers.get("x-target-url", "")
+    # Fall back to semantic prefix from URL (check headers, then config defaults)
+    target_url = headers.get("x-target-url") or settings.DEFAULT_TARGET_URL or ""
     return get_tool_name_prefix(target_url)
