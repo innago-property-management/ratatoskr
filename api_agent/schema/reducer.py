@@ -169,7 +169,7 @@ class HaikuLayer:
             text_parts = []
             for block in response.content:
                 if block.type == "text":
-                    text_parts.append(block.text)
+                    text_parts.append(block.text)  # type: ignore[union-attr]
 
             reduced = "\n".join(text_parts)
 

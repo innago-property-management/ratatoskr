@@ -60,7 +60,7 @@ class TestToonLayer:
         """If toon_format cannot be imported, returns original with was_applied=False."""
         # Save and remove toon_format from sys.modules to simulate ImportError
         saved_module = sys.modules.get("toon_format")
-        monkeypatch.setitem(sys.modules, "toon_format", None)  # type: ignore[arg-type]
+        monkeypatch.setitem(sys.modules, "toon_format", None)
 
         original = json.dumps([{"x": 1}, {"x": 2}])
         layer = ToonLayer()
