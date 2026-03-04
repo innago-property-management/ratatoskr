@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import re
-import threading
 import time
 import uuid
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import structlog
 from rapidfuzz import fuzz
@@ -83,7 +83,21 @@ def render_sql_safe(template: str, params: dict[str, Any]) -> str:
     Escaping:
     - Single quotes doubled (SQL standard: ' → '')
     - Semicolons stripped (prevent multi-statement injection)
+    - Comment markers stripped (``--``, ``/*``, ``*/``)
     - Numeric/bool/None pass through unquoted
+
+    Limitations:
+    - This is a string-based sanitizer, not a full SQL parser. It cannot
+      detect injection patterns that span multiple parameters or exploit
+      encoding tricks (e.g. Unicode homoglyphs, double-encoding).
+    - It does not validate SQL syntax or semantics — only individual
+      parameter values are escaped.
+    - It does not prevent abuse of legitimate SQL operators (LIKE, UNION)
+      within parameter values beyond stripping known injection vectors.
+    - String values are **not** auto-quoted.  The template must supply
+      surrounding quotes (e.g., ``'{{param}}'`` not ``{{param}}``).
+    - For defense-in-depth, always combine with DuckDB sandboxing
+      (read-only mode, restricted functions) as provided by ``executor.py``.
     """
 
     def _safe_text(v: Any) -> str:
@@ -198,16 +212,27 @@ class RecipeRecord:
 
 
 class RecipeStore:
-    """Thread-safe global recipe store with simple intent matching and LRU eviction."""
+    """Async-safe global recipe store with simple intent matching and LRU eviction.
+
+    This store is designed for **single-tenant** use: it is a global in-memory
+    cache shared across all requests in the process.  There is no namespace
+    isolation between different users or API keys.
+
+    If multi-tenant isolation is required in the future, each tenant would need
+    its own ``RecipeStore`` instance (or an internal namespace key) so that
+    recipes from one tenant are never visible to another.  The ``api_id`` +
+    ``schema_hash`` key partially segments data by target API, but does not
+    provide security isolation.
+    """
 
     def __init__(self, max_size: int = 64) -> None:
         self._max_size = max(1, int(max_size))
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
         self._records: dict[str, RecipeRecord] = {}
         self._by_key: dict[tuple[str, str], set[str]] = defaultdict(set)
         self._lru: OrderedDict[str, None] = OrderedDict()
 
-    def save_recipe(
+    async def save_recipe(
         self,
         *,
         api_id: str,
@@ -231,7 +256,7 @@ class RecipeStore:
             last_used_at=now,
         )
 
-        with self._lock:
+        async with self._lock:
             self._records[recipe_id] = record
             self._by_key[(api_id, schema_hash)].add(recipe_id)
             self._touch(recipe_id)
@@ -241,8 +266,60 @@ class RecipeStore:
         _log_recipe(f"SAVE {recipe_id} params={params} q={question[:40]}")
         return recipe_id
 
-    def get_recipe(self, recipe_id: str) -> dict[str, Any] | None:
-        with self._lock:
+    async def save_recipe_if_unique(
+        self,
+        *,
+        api_id: str,
+        schema_hash: str,
+        question: str,
+        recipe: dict[str, Any],
+        tool_name: str,
+        equivalence_checker: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
+    ) -> str | None:
+        """Atomically check for duplicates and save in a single lock acquisition.
+
+        This avoids the TOCTOU race where two concurrent coroutines both see
+        no duplicate and both insert.  The *equivalence_checker* receives
+        ``(existing_recipe_dict, candidate_recipe_dict)`` and should return
+        ``True`` if they are equivalent.
+
+        Returns the new recipe_id on success, or ``None`` if a duplicate was
+        found (or no checker was supplied and the save proceeds normally).
+        """
+        recipe_id = f"r_{uuid.uuid4().hex[:8]}"
+        now = time.time()
+        record = RecipeRecord(
+            recipe_id=recipe_id,
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question=question,
+            question_sig=_normalize_question(question),
+            question_tokens=_tokens(question),
+            recipe=dict(recipe),
+            tool_name=tool_name,
+            created_at=now,
+            last_used_at=now,
+        )
+
+        async with self._lock:
+            if equivalence_checker is not None:
+                key = (api_id, schema_hash)
+                for rid in list(self._by_key.get(key, set())):
+                    existing = self._records.get(rid)
+                    if existing and equivalence_checker(existing.recipe, recipe):
+                        return None
+
+            self._records[recipe_id] = record
+            self._by_key[(api_id, schema_hash)].add(recipe_id)
+            self._touch(recipe_id)
+            self._evict_if_needed()
+
+        params = list(recipe.get("params", {}).keys())
+        _log_recipe(f"SAVE {recipe_id} params={params} q={question[:40]}")
+        return recipe_id
+
+    async def get_recipe(self, recipe_id: str) -> dict[str, Any] | None:
+        async with self._lock:
             rec = self._records.get(recipe_id)
             if not rec:
                 return None
@@ -250,9 +327,9 @@ class RecipeStore:
             self._touch(recipe_id)
             return dict(rec.recipe)
 
-    def get_recipe_meta(self, recipe_id: str) -> dict[str, Any] | None:
+    async def get_recipe_meta(self, recipe_id: str) -> dict[str, Any] | None:
         """Return {api_id, schema_hash, recipe} for safety checks."""
-        with self._lock:
+        async with self._lock:
             rec = self._records.get(recipe_id)
             if not rec:
                 return None
@@ -264,7 +341,7 @@ class RecipeStore:
                 "recipe": dict(rec.recipe),
             }
 
-    def suggest_recipes(
+    async def suggest_recipes(
         self,
         *,
         api_id: str,
@@ -274,7 +351,7 @@ class RecipeStore:
     ) -> list[dict[str, Any]]:
         q_sig = _normalize_question(question)
         key = (api_id, schema_hash)
-        with self._lock:
+        async with self._lock:
             ids = list(self._by_key.get(key, set()))
             recs = [self._records[i] for i in ids if i in self._records]
 
@@ -303,7 +380,7 @@ class RecipeStore:
             _log_recipe(f"SUGGEST found={len(out)} [{matches}]")
         return out
 
-    def list_recipes(
+    async def list_recipes(
         self,
         *,
         api_id: str,
@@ -311,7 +388,7 @@ class RecipeStore:
     ) -> list[dict[str, Any]]:
         """List recipes for a given api_id + schema_hash."""
         key = (api_id, schema_hash)
-        with self._lock:
+        async with self._lock:
             ids = list(self._by_key.get(key, set()))
             recs = [self._records[i] for i in ids if i in self._records]
 
@@ -332,7 +409,7 @@ class RecipeStore:
             )
         return out
 
-    def find_recipe_by_tool_slug(
+    async def find_recipe_by_tool_slug(
         self,
         *,
         api_id: str,
@@ -345,7 +422,7 @@ class RecipeStore:
         if not (isinstance(max_slug_len, int) and max_slug_len > 0):
             max_slug_len = None
 
-        with self._lock:
+        async with self._lock:
             ids = list(self._by_key.get(key, set()))
             recs: list[RecipeRecord] = []
             for i in ids:

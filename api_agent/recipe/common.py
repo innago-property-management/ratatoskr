@@ -127,7 +127,7 @@ async def maybe_extract_and_save_recipe(
 
     try:
         schema_hash = sha256_hex(raw_schema)
-        existing_recipes = RECIPE_STORE.list_recipes(api_id=api_id, schema_hash=schema_hash)
+        existing_recipes = await RECIPE_STORE.list_recipes(api_id=api_id, schema_hash=schema_hash)
         recipe = await extract_recipe(
             api_type=api_type,
             question=question,
@@ -136,25 +136,28 @@ async def maybe_extract_and_save_recipe(
             existing_recipes=existing_recipes,
         )
         if recipe:
-            # Skip if recipe already exists (same steps/sql/params)
-            for existing in existing_recipes:
-                if _recipes_equivalent(existing, recipe, api_type):
-                    return
-
             # Ensure tool_name does not collide with existing recipes
             seen: set[str] = {r["tool_name"] for r in existing_recipes if r.get("tool_name")}
             recipe["tool_name"] = deduplicate_tool_name(
                 recipe.get("tool_name", ""), seen_names=seen, max_len=40
             )
             tool_name = recipe.get("tool_name", "")
-            recipe_id = RECIPE_STORE.save_recipe(
+
+            # Atomic check-and-insert: holds lock across equivalence check + save
+            # to prevent TOCTOU race where two concurrent requests both insert.
+            def _equiv_checker(existing_recipe: dict, candidate: dict) -> bool:
+                return _recipes_equivalent(existing_recipe, candidate, api_type)
+
+            recipe_id = await RECIPE_STORE.save_recipe_if_unique(
                 api_id=api_id,
                 schema_hash=schema_hash,
                 question=question,
                 recipe=recipe,
                 tool_name=tool_name,
+                equivalence_checker=_equiv_checker,
             )
-            mark_recipe_changed(recipe_id)
+            if recipe_id is not None:
+                mark_recipe_changed(recipe_id)
     except Exception:
         logger.exception("recipe_extraction_failed")
 
@@ -231,8 +234,13 @@ def create_params_model(pspec: dict[str, Any], tname: str):
     return create_model(f"{tname}_Params", __base__=StrictBase, **field_defs)
 
 
-def deduplicate_tool_name(base_name: str, seen_names: set[str], max_len: int = 40) -> str:
-    """Ensure unique tool name within length limit."""
+def deduplicate_tool_name(
+    base_name: str, seen_names: set[str], max_len: int = 40, max_attempts: int = 100
+) -> str:
+    """Ensure unique tool name within length limit.
+
+    Raises ValueError if no unique name can be found within *max_attempts*.
+    """
     base = re.sub(r"[^a-z0-9_]", "", base_name)[:max_len]
     if not base or not re.match(r"^[a-z][a-z0-9_]*$", base):
         base = "recipe"
@@ -241,15 +249,17 @@ def deduplicate_tool_name(base_name: str, seen_names: set[str], max_len: int = 4
         seen_names.add(base)
         return base
 
-    counter = 2
-    while True:
+    for counter in range(2, 2 + max_attempts):
         suffix = f"_{counter}"
         trimmed = base[: max_len - len(suffix)]
         candidate = f"{trimmed}{suffix}"
         if candidate not in seen_names:
             seen_names.add(candidate)
             return candidate
-        counter += 1
+
+    raise ValueError(
+        f"deduplicate_tool_name: max attempts ({max_attempts}) exhausted for base '{base}'"
+    )
 
 
 def _execute_sql_steps(
@@ -364,7 +374,7 @@ def _steps_summary(steps: list, sql_steps: list) -> str:
     return " + ".join(parts) if parts else "no steps"
 
 
-def search_recipes(
+async def search_recipes(
     api_id: str,
     raw_schema: str,
     question: str,
@@ -385,7 +395,7 @@ def search_recipes(
         return [], ""
 
     schema_hash = sha256_hex(raw_schema)
-    suggestions = RECIPE_STORE.suggest_recipes(
+    suggestions = await RECIPE_STORE.suggest_recipes(
         api_id=api_id,
         schema_hash=schema_hash,
         question=question,
@@ -396,14 +406,14 @@ def search_recipes(
 
     # Enrich with recipe params for display
     for s in suggestions:
-        recipe = RECIPE_STORE.get_recipe(s["recipe_id"])
+        recipe = await RECIPE_STORE.get_recipe(s["recipe_id"])
         if recipe:
             s["params"] = recipe.get("params", {})
 
-    return suggestions, build_recipe_context(suggestions)
+    return suggestions, await build_recipe_context(suggestions)
 
 
-def build_recipe_context(suggestions: list[dict[str, Any]]) -> str:
+async def build_recipe_context(suggestions: list[dict[str, Any]]) -> str:
     """Build recipe context for system prompt."""
     if not suggestions:
         return ""
@@ -411,7 +421,7 @@ def build_recipe_context(suggestions: list[dict[str, Any]]) -> str:
     lines = ["\n<recipes>", "Available recipe tools (sorted by relevance):"]
 
     for idx, s in enumerate(suggestions, 1):
-        recipe = RECIPE_STORE.get_recipe(s["recipe_id"])
+        recipe = await RECIPE_STORE.get_recipe(s["recipe_id"])
         if not recipe:
             continue
 
@@ -446,7 +456,7 @@ def error_json(msg: str) -> str:
     return json.dumps({"success": False, "error": msg}, indent=2)
 
 
-def validate_and_prepare_recipe(
+async def validate_and_prepare_recipe(
     recipe_id: str,
     params_json: str,
     raw_schema_var: ContextVar[str],
@@ -459,7 +469,7 @@ def validate_and_prepare_recipe(
     if not raw_schema:
         return None, None, error_json("schema not loaded")
 
-    recipe = RECIPE_STORE.get_recipe(recipe_id)
+    recipe = await RECIPE_STORE.get_recipe(recipe_id)
     if not recipe:
         return None, None, error_json(f"recipe not found: {recipe_id}")
 
