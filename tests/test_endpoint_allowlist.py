@@ -362,7 +362,7 @@ class TestSearchSchemaNoLeak:
         from api_agent.agent.graphql_agent import _fetch_schema_context, _raw_schema
 
         ctx = _graphql_ctx(allow_endpoints=("Query.users",))
-        schema_ctx, allowed_count = await _fetch_schema_context(
+        schema_ctx, allowed_count, raw_schema_json = await _fetch_schema_context(
             ctx.target_url,
             ctx.target_headers,
             config_patterns=None,
@@ -370,8 +370,7 @@ class TestSearchSchemaNoLeak:
         )
 
         # Raw schema should not contain Post type
-        raw = _raw_schema.get()
-        parsed = json.loads(raw)
+        parsed = json.loads(raw_schema_json)
         type_names = {t["name"] for t in parsed.get("types", [])}
         assert "User" in type_names
         assert "Post" not in type_names

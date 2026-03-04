@@ -6,6 +6,8 @@ logic via ProtocolConfig; the orchestrator owns ContextVar lifecycle, recipe pre
 tool loop invocation, and result building.
 """
 
+import asyncio
+import contextvars
 import json
 import logging
 from contextvars import ContextVar
@@ -94,12 +96,21 @@ class ProtocolConfig:
 
 @dataclass
 class OrchestrationResult:
-    """Intermediate result from orchestration."""
+    """Intermediate result from orchestration.
+
+    Values captured from ContextVars are returned here because orchestration
+    runs in an isolated context copy (via copy_context()) — the caller cannot
+    read them from ContextVars after orchestration completes.
+    """
 
     result_dict: dict[str, Any]
     should_extract_recipe: bool
     api_calls: list = field(default_factory=list)
     agent_output: str | None = None
+    # Captured from ContextVars at end of orchestration
+    recipe_steps: list = field(default_factory=list)
+    sql_steps: list[str] = field(default_factory=list)
+    raw_schema_value: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -346,19 +357,46 @@ async def run_agent_orchestration(
     question: str,
     config: ProtocolConfig,
 ) -> OrchestrationResult:
-    """Run the shared agent orchestration loop.
+    """Run the shared agent orchestration loop in an isolated context.
+
+    Each concurrent request gets its own ContextVar snapshot via
+    ``contextvars.copy_context()``, preventing cross-request data leaks.
 
     Each protocol agent calls this after fetching schema and creating tools.
     Recipe extraction is NOT done here — the caller handles it to preserve
-    monkeypatch targets in tests.
+    monkeypatch targets in tests.  ContextVar values needed for recipe
+    extraction are captured in OrchestrationResult before leaving the
+    isolated context.
     """
+    ctx = contextvars.copy_context()
+    task = asyncio.create_task(
+        _run_agent_orchestration_impl(question, config),
+        context=ctx,
+    )
+    return await task
+
+
+def _capture_contextvar_values(ctx_vars: AgentContextVars) -> dict[str, Any]:
+    """Snapshot ContextVar values before leaving the isolated context."""
+    return {
+        "recipe_steps": list(safe_get_contextvar(ctx_vars.recipe_steps, [])),
+        "sql_steps": list(safe_get_contextvar(ctx_vars.sql_steps, [])),
+        "raw_schema_value": safe_get_contextvar(ctx_vars.raw_schema, ""),
+    }
+
+
+async def _run_agent_orchestration_impl(
+    question: str,
+    config: ProtocolConfig,
+) -> OrchestrationResult:
+    """Inner orchestration logic — runs inside an isolated context copy."""
     log = make_logger(config.log_prefix)
     ctx_vars = config.ctx_vars
 
     try:
         log(f"QUERY {question[:80]}")
 
-        # Reset per-request storage
+        # Initialize per-request storage (safe — runs in isolated context copy)
         reset_context_vars(ctx_vars)
 
         # Store raw schema
@@ -432,6 +470,7 @@ async def run_agent_orchestration(
                 result_dict=build_partial_result(last_data, api_calls, turn_info, config.call_key),
                 should_extract_recipe=False,
                 api_calls=api_calls,
+                **_capture_contextvar_values(ctx_vars),
             )
 
         # Check if tool requested direct return
@@ -445,6 +484,7 @@ async def run_agent_orchestration(
 
         # Handle empty output
         if not result.final_output and not is_direct_return:
+            captured = _capture_contextvar_values(ctx_vars)
             if last_data:
                 return OrchestrationResult(
                     result_dict={
@@ -456,6 +496,7 @@ async def run_agent_orchestration(
                     },
                     should_extract_recipe=False,
                     api_calls=api_calls,
+                    **captured,
                 )
             return OrchestrationResult(
                 result_dict={
@@ -467,6 +508,7 @@ async def run_agent_orchestration(
                 },
                 should_extract_recipe=False,
                 api_calls=api_calls,
+                **captured,
             )
 
         # Build success result
@@ -487,6 +529,7 @@ async def run_agent_orchestration(
             should_extract_recipe=True,
             api_calls=api_calls,
             agent_output=agent_output,
+            **_capture_contextvar_values(ctx_vars),
         )
 
     except Exception as e:

@@ -20,7 +20,7 @@ from ..recipe import (
 )
 from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
-from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
+from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
 from .orchestrator import (
     AgentContextVars,
@@ -624,16 +624,18 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
 
         result = await run_agent_orchestration(question, config)
 
-        # Recipe extraction (stays here to preserve monkeypatch targets)
+        # Recipe extraction (stays here to preserve monkeypatch targets).
+        # Uses values captured from OrchestrationResult since orchestration
+        # runs in an isolated context copy.
         if result.should_extract_recipe:
-            skip_polling = any("poll_attempt" in c for c in safe_get_contextvar(_rest_calls, []))
+            skip_polling = any("poll_attempt" in c for c in result.api_calls)
             await maybe_extract_and_save_recipe(
                 api_type="rest",
                 api_id=build_api_id(ctx, "rest", base_url),
                 question=question,
-                steps=safe_get_contextvar(_recipe_steps, []),
-                sql_steps=safe_get_contextvar(_sql_steps, []),
-                raw_schema=safe_get_contextvar(_raw_schema, ""),
+                steps=result.recipe_steps,
+                sql_steps=result.sql_steps,
+                raw_schema=result.raw_schema_value,
                 skip_condition=skip_polling,
             )
 

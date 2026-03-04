@@ -26,7 +26,7 @@ from ..recipe import (
 )
 from ..recipe.store import render_text_template
 from ..schema.reducer import reduce_schema
-from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
+from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
 from .orchestrator import (
     AgentContextVars,
@@ -1000,15 +1000,17 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
 
         result = await run_agent_orchestration(question, config)
 
-        # Recipe extraction (stays here to preserve monkeypatch targets)
+        # Recipe extraction (stays here to preserve monkeypatch targets).
+        # Uses values captured from OrchestrationResult since orchestration
+        # runs in an isolated context copy.
         if result.should_extract_recipe:
             await maybe_extract_and_save_recipe(
                 api_type="grpc",
                 api_id=build_api_id(ctx, "grpc"),
                 question=question,
-                steps=safe_get_contextvar(_recipe_steps, []),
-                sql_steps=safe_get_contextvar(_sql_steps, []),
-                raw_schema=schema.raw_schema_text,
+                steps=result.recipe_steps,
+                sql_steps=result.sql_steps,
+                raw_schema=result.raw_schema_value,
             )
 
         return result.result_dict
