@@ -4,7 +4,7 @@ FROM python:3.11-slim AS builder
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9 /uv /usr/local/bin/uv
 
 # git needed only here for toon_format git dep
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -14,9 +14,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
+# Install deps first (cache-friendly — only busts on lockfile change)
 COPY pyproject.toml uv.lock README.md ./
-COPY api_agent ./api_agent
+RUN uv sync --frozen --no-dev --no-install-project
 
+# Then copy source and install project
+COPY api_agent ./api_agent
 RUN uv sync --frozen --no-dev
 
 # ---------- runtime ----------
@@ -24,6 +27,12 @@ FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --system --no-create-home appuser
 
 WORKDIR /app
 
@@ -36,4 +45,5 @@ RUN chmod +x ./start.sh
 
 EXPOSE 3000
 
+USER appuser
 ENTRYPOINT ["/app/start.sh"]
