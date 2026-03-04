@@ -1,17 +1,17 @@
 """OpenAPI 3.x spec loader and compact schema context builder."""
 
 import json
-import logging
 from collections.abc import Callable
 from typing import Any
 
+import structlog
 import yaml
 
 from ..config import settings
 from ..pool import pool
 from ..schema.reducer import reduce_schema
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def load_openapi_spec(
@@ -45,19 +45,19 @@ async def load_openapi_spec(
             spec = yaml.safe_load(raw)
 
         if not isinstance(spec, dict):
-            logger.warning("OpenAPI spec root is not an object")
+            logger.warning("openapi_spec_invalid_root")
             return {}
 
         # Validate OpenAPI 3.x
         openapi_version = spec.get("openapi", "")
         if not isinstance(openapi_version, str) or not openapi_version.startswith("3."):
-            logger.warning(f"Unsupported OpenAPI version: {openapi_version}, expected 3.x")
+            logger.warning("openapi_unsupported_version", version=openapi_version)
             return {}
 
         return spec
 
-    except Exception as e:
-        logger.exception(f"Failed to load OpenAPI spec: {e}")
+    except Exception:
+        logger.exception("openapi_spec_load_failed")
         return {}
 
 
@@ -372,7 +372,7 @@ async def fetch_schema_context(
     try:
         dsl_context = build_schema_context(spec)
     except Exception:
-        logger.exception("Failed to build OpenAPI schema context")
+        logger.exception("openapi_schema_context_failed")
         dsl_context = ""
     base_url = get_base_url_from_spec(spec, spec_url)
 

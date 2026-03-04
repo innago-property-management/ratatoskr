@@ -1,12 +1,13 @@
 """GraphQL agent using declarative queries (GraphQL + DuckDB SQL)."""
 
 import json
-import logging
 import re
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+
+import structlog
 
 from ..config import settings
 from ..context import RequestContext
@@ -45,7 +46,7 @@ from .prompts import (
 )
 from .schema_search import create_search_schema_tool
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _log = make_logger("[GQL]")
 
@@ -271,7 +272,7 @@ async def _fetch_schema_context(
 
     # Retry with shallow introspection if depth limit exceeded
     if not result.get("success") and _is_depth_limit_error(result):
-        logger.info("Full introspection failed (depth limit), retrying with shallow query")
+        logger.info("graphql_introspection_retry", reason="depth_limit")
         result = await graphql_fetch(_INTROSPECTION_QUERY_SHALLOW, None, endpoint, headers)
 
     if not result.get("success") or not result.get("data"):
@@ -287,7 +288,9 @@ async def _fetch_schema_context(
         schema = filter_graphql_schema(schema, config_patterns, header_patterns)
         qt_filtered = schema.get("queryType") or {}
         allowed_count = len(qt_filtered.get("fields") or [])
-        logger.info("Endpoint allowlist: %d/%d query fields allowed", allowed_count, total)
+        logger.info(
+            "endpoint_allowlist_applied", allowed=allowed_count, total=total, protocol="graphql"
+        )
 
     # Raw introspection JSON (filtered if allowlist active) — returned to caller,
     # NOT stored in ContextVar (avoids cross-request race conditions)
@@ -326,7 +329,7 @@ async def fetch_graphql_schema_raw(endpoint: str, headers: dict[str, str] | None
     result = await graphql_fetch(_INTROSPECTION_QUERY, None, endpoint, headers)
 
     if not result.get("success") and _is_depth_limit_error(result):
-        logger.info("Full introspection failed (depth limit), retrying with shallow query")
+        logger.info("graphql_introspection_retry", reason="depth_limit")
         result = await graphql_fetch(_INTROSPECTION_QUERY_SHALLOW, None, endpoint, headers)
 
     if not result.get("success") or not result.get("data"):

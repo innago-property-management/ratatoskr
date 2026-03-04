@@ -2,10 +2,11 @@
 
 import fnmatch
 import json
-import logging
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
+
+import structlog
 
 from ..config import settings
 from ..context import RequestContext
@@ -50,7 +51,7 @@ from .prompts import (
 )
 from .schema_search import create_search_schema_tool
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _log = make_logger("[gRPC]")
 
@@ -934,7 +935,10 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
             filtered_services = filter_grpc_services(schema.services, config_pats, header_pats)
             allowed_methods = sum(len(s.methods) for s in filtered_services)
             logger.info(
-                "Endpoint allowlist: %d/%d gRPC methods allowed", allowed_methods, total_methods
+                "endpoint_allowlist_applied",
+                allowed=allowed_methods,
+                total=total_methods,
+                protocol="grpc",
             )
             if not filtered_services:
                 return {
@@ -1016,7 +1020,7 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
         return result.result_dict
 
     except Exception as e:
-        logger.exception("gRPC Agent error")
+        logger.exception("grpc_agent_error")
         return {
             "ok": False,
             "data": None,

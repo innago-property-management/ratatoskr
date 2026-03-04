@@ -75,9 +75,7 @@ def make_tool_call_response(
     call_id: str = "call_001",
 ) -> LLMResponse:
     """Create an LLMResponse with a single tool call."""
-    return LLMResponse(
-        tool_calls=[ToolCall(id=call_id, name=tool_name, arguments=arguments)]
-    )
+    return LLMResponse(tool_calls=[ToolCall(id=call_id, name=tool_name, arguments=arguments)])
 
 
 def load_fixture(filename: str) -> dict:
@@ -136,7 +134,9 @@ def fake_provider_factory():
         #   fake_provider_factory(responses, monkeypatch)
         #   fake_provider_factory(monkeypatch, responses)
         if second is None:
-            raise TypeError("fake_provider_factory requires (responses, monkeypatch) or (monkeypatch, responses)")
+            raise TypeError(
+                "fake_provider_factory requires (responses, monkeypatch) or (monkeypatch, responses)"
+            )
         if isinstance(first, list):
             responses, mp = first, second
         else:

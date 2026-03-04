@@ -9,6 +9,7 @@ from api_agent.agent.orchestrator import AgentContextVars, create_recipe_tools
 
 # Shared test fixtures
 
+
 @pytest.fixture
 def ctx_vars():
     """Create a test AgentContextVars bundle."""
@@ -106,9 +107,7 @@ def test_create_multiple_recipe_tools(ctx_vars):
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        tools = create_recipe_tools(
-            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
-        )
+        tools = create_recipe_tools(ctx_vars, suggestions, "graphql", _dummy_step_executor_factory)
 
         assert len(tools) == 2
 
@@ -160,9 +159,7 @@ def test_recipe_tool_without_params(ctx_vars):
             "sql_steps": suggestions[0]["sql_steps"],
         }
 
-        tools = create_recipe_tools(
-            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
-        )
+        tools = create_recipe_tools(ctx_vars, suggestions, "graphql", _dummy_step_executor_factory)
         assert len(tools) == 1
         assert tools[0].name == "get_all_users"
 
@@ -203,9 +200,7 @@ def test_recipe_tool_name_deduplication(ctx_vars):
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        tools = create_recipe_tools(
-            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
-        )
+        tools = create_recipe_tools(ctx_vars, suggestions, "graphql", _dummy_step_executor_factory)
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
@@ -312,9 +307,7 @@ def test_rest_create_multiple_tools(ctx_vars):
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        tools = create_recipe_tools(
-            ctx_vars, suggestions, "rest", _dummy_step_executor_factory
-        )
+        tools = create_recipe_tools(ctx_vars, suggestions, "rest", _dummy_step_executor_factory)
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
@@ -376,9 +369,7 @@ def test_rest_tool_name_deduplication(ctx_vars):
 
         mock_store.get_recipe.side_effect = get_recipe
 
-        tools = create_recipe_tools(
-            ctx_vars, suggestions, "rest", _dummy_step_executor_factory
-        )
+        tools = create_recipe_tools(ctx_vars, suggestions, "rest", _dummy_step_executor_factory)
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]

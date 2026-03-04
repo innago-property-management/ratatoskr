@@ -12,7 +12,6 @@ through each layer on any error.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import re
 from dataclasses import dataclass
@@ -20,8 +19,9 @@ from functools import lru_cache
 
 import anthropic
 import httpx
+import structlog
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -63,39 +63,36 @@ class ToonLayer:
         try:
             parsed = json.loads(text)
         except (json.JSONDecodeError, ValueError):
-            logger.debug("ToonLayer: input is not JSON, skipping TOON encoding")
+            logger.debug("toon_skip_non_json")
             return (text, False)
 
         # Try to import and use toon_format
         try:
             from toon_format import encode as toon_encode
         except ImportError:
-            logger.warning(
-                "toon_format package not installed — TOON encoding disabled. "
-                "Install with: pip install 'toon_format @ git+https://github.com/toon-format/toon-python.git'"
-            )
+            logger.warning("toon_package_missing")
             return (text, False)
 
         try:
             encoded = toon_encode(parsed)
         except Exception:
-            logger.warning("ToonLayer: TOON encoding failed", exc_info=True)
+            logger.warning("toon_encoding_failed", exc_info=True)
             return (text, False)
 
         # Only use TOON output if it's actually smaller
         if len(encoded) >= len(text):
             logger.info(
-                "ToonLayer: TOON output not smaller (original=%d, toon=%d), using original",
-                len(text),
-                len(encoded),
+                "toon_not_smaller",
+                original_chars=len(text),
+                toon_chars=len(encoded),
             )
             return (text, False)
 
         logger.info(
-            "ToonLayer: TOON reduced schema from %d to %d chars (%.1f%% reduction)",
-            len(text),
-            len(encoded),
-            (1 - len(encoded) / len(text)) * 100,
+            "toon_reduced",
+            original_chars=len(text),
+            final_chars=len(encoded),
+            reduction_pct=round((1 - len(encoded) / len(text)) * 100, 1),
         )
         return (encoded, True)
 
@@ -192,38 +189,36 @@ class HaikuLayer:
 
             # Sanity checks
             if not reduced or not reduced.strip():
-                logger.warning("HaikuLayer: empty response from model, using original schema")
+                logger.warning("haiku_empty_response")
                 return schema_text, False
 
             if len(reduced) < _MIN_OUTPUT_CHARS:
                 logger.warning(
-                    "HaikuLayer: suspiciously short response (%d chars < %d minimum), "
-                    "using original schema",
-                    len(reduced),
-                    _MIN_OUTPUT_CHARS,
+                    "haiku_response_too_short",
+                    response_chars=len(reduced),
+                    minimum_chars=_MIN_OUTPUT_CHARS,
                 )
                 return schema_text, False
 
             if len(reduced) > len(schema_text):
                 logger.warning(
-                    "HaikuLayer: output (%d chars) longer than input (%d chars), "
-                    "discarding reduction",
-                    len(reduced),
-                    len(schema_text),
+                    "haiku_output_longer_than_input",
+                    output_chars=len(reduced),
+                    input_chars=len(schema_text),
                 )
                 return schema_text, False
 
             logger.info(
-                "HaikuLayer: reduced schema from %d to %d chars (%.0f%% reduction)",
-                len(schema_text),
-                len(reduced),
-                (1 - len(reduced) / len(schema_text)) * 100,
+                "haiku_reduced",
+                original_chars=len(schema_text),
+                final_chars=len(reduced),
+                reduction_pct=round((1 - len(reduced) / len(schema_text)) * 100),
             )
             return reduced, True
 
         except Exception:
             logger.warning(
-                "HaikuLayer: error during reduction, using original schema",
+                "haiku_reduction_error",
                 exc_info=True,
             )
             return schema_text, False
@@ -322,11 +317,11 @@ async def reduce_schema(
             final_chars=len(current_text),
         )
         logger.info(
-            "Schema reduction complete: toon=%s, ai=%s, %d -> %d chars",
-            result.was_toon_applied,
-            result.was_ai_applied,
-            result.original_chars,
-            result.final_chars,
+            "schema_reduction_complete",
+            toon_applied=result.was_toon_applied,
+            ai_applied=result.was_ai_applied,
+            original_chars=result.original_chars,
+            final_chars=result.final_chars,
         )
         return result
 
@@ -353,10 +348,10 @@ async def reduce_schema(
         final_chars=len(current_text),
     )
     logger.info(
-        "Schema reduction complete: toon=%s, ai=%s, %d -> %d chars",
-        result.was_toon_applied,
-        result.was_ai_applied,
-        result.original_chars,
-        result.final_chars,
+        "schema_reduction_complete",
+        toon_applied=result.was_toon_applied,
+        ai_applied=result.was_ai_applied,
+        original_chars=result.original_chars,
+        final_chars=result.final_chars,
     )
     return result

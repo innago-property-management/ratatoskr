@@ -300,7 +300,9 @@ class TestGrpcToolBlocking:
         schema = self._make_schema()
         ctx = self._make_ctx()
         tool_fn = _create_grpc_client_stream_tool(ctx, schema)
-        result_json = await tool_fn.function(method="users.UserService/UpdateBatch", requests="[{}]")
+        result_json = await tool_fn.function(
+            method="users.UserService/UpdateBatch", requests="[{}]"
+        )
         result = json.loads(result_json)
         assert result["success"] is False
         assert "not allowed" in result["error"].lower() or "read-only" in result["error"].lower()

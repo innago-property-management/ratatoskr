@@ -1,6 +1,5 @@
 """Tests for api_agent.llm.tools — @tool decorator."""
 
-
 from api_agent.llm.tools import tool
 from api_agent.llm.types import ToolDefinition
 

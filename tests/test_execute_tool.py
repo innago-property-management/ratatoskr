@@ -73,9 +73,7 @@ class TestExecuteGraphQL:
     @pytest.mark.asyncio
     async def test_graphql_success(self, execute_tool, graphql_ctx, monkeypatch):
         """GraphQL query returns ok=True with data."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: graphql_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: graphql_ctx)
 
         mock_execute_query = AsyncMock(
             return_value={
@@ -83,9 +81,7 @@ class TestExecuteGraphQL:
                 "data": {"users": [{"id": 1, "name": "Alice"}]},
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_query", mock_execute_query
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_query", mock_execute_query)
 
         result = await execute_tool(query="{ users { id name } }")
 
@@ -101,9 +97,7 @@ class TestExecuteGraphQL:
     @pytest.mark.asyncio
     async def test_graphql_with_variables(self, execute_tool, graphql_ctx, monkeypatch):
         """GraphQL query with variables passes them through."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: graphql_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: graphql_ctx)
 
         mock_execute_query = AsyncMock(
             return_value={
@@ -111,9 +105,7 @@ class TestExecuteGraphQL:
                 "data": {"user": {"id": 1, "name": "Alice"}},
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_query", mock_execute_query
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_query", mock_execute_query)
 
         result = await execute_tool(
             query="query($id: ID!) { user(id: $id) { id name } }",
@@ -132,16 +124,12 @@ class TestExecuteGraphQL:
     @pytest.mark.asyncio
     async def test_graphql_query_failure(self, execute_tool, graphql_ctx, monkeypatch):
         """GraphQL query that returns success=False propagates error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: graphql_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: graphql_ctx)
 
         mock_execute_query = AsyncMock(
             return_value={"success": False, "error": "Syntax error in query"}
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_query", mock_execute_query
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_query", mock_execute_query)
 
         result = await execute_tool(query="{ invalid }")
 
@@ -151,9 +139,7 @@ class TestExecuteGraphQL:
     @pytest.mark.asyncio
     async def test_graphql_missing_query(self, execute_tool, graphql_ctx, monkeypatch):
         """GraphQL without query param returns error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: graphql_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: graphql_ctx)
 
         result = await execute_tool()
 
@@ -163,18 +149,12 @@ class TestExecuteGraphQL:
     @pytest.mark.asyncio
     async def test_graphql_truncation(self, execute_tool, graphql_ctx, monkeypatch):
         """Large GraphQL response is truncated."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: graphql_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: graphql_ctx)
 
         # Create data larger than MAX_RESPONSE_CHARS
         large_data = {"items": [{"value": "x" * 1000} for _ in range(100)]}
-        mock_execute_query = AsyncMock(
-            return_value={"success": True, "data": large_data}
-        )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_query", mock_execute_query
-        )
+        mock_execute_query = AsyncMock(return_value={"success": True, "data": large_data})
+        monkeypatch.setattr("api_agent.tools.execute.execute_query", mock_execute_query)
 
         # Set a small max for testing
         monkeypatch.setattr("api_agent.tools.execute.settings.MAX_RESPONSE_CHARS", 500)
@@ -205,9 +185,7 @@ class TestExecuteREST:
                 "data": [{"id": 1, "name": "Alice"}],
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_request", mock_execute_request
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_request", mock_execute_request)
 
         result = await execute_tool(method="GET", path="/users")
 
@@ -216,21 +194,15 @@ class TestExecuteREST:
         mock_execute_request.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_rest_with_all_params(
-        self, execute_tool, rest_ctx_for_execute, monkeypatch
-    ):
+    async def test_rest_with_all_params(self, execute_tool, rest_ctx_for_execute, monkeypatch):
         """REST call with path_params, query_params, and body."""
         monkeypatch.setattr(
             "api_agent.tools.execute.get_request_context",
             lambda: rest_ctx_for_execute,
         )
 
-        mock_execute_request = AsyncMock(
-            return_value={"success": True, "data": {"updated": True}}
-        )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_request", mock_execute_request
-        )
+        mock_execute_request = AsyncMock(return_value={"success": True, "data": {"updated": True}})
+        monkeypatch.setattr("api_agent.tools.execute.execute_request", mock_execute_request)
 
         result = await execute_tool(
             method="GET",
@@ -289,16 +261,10 @@ class TestExecuteREST:
                 '{"paths": {}}',
             )
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_schema_context", mock_fetch_schema)
 
-        mock_execute_request = AsyncMock(
-            return_value={"success": True, "data": {"status": "ok"}}
-        )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_request", mock_execute_request
-        )
+        mock_execute_request = AsyncMock(return_value={"success": True, "data": {"status": "ok"}})
+        monkeypatch.setattr("api_agent.tools.execute.execute_request", mock_execute_request)
 
         result = await execute_tool(method="GET", path="/health")
 
@@ -308,9 +274,7 @@ class TestExecuteREST:
         assert call_kwargs["base_url"] == "https://api.example.com/v2"
 
     @pytest.mark.asyncio
-    async def test_rest_no_base_url_anywhere(
-        self, execute_tool, rest_ctx_no_base_url, monkeypatch
-    ):
+    async def test_rest_no_base_url_anywhere(self, execute_tool, rest_ctx_no_base_url, monkeypatch):
         """When neither ctx nor schema provides base URL, return error."""
         monkeypatch.setattr(
             "api_agent.tools.execute.get_request_context",
@@ -318,9 +282,7 @@ class TestExecuteREST:
         )
 
         mock_fetch_schema = AsyncMock(return_value=("", "", ""))
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_schema_context", mock_fetch_schema)
 
         result = await execute_tool(method="GET", path="/users")
 
@@ -328,9 +290,7 @@ class TestExecuteREST:
         assert "base url" in result["error"].lower() or "base_url" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_rest_request_failure(
-        self, execute_tool, rest_ctx_for_execute, monkeypatch
-    ):
+    async def test_rest_request_failure(self, execute_tool, rest_ctx_for_execute, monkeypatch):
         """REST request that fails propagates error."""
         monkeypatch.setattr(
             "api_agent.tools.execute.get_request_context",
@@ -340,9 +300,7 @@ class TestExecuteREST:
         mock_execute_request = AsyncMock(
             return_value={"success": False, "error": "HTTP 500: Internal Server Error"}
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_request", mock_execute_request
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_request", mock_execute_request)
 
         result = await execute_tool(method="GET", path="/broken")
 
@@ -350,9 +308,7 @@ class TestExecuteREST:
         assert "500" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_rest_truncation(
-        self, execute_tool, rest_ctx_for_execute, monkeypatch
-    ):
+    async def test_rest_truncation(self, execute_tool, rest_ctx_for_execute, monkeypatch):
         """Large REST response is truncated."""
         monkeypatch.setattr(
             "api_agent.tools.execute.get_request_context",
@@ -360,12 +316,8 @@ class TestExecuteREST:
         )
 
         large_data = [{"value": "y" * 1000} for _ in range(100)]
-        mock_execute_request = AsyncMock(
-            return_value={"success": True, "data": large_data}
-        )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_request", mock_execute_request
-        )
+        mock_execute_request = AsyncMock(return_value={"success": True, "data": large_data})
+        monkeypatch.setattr("api_agent.tools.execute.execute_request", mock_execute_request)
 
         monkeypatch.setattr("api_agent.tools.execute.settings.MAX_RESPONSE_CHARS", 500)
 
@@ -384,9 +336,7 @@ class TestExecuteMissingHeader:
         """When get_request_context raises MissingHeaderError, return error dict."""
         monkeypatch.setattr(
             "api_agent.tools.execute.get_request_context",
-            lambda: (_ for _ in ()).throw(
-                MissingHeaderError("X-Target-URL header required")
-            ),
+            lambda: (_ for _ in ()).throw(MissingHeaderError("X-Target-URL header required")),
         )
 
         result = await execute_tool(query="{ users { id } }")
@@ -401,9 +351,7 @@ class TestExecuteMissingHeader:
         def raise_missing():
             raise MissingHeaderError("X-API-Type header required (graphql|rest)")
 
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", raise_missing
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", raise_missing)
 
         result = await execute_tool(method="GET", path="/users")
 
@@ -481,22 +429,16 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_success(self, execute_tool, grpc_ctx, monkeypatch):
         """gRPC execute with valid method and request returns ok=True with data."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         mock_execute_rpc = AsyncMock(
             return_value={"success": True, "data": {"message": "Hello, world!"}}
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/SayHello",
@@ -523,9 +465,7 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_missing_method(self, execute_tool, grpc_ctx, monkeypatch):
         """gRPC execute without grpc_method returns error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         result = await execute_tool()
 
@@ -535,15 +475,11 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_method_not_found(self, execute_tool, grpc_ctx, monkeypatch):
         """gRPC execute with unknown method returns method-not-found error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         result = await execute_tool(
             grpc_method="nonexistent.Service/DoThing",
@@ -556,15 +492,11 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_rpc_error(self, execute_tool, grpc_ctx, monkeypatch):
         """gRPC execute handles RPC failures from execute_unary_rpc."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         mock_execute_rpc = AsyncMock(
             return_value={
@@ -572,9 +504,7 @@ class TestExecuteGRPC:
                 "error": "gRPC error [UNAVAILABLE]: Connection refused",
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/SayHello",
@@ -587,16 +517,12 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_reflection_failure(self, execute_tool, grpc_ctx, monkeypatch):
         """gRPC execute handles reflection failure gracefully."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         mock_fetch_schema = AsyncMock(
             side_effect=Exception("UNIMPLEMENTED: reflection not enabled")
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/SayHello",
@@ -609,23 +535,15 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_truncation(self, execute_tool, grpc_ctx, monkeypatch):
         """Large gRPC response is truncated."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         large_data = {"items": [{"value": "z" * 1000} for _ in range(100)]}
-        mock_execute_rpc = AsyncMock(
-            return_value={"success": True, "data": large_data}
-        )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
-        )
+        mock_execute_rpc = AsyncMock(return_value={"success": True, "data": large_data})
+        monkeypatch.setattr("api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc)
 
         monkeypatch.setattr("api_agent.tools.execute.settings.MAX_RESPONSE_CHARS", 500)
 
@@ -641,15 +559,11 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_invalid_json_request(self, execute_tool, grpc_ctx, monkeypatch):
         """gRPC execute with invalid JSON in grpc_request returns error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/SayHello",
@@ -660,19 +574,13 @@ class TestExecuteGRPC:
         assert "json" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_grpc_server_streaming_via_execute(
-        self, execute_tool, grpc_ctx, monkeypatch
-    ):
+    async def test_grpc_server_streaming_via_execute(self, execute_tool, grpc_ctx, monkeypatch):
         """Server-streaming method routes to execute_server_streaming_rpc."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         mock_stream_rpc = AsyncMock(
             return_value={
@@ -681,9 +589,7 @@ class TestExecuteGRPC:
                 "message_count": 2,
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_server_streaming_rpc", mock_stream_rpc
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_server_streaming_rpc", mock_stream_rpc)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/StreamGreetings",
@@ -695,19 +601,13 @@ class TestExecuteGRPC:
         mock_stream_rpc.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_grpc_client_streaming_via_execute(
-        self, execute_tool, grpc_ctx, monkeypatch
-    ):
+    async def test_grpc_client_streaming_via_execute(self, execute_tool, grpc_ctx, monkeypatch):
         """Client-streaming method routes to execute_client_streaming_rpc."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         mock_client_rpc = AsyncMock(
             return_value={
@@ -716,9 +616,7 @@ class TestExecuteGRPC:
                 "messages_sent": 2,
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_client_streaming_rpc", mock_client_rpc
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_client_streaming_rpc", mock_client_rpc)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/UploadNames",
@@ -731,19 +629,13 @@ class TestExecuteGRPC:
         assert call_kwargs["requests_json"] == [{"name": "Alice"}, {"name": "Bob"}]
 
     @pytest.mark.asyncio
-    async def test_grpc_bidi_streaming_via_execute(
-        self, execute_tool, grpc_ctx, monkeypatch
-    ):
+    async def test_grpc_bidi_streaming_via_execute(self, execute_tool, grpc_ctx, monkeypatch):
         """Bidi-streaming method routes to execute_bidi_streaming_rpc."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         mock_bidi_rpc = AsyncMock(
             return_value={
@@ -753,9 +645,7 @@ class TestExecuteGRPC:
                 "message_count": 2,
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_bidi_streaming_rpc", mock_bidi_rpc
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_bidi_streaming_rpc", mock_bidi_rpc)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/Chat",
@@ -771,15 +661,11 @@ class TestExecuteGRPC:
         self, execute_tool, grpc_ctx, monkeypatch
     ):
         """Client-streaming without grpc_requests returns error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/UploadNames",
@@ -789,19 +675,13 @@ class TestExecuteGRPC:
         assert "grpc_requests" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_grpc_client_streaming_bad_json(
-        self, execute_tool, grpc_ctx, monkeypatch
-    ):
+    async def test_grpc_client_streaming_bad_json(self, execute_tool, grpc_ctx, monkeypatch):
         """Client-streaming with invalid grpc_requests JSON returns error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/UploadNames",
@@ -816,15 +696,11 @@ class TestExecuteGRPC:
         self, execute_tool, grpc_ctx, monkeypatch
     ):
         """Client-streaming with grpc_requests that isn't a JSON array returns error."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/UploadNames",
@@ -839,15 +715,11 @@ class TestExecuteGRPC:
         self, execute_tool, grpc_ctx, monkeypatch
     ):
         """Client-streaming wraps grpc_request as single-element array when grpc_requests missing."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         mock_client_rpc = AsyncMock(
             return_value={
@@ -856,9 +728,7 @@ class TestExecuteGRPC:
                 "messages_sent": 1,
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_client_streaming_rpc", mock_client_rpc
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_client_streaming_rpc", mock_client_rpc)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/UploadNames",
@@ -870,19 +740,13 @@ class TestExecuteGRPC:
         assert call_kwargs["requests_json"] == [{"name": "Alice"}]
 
     @pytest.mark.asyncio
-    async def test_grpc_server_streaming_truncation(
-        self, execute_tool, grpc_ctx, monkeypatch
-    ):
+    async def test_grpc_server_streaming_truncation(self, execute_tool, grpc_ctx, monkeypatch):
         """Large server-streaming response is truncated."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         large_data = [{"value": "z" * 1000} for _ in range(100)]
         mock_stream_rpc = AsyncMock(
@@ -892,9 +756,7 @@ class TestExecuteGRPC:
                 "message_count": 100,
             }
         )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_server_streaming_rpc", mock_stream_rpc
-        )
+        monkeypatch.setattr("api_agent.tools.execute.execute_server_streaming_rpc", mock_stream_rpc)
 
         monkeypatch.setattr("api_agent.tools.execute.settings.MAX_RESPONSE_CHARS", 500)
 
@@ -912,15 +774,11 @@ class TestExecuteGRPC:
         self, execute_tool, grpc_ctx, monkeypatch
     ):
         """Unknown method error lists all available methods (not just unary)."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
         result = await execute_tool(
             grpc_method="nonexistent.Service/DoThing",
@@ -935,22 +793,14 @@ class TestExecuteGRPC:
     @pytest.mark.asyncio
     async def test_grpc_metadata_forwarded(self, execute_tool, grpc_ctx, monkeypatch):
         """Target headers are forwarded as gRPC metadata to execute_unary_rpc."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
-        mock_execute_rpc = AsyncMock(
-            return_value={"success": True, "data": {"message": "ok"}}
-        )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
-        )
+        mock_execute_rpc = AsyncMock(return_value={"success": True, "data": {"message": "ok"}})
+        monkeypatch.setattr("api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc)
 
         await execute_tool(
             grpc_method="/helloworld.Greeter/SayHello",
@@ -961,26 +811,16 @@ class TestExecuteGRPC:
         assert call_kwargs["metadata"] == [("authorization", "Bearer grpc-token")]
 
     @pytest.mark.asyncio
-    async def test_grpc_default_empty_request(
-        self, execute_tool, grpc_ctx, monkeypatch
-    ):
+    async def test_grpc_default_empty_request(self, execute_tool, grpc_ctx, monkeypatch):
         """gRPC execute with no grpc_request defaults to empty dict."""
-        monkeypatch.setattr(
-            "api_agent.tools.execute.get_request_context", lambda: grpc_ctx
-        )
+        monkeypatch.setattr("api_agent.tools.execute.get_request_context", lambda: grpc_ctx)
 
         schema = _make_grpc_schema()
         mock_fetch_schema = AsyncMock(return_value=schema)
-        monkeypatch.setattr(
-            "api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.tools.execute.fetch_grpc_schema", mock_fetch_schema)
 
-        mock_execute_rpc = AsyncMock(
-            return_value={"success": True, "data": {"message": "Hello!"}}
-        )
-        monkeypatch.setattr(
-            "api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc
-        )
+        mock_execute_rpc = AsyncMock(return_value={"success": True, "data": {"message": "Hello!"}})
+        monkeypatch.setattr("api_agent.tools.execute.execute_unary_rpc", mock_execute_rpc)
 
         result = await execute_tool(
             grpc_method="/helloworld.Greeter/SayHello",

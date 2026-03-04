@@ -14,6 +14,7 @@ from api_agent.tools.query import register_query_tool
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_request_context(api_type="graphql", **overrides):
     """Build a RequestContext with sensible defaults."""
     return RequestContext(
@@ -40,6 +41,7 @@ async def query_fn():
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestQueryToolRouting:
     """Tests for query tool routing and error handling."""

@@ -1,18 +1,33 @@
 """REST API client with unsafe method blocking."""
 
 import fnmatch
-import logging
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import httpx
+import structlog
 
 from ..pool import pool
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Unsafe HTTP methods (blocked by default)
 _UNSAFE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+
+
+def _redact_url(url: str) -> str:
+    """Strip query parameter values from URL for safe logging.
+
+    Redact all query param values (not just sensitive ones) to avoid false
+    negatives — any param could carry credentials or PII depending on the API.
+    """
+    parsed = urlparse(url)
+    if parsed.query:
+        redacted_query = "&".join(
+            f"{k}=[REDACTED]" for k in parse_qs(parsed.query, keep_blank_values=True)
+        )
+        parsed = parsed._replace(query=redacted_query)
+    return urlunparse(parsed)
 
 
 def _is_path_allowed(path: str, patterns: list[str]) -> bool:
@@ -115,14 +130,14 @@ async def execute_request(
     request_headers = {"Accept": "application/json"}
     if headers:
         request_headers.update(headers)
-    # Log request details without leaking header values (e.g., auth tokens).
+    # Log request details without leaking header values or query param values.
     logger.info(
-        "REST request resolved: method=%s base_url=%s path=%s url=%s header_keys=%s",
-        method,
-        base_url,
-        path,
-        url,
-        sorted(request_headers.keys()),
+        "rest_request",
+        method=method,
+        base_url=base_url,
+        path=path,
+        url=_redact_url(url),
+        header_keys=sorted(request_headers.keys()),
     )
 
     client = await pool.get_http_client(base_url)
@@ -159,5 +174,5 @@ async def execute_request(
             "error": f"HTTP {e.response.status_code}: {error_body}",
         }
     except Exception as e:
-        logger.exception("REST API error")
+        logger.exception("rest_api_error")
         return {"success": False, "error": str(e)}

@@ -1,17 +1,17 @@
 """Executor for GraphQL queries and DuckDB SQL processing."""
 
 import json
-import logging
 import os
 import re
 import tempfile
 from typing import Any
 
 import duckdb
+import structlog
 
 from .graphql import execute_query as graphql_execute
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_]")
 
@@ -113,7 +113,7 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
             "hint": f'Use sql_query() to access fields. Example: SELECT "{schema[0][0]}" FROM "{safe_name}"',
         }
     except Exception as e:
-        logger.exception("Schema extraction error")
+        logger.exception("schema_extraction_error")
         return {"rows": len(data), "schema": "unknown", "hint": str(e)}
     finally:
         if temp_file:
@@ -225,7 +225,7 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
     except duckdb.Error as e:
         return {"success": False, "error": f"SQL error: {e}"}
     except Exception as e:
-        logger.exception("SQL execution error")
+        logger.exception("sql_execution_error")
         return {"success": False, "error": str(e)}
     finally:
         if conn:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import re
 import threading
 import time
@@ -13,18 +12,19 @@ from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
 from typing import Any
 
+import structlog
 from rapidfuzz import fuzz
 
 from ..config import settings
 from .naming import sanitize_tool_name
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _log_recipe(msg: str) -> None:
     """Log recipe activity only in debug mode."""
     if settings.DEBUG:
-        logger.info(f"[Recipe] {msg}")
+        logger.debug("recipe_trace", detail=msg)
 
 
 def sha256_hex(text: str) -> str:

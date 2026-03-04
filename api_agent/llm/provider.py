@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import inspect
 import json
-import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Callable
 
+import structlog
+
 from .types import LLMResponse, ToolCall, ToolDefinition, ToolResult
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -182,7 +183,7 @@ class LLMProvider(ABC):
 
                 content = result if isinstance(result, str) else json.dumps(result)
             except Exception as e:
-                logger.exception(f"Tool {tc.name} failed")
+                logger.exception("tool_execution_failed", tool=tc.name)
                 content = json.dumps({"error": str(e)})
 
             results.append(ToolResult(tool_call_id=tc.id, name=tc.name, content=content))

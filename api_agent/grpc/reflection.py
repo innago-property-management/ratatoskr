@@ -1,15 +1,15 @@
 """gRPC server reflection client — discovers services and message types at runtime."""
 
-import logging
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 
 import grpc
+import structlog
 from google.protobuf import descriptor_pool as dp_module
 from google.protobuf.descriptor import FieldDescriptor, MethodDescriptor, ServiceDescriptor
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Proto field type names for schema display
 _FIELD_TYPE_NAMES = {
@@ -190,7 +190,7 @@ def _extract_services(
         try:
             svc_desc: ServiceDescriptor = pool.FindServiceByName(svc_name)
         except KeyError:
-            logger.warning("Service %s not found in descriptor pool", svc_name)
+            logger.warning("service_not_found", service=svc_name)
             continue
 
         methods = [_extract_method(m, svc_name) for m in svc_desc.methods]

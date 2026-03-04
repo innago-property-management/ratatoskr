@@ -11,6 +11,7 @@ from api_agent.llm.types import LLMResponse, ToolCall
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_openai_response(content=None, tool_calls=None, usage=None):
     """Build a mock OpenAI ChatCompletion response."""
     message = MagicMock()
@@ -47,6 +48,7 @@ def _make_tool_call(id, name, arguments_json):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestOpenAIProviderComplete:
     """Tests for OpenAIProvider.complete()."""
@@ -171,9 +173,7 @@ class TestOpenAIProviderComplete:
         provider.client.chat.completions.create = mock_create  # type: ignore[invalid-assignment]
 
         tools = [{"type": "function", "function": {"name": "my_tool"}}]
-        await provider.complete(
-            [{"role": "user", "content": "test"}], tools=tools
-        )
+        await provider.complete([{"role": "user", "content": "test"}], tools=tools)
 
         call_kwargs = mock_create.call_args[1]
         assert call_kwargs["tools"] is tools

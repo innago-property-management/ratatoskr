@@ -1,6 +1,7 @@
 """Configuration settings for API Agent MCP server."""
 
 import re
+from typing import Literal
 
 from pydantic import AliasChoices, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -54,6 +55,9 @@ class Settings(BaseSettings):
     # Polling limits
     MAX_POLLS: int = 20  # Max poll attempts
     DEFAULT_POLL_DELAY_MS: int = 3000  # Default delay if agent doesn't specify
+
+    # Logging
+    LOG_FORMAT: Literal["json", "console"] = "json"
 
     # Server
     DEBUG: bool = False

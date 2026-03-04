@@ -28,22 +28,28 @@ class MockProvider(LLMProvider):
 
     def format_tool_results(self, tool_results, messages):
         for tr in tool_results:
-            messages.append({"role": "tool", "tool_call_id": tr.tool_call_id, "content": tr.content})
+            messages.append(
+                {"role": "tool", "tool_call_id": tr.tool_call_id, "content": tr.content}
+            )
         return messages
 
     def format_assistant_tool_calls(self, response, messages):
-        messages.append({
-            "role": "assistant",
-            "tool_calls": [{"id": tc.id, "name": tc.name} for tc in response.tool_calls],
-        })
+        messages.append(
+            {
+                "role": "assistant",
+                "tool_calls": [{"id": tc.id, "name": tc.name} for tc in response.tool_calls],
+            }
+        )
         return messages
 
 
 def _make_tool(name: str, fn=None):
     """Helper to create a ToolDefinition."""
     if fn is None:
+
         def fn(**kwargs):
             return f"result-of-{name}"
+
     return ToolDefinition(
         name=name,
         description=f"Tool {name}",
@@ -72,10 +78,12 @@ class TestRunToolLoop:
     @pytest.mark.asyncio
     async def test_single_tool_call(self):
         """One tool call then text response."""
-        provider = MockProvider([
-            LLMResponse(tool_calls=[ToolCall(id="c1", name="search", arguments={"q": "test"})]),
-            LLMResponse(content="Found results."),
-        ])
+        provider = MockProvider(
+            [
+                LLMResponse(tool_calls=[ToolCall(id="c1", name="search", arguments={"q": "test"})]),
+                LLMResponse(content="Found results."),
+            ]
+        )
 
         results_captured = []
 
@@ -105,11 +113,13 @@ class TestRunToolLoop:
     @pytest.mark.asyncio
     async def test_multi_turn_tool_calls(self):
         """Multiple rounds of tool calling."""
-        provider = MockProvider([
-            LLMResponse(tool_calls=[ToolCall(id="c1", name="step1", arguments={})]),
-            LLMResponse(tool_calls=[ToolCall(id="c2", name="step2", arguments={})]),
-            LLMResponse(content="All done."),
-        ])
+        provider = MockProvider(
+            [
+                LLMResponse(tool_calls=[ToolCall(id="c1", name="step1", arguments={})]),
+                LLMResponse(tool_calls=[ToolCall(id="c2", name="step2", arguments={})]),
+                LLMResponse(content="All done."),
+            ]
+        )
 
         result = await provider.run_tool_loop(
             instructions="Do steps.",
@@ -146,10 +156,12 @@ class TestRunToolLoop:
     @pytest.mark.asyncio
     async def test_unknown_tool_returns_error(self):
         """Unknown tool name returns an error result."""
-        provider = MockProvider([
-            LLMResponse(tool_calls=[ToolCall(id="c1", name="nonexistent", arguments={})]),
-            LLMResponse(content="ok"),
-        ])
+        provider = MockProvider(
+            [
+                LLMResponse(tool_calls=[ToolCall(id="c1", name="nonexistent", arguments={})]),
+                LLMResponse(content="ok"),
+            ]
+        )
 
         result = await provider.run_tool_loop(
             instructions="Test",
@@ -164,13 +176,16 @@ class TestRunToolLoop:
     @pytest.mark.asyncio
     async def test_tool_exception_captured(self):
         """Tool that raises an exception returns error result."""
+
         def failing_fn(**kwargs):
             raise ValueError("something broke")
 
-        provider = MockProvider([
-            LLMResponse(tool_calls=[ToolCall(id="c1", name="bad", arguments={})]),
-            LLMResponse(content="recovered"),
-        ])
+        provider = MockProvider(
+            [
+                LLMResponse(tool_calls=[ToolCall(id="c1", name="bad", arguments={})]),
+                LLMResponse(content="recovered"),
+            ]
+        )
 
         result = await provider.run_tool_loop(
             instructions="Test",
@@ -184,10 +199,12 @@ class TestRunToolLoop:
     @pytest.mark.asyncio
     async def test_should_stop_callback(self):
         """should_stop callback triggers early return with __DIRECT_RETURN__."""
-        provider = MockProvider([
-            LLMResponse(tool_calls=[ToolCall(id="c1", name="fetch", arguments={})]),
-            # Would continue here but should_stop cuts it short
-        ])
+        provider = MockProvider(
+            [
+                LLMResponse(tool_calls=[ToolCall(id="c1", name="fetch", arguments={})]),
+                # Would continue here but should_stop cuts it short
+            ]
+        )
 
         result = await provider.run_tool_loop(
             instructions="Test",
@@ -221,13 +238,16 @@ class TestRunToolLoop:
     @pytest.mark.asyncio
     async def test_async_tool_function(self):
         """Async tool functions are awaited properly."""
+
         async def async_fn(**kwargs):
             return "async-result"
 
-        provider = MockProvider([
-            LLMResponse(tool_calls=[ToolCall(id="c1", name="async_tool", arguments={})]),
-            LLMResponse(content="Done"),
-        ])
+        provider = MockProvider(
+            [
+                LLMResponse(tool_calls=[ToolCall(id="c1", name="async_tool", arguments={})]),
+                LLMResponse(content="Done"),
+            ]
+        )
 
         result = await provider.run_tool_loop(
             instructions="Test",

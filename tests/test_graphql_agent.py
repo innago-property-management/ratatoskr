@@ -99,9 +99,7 @@ class FakeLLMProvider(LLMProvider):
         messages.append(
             {
                 "role": "assistant",
-                "tool_calls": [
-                    {"id": tc.id, "name": tc.name} for tc in response.tool_calls
-                ],
+                "tool_calls": [{"id": tc.id, "name": tc.name} for tc in response.tool_calls],
             }
         )
         return messages
@@ -114,9 +112,7 @@ def make_text_response(content: str) -> LLMResponse:
 def make_tool_call_response(
     tool_name: str, arguments: dict, call_id: str = "call_1"
 ) -> LLMResponse:
-    return LLMResponse(
-        tool_calls=[ToolCall(id=call_id, name=tool_name, arguments=arguments)]
-    )
+    return LLMResponse(tool_calls=[ToolCall(id=call_id, name=tool_name, arguments=arguments)])
 
 
 @pytest.fixture
@@ -164,9 +160,7 @@ class TestProcessQuerySuccess:
                 },
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
         # --- FakeLLMProvider: tool call then text response ---
         fake_provider = FakeLLMProvider(
@@ -208,9 +202,7 @@ class TestProcessQuerySuccess:
                 "data": {"users": [{"id": "1", "name": "Alice"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
         fake_provider = FakeLLMProvider(
             [
@@ -255,9 +247,7 @@ class TestMaxTurnsExceeded:
                 "data": {"users": [{"id": "1", "name": "Alice"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
         # Agent always returns tool calls — never returns text
         fake_provider = FakeLLMProvider(
@@ -300,9 +290,7 @@ class TestMaxTurnsExceeded:
             # All actual queries fail
             return {"success": False, "error": "query failed"}
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
         fake_provider = FakeLLMProvider(
             [
@@ -345,9 +333,7 @@ class TestSchemaFetchFailure:
                 "data": {"users": [{"id": "1", "name": "Alice"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
         fake_provider = FakeLLMProvider(
             [
@@ -379,13 +365,9 @@ class TestSchemaFetchFailure:
             # Everything fails
             return {"success": False, "error": "HTTP 500"}
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
-        fake_provider = FakeLLMProvider(
-            [make_text_response("I could not fetch the schema.")]
-        )
+        fake_provider = FakeLLMProvider([make_text_response("I could not fetch the schema.")])
         monkeypatch.setattr("api_agent.agent.graphql_agent.provider", fake_provider)
         monkeypatch.setattr(
             "api_agent.agent.graphql_agent.maybe_extract_and_save_recipe",
@@ -407,9 +389,7 @@ class TestRecipeExtraction:
     """After a successful agent run, recipe extraction should be triggered."""
 
     @pytest.mark.asyncio
-    async def test_recipe_extraction_called_on_success(
-        self, monkeypatch, graphql_ctx
-    ):
+    async def test_recipe_extraction_called_on_success(self, monkeypatch, graphql_ctx):
         """maybe_extract_and_save_recipe is called after successful query."""
 
         async def mock_graphql_fetch(query, variables, endpoint, headers):
@@ -420,9 +400,7 @@ class TestRecipeExtraction:
                 "data": {"users": [{"id": "1", "name": "Alice"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
         fake_provider = FakeLLMProvider(
             [
@@ -464,9 +442,7 @@ class TestRecipeExtraction:
         assert isinstance(call_kwargs.kwargs["steps"], list)
 
     @pytest.mark.asyncio
-    async def test_recipe_extraction_skipped_when_disabled(
-        self, monkeypatch, graphql_ctx
-    ):
+    async def test_recipe_extraction_skipped_when_disabled(self, monkeypatch, graphql_ctx):
         """When ENABLE_RECIPES is False, extraction should not be called."""
 
         async def mock_graphql_fetch(query, variables, endpoint, headers):
@@ -477,9 +453,7 @@ class TestRecipeExtraction:
                 "data": {"users": [{"id": "1"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.graphql_fetch", mock_graphql_fetch)
 
         fake_provider = FakeLLMProvider(
             [

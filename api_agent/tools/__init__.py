@@ -1,13 +1,12 @@
 """MCP tools."""
 
-import logging
-
+import structlog
 from fastmcp import FastMCP
 
 from .execute import register_execute_tool
 from .query import register_query_tool
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def register_all_tools(mcp: FastMCP) -> None:
@@ -19,4 +18,4 @@ def register_all_tools(mcp: FastMCP) -> None:
     register_query_tool(mcp)
     register_execute_tool(mcp)
 
-    logger.info("Registered tools: _query, _execute (dynamically named per session)")
+    logger.info("tools_registered", tools=["_query", "_execute"])

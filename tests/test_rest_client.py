@@ -83,7 +83,9 @@ class TestBuildUrl:
 
     def test_base_url_with_deep_path_prefix(self):
         """Bug 1: Deeper path prefixes must also survive."""
-        url = _build_url("/items/{id}", base_url="https://api.example.com/v2/admin", path_params={"id": "42"})
+        url = _build_url(
+            "/items/{id}", base_url="https://api.example.com/v2/admin", path_params={"id": "42"}
+        )
         assert url == "https://api.example.com/v2/admin/items/42"
 
     def test_base_url_with_trailing_slash_and_bare_path(self):

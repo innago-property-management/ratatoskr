@@ -11,6 +11,7 @@ from api_agent.llm.types import LLMResponse
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_openai_response(content=None, tool_calls=None, usage=None):
     """Build a mock OpenAI ChatCompletion response."""
     message = MagicMock()
@@ -48,15 +49,14 @@ def _make_tool_call(id, name, arguments_json):
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestOpenAICompatProviderComplete:
     """Tests for OpenAICompatProvider.complete()."""
 
     @pytest.mark.asyncio
     async def test_success_path(self):
         """Basic successful completion with custom base_url."""
-        provider = OpenAICompatProvider(
-            model="local-model", base_url="http://localhost:11434/v1"
-        )
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
         mock_resp = _make_openai_response(
             content="Local model says hi",
             usage={"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
@@ -74,9 +74,7 @@ class TestOpenAICompatProviderComplete:
     @pytest.mark.asyncio
     async def test_tool_call_success(self):
         """Tool calls parsed the same way as the OpenAI provider."""
-        provider = OpenAICompatProvider(
-            model="local-model", base_url="http://localhost:11434/v1"
-        )
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
         tc = _make_tool_call("call_1", "my_tool", '{"x": 1}')
         mock_resp = _make_openai_response(content=None, tool_calls=[tc], usage=None)
         provider.client.chat.completions.create = AsyncMock(return_value=mock_resp)  # type: ignore[invalid-assignment]
@@ -93,9 +91,7 @@ class TestOpenAICompatProviderComplete:
     @pytest.mark.asyncio
     async def test_retry_without_tools_on_tool_error(self):
         """First call with tools raises tool-related error; retries without tools."""
-        provider = OpenAICompatProvider(
-            model="local-model", base_url="http://localhost:11434/v1"
-        )
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         call_count = 0
 
@@ -122,9 +118,7 @@ class TestOpenAICompatProviderComplete:
     @pytest.mark.asyncio
     async def test_retry_without_tools_on_function_error(self):
         """'function' keyword in error message also triggers retry."""
-        provider = OpenAICompatProvider(
-            model="local-model", base_url="http://localhost:11434/v1"
-        )
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         call_count = 0
 
@@ -148,9 +142,7 @@ class TestOpenAICompatProviderComplete:
     @pytest.mark.asyncio
     async def test_non_tool_error_propagates(self):
         """Exception without 'tool' or 'function' in message raises normally."""
-        provider = OpenAICompatProvider(
-            model="local-model", base_url="http://localhost:11434/v1"
-        )
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
             side_effect=Exception("Connection refused")
@@ -165,9 +157,7 @@ class TestOpenAICompatProviderComplete:
     @pytest.mark.asyncio
     async def test_error_without_tools_propagates(self):
         """Exception when no tools are provided always propagates (no retry)."""
-        provider = OpenAICompatProvider(
-            model="local-model", base_url="http://localhost:11434/v1"
-        )
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
             side_effect=Exception("This model does not support tool calling")
@@ -191,7 +181,5 @@ class TestOpenAICompatProviderComplete:
 
     def test_api_key_defaults_to_not_needed(self):
         """api_key defaults to 'not-needed' for local models."""
-        provider = OpenAICompatProvider(
-            model="local-model", base_url="http://localhost:11434/v1"
-        )
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
         assert provider.api_key == "not-needed"

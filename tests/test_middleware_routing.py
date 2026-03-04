@@ -225,14 +225,19 @@ class TestGrpcMiddleware:
         async def call_next(ctx):
             return [mock_tool]
 
-        with patch("api_agent.middleware.get_http_headers", return_value={
-            "x-target-url": "grpc://localhost:50051",
-            "x-api-type": "grpc",
-        }):
+        with patch(
+            "api_agent.middleware.get_http_headers",
+            return_value={
+                "x-target-url": "grpc://localhost:50051",
+                "x-api-type": "grpc",
+            },
+        ):
             with patch("api_agent.middleware.get_request_context", return_value=grpc_ctx):
                 with patch("api_agent.middleware.load_schema_and_base_url", return_value=("", "")):
                     with patch("api_agent.middleware.extract_api_name", return_value="mygrpc"):
-                        with patch("api_agent.middleware.get_full_hostname", return_value="localhost"):
+                        with patch(
+                            "api_agent.middleware.get_full_hostname", return_value="localhost"
+                        ):
                             with patch("api_agent.middleware._list_recipe_tools", return_value=[]):
                                 # This should NOT raise - gRPC is exempt from schema check
                                 result = await middleware.on_list_tools(context, call_next)

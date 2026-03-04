@@ -406,9 +406,7 @@ class TestFetchSchema:
             ) as mock_secure:
                 with patch("asyncio.to_thread", side_effect=fake_to_thread):
                     with patch("api_agent.grpc.reflection.dp_module.DescriptorPool"):
-                        with patch(
-                            "api_agent.grpc.reflection.grpc.ssl_channel_credentials"
-                        ):
+                        with patch("api_agent.grpc.reflection.grpc.ssl_channel_credentials"):
                             result = await fetch_schema("grpcs://api.example.com:8443")
 
         mock_secure.assert_called_once()
