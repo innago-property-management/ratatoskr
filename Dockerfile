@@ -1,5 +1,5 @@
 # ---------- builder ----------
-FROM python:3.11-slim AS builder
+FROM python:3.11.15-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -23,7 +23,7 @@ COPY api_agent ./api_agent
 RUN uv sync --frozen --no-dev
 
 # ---------- runtime ----------
-FROM python:3.11-slim
+FROM python:3.11.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
