@@ -333,7 +333,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="greet someone",
@@ -373,7 +373,7 @@ class TestGrpcRecipeExecution:
         api_id = build_api_id(ctx, "grpc")
 
         recipe = {"tool_name": "get_greeting", "params": {}, "steps": [], "sql_steps": []}
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash="old_hash",
             question="greet",
@@ -418,7 +418,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": ["SELECT * FROM greetings WHERE message LIKE '%world%'"],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="filtered greet",
@@ -472,7 +472,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="greet",
@@ -520,7 +520,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="missing",
@@ -565,7 +565,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="stream greetings",
@@ -620,7 +620,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="record route",
@@ -675,7 +675,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="chat",
@@ -730,7 +730,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="bad",
@@ -837,7 +837,7 @@ class TestGrpcAgentRecipeIntegration:
             ],
             "sql_steps": [],
         }
-        RECIPE_STORE.save_recipe(
+        await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="greet someone",

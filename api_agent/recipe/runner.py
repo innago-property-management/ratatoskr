@@ -61,7 +61,7 @@ async def execute_recipe_tool(
     if not raw_schema:
         return error_json("schema not loaded")
 
-    meta = RECIPE_STORE.get_recipe_meta(recipe_id)
+    meta = await RECIPE_STORE.get_recipe_meta(recipe_id)
     if not meta:
         return error_json(f"recipe not found: {recipe_id}")
 

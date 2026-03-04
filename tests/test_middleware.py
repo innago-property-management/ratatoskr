@@ -190,7 +190,7 @@ class TestRecipeToolListing:
             ],
             "sql_steps": [],
         }
-        store.save_recipe(
+        await store.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="List users reporting to manager",
@@ -252,7 +252,7 @@ class TestRecipeToolSchema:
             "steps": [{"kind": "graphql", "name": "users", "query_template": "{ users { id } }"}],
             "sql_steps": [],
         }
-        store.save_recipe(
+        await store.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="List users",
@@ -317,7 +317,7 @@ class TestRecipeToolSchema:
             "steps": [{"kind": "graphql", "name": "users", "query_template": "{ users { id } }"}],
             "sql_steps": [],
         }
-        store.save_recipe(
+        await store.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="List users",

@@ -27,7 +27,7 @@ async def test_skip_duplicate_recipe(monkeypatch):
         ],
         "sql_steps": [],
     }
-    store.save_recipe(
+    await store.save_recipe(
         api_id=api_id,
         schema_hash=schema_hash,
         question="List users",
@@ -60,7 +60,7 @@ async def test_skip_duplicate_recipe(monkeypatch):
     )
 
     assert called is False
-    assert len(store.list_recipes(api_id=api_id, schema_hash=schema_hash)) == 1
+    assert len(await store.list_recipes(api_id=api_id, schema_hash=schema_hash)) == 1
 
 
 @pytest.mark.asyncio
@@ -85,7 +85,7 @@ async def test_deduplicate_tool_name_on_collision(monkeypatch):
         ],
         "sql_steps": [],
     }
-    store.save_recipe(
+    await store.save_recipe(
         api_id=api_id,
         schema_hash=schema_hash,
         question="List users",
@@ -121,7 +121,7 @@ async def test_deduplicate_tool_name_on_collision(monkeypatch):
     )
 
     tool_names = {
-        r["tool_name"] for r in store.list_recipes(api_id=api_id, schema_hash=schema_hash)
+        r["tool_name"] for r in await store.list_recipes(api_id=api_id, schema_hash=schema_hash)
     }
     assert "list_users" in tool_names
     assert "list_users_2" in tool_names

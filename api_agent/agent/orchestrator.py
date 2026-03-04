@@ -285,7 +285,7 @@ def create_sql_query_tool(
 # ---------------------------------------------------------------------------
 
 
-def create_recipe_tools(
+async def create_recipe_tools(
     ctx_vars: AgentContextVars,
     suggestions: list[dict[str, Any]],
     api_type: str,
@@ -306,7 +306,7 @@ def create_recipe_tools(
     seen_names: set[str] = set()
 
     for s in suggestions:
-        recipe = RECIPE_STORE.get_recipe(s["recipe_id"])
+        recipe = await RECIPE_STORE.get_recipe(s["recipe_id"])
         if not recipe:
             continue
 
@@ -332,7 +332,7 @@ def create_recipe_tools(
                 if error:
                     return error
 
-                recipe, validated_params, error = validate_and_prepare_recipe(
+                recipe, validated_params, error = await validate_and_prepare_recipe(
                     rid, json.dumps(kwargs), ctx_vars.raw_schema
                 )
                 if error:
@@ -433,7 +433,7 @@ async def _run_agent_orchestration_impl(
         suggestions, recipe_context = [], ""
         if settings.ENABLE_RECIPES:
             raw_schema = safe_get_contextvar(ctx_vars.raw_schema, "")
-            suggestions, recipe_context = search_recipes(config.api_id, raw_schema, question)
+            suggestions, recipe_context = await search_recipes(config.api_id, raw_schema, question)
             if suggestions:
                 log(
                     f"PRE-FLIGHT found={len(suggestions)} "
@@ -445,7 +445,7 @@ async def _run_agent_orchestration_impl(
         # Build tool list: recipe tools (if any) + protocol tools
         tools = list(config.tools)
         if suggestions and config.recipe_step_executor_factory:
-            recipe_tools = create_recipe_tools(
+            recipe_tools = await create_recipe_tools(
                 ctx_vars,
                 suggestions,
                 config.agent_type,

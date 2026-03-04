@@ -85,7 +85,7 @@ class TestGraphqlRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="Get user by ID",
@@ -145,7 +145,7 @@ class TestGraphqlRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="List users",
@@ -203,7 +203,7 @@ class TestGraphqlRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="Get user",
@@ -257,7 +257,7 @@ class TestRestRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="Get user by ID",
@@ -333,7 +333,7 @@ class TestRestRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="List users",
@@ -401,7 +401,7 @@ class TestRestRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="List users",
@@ -451,7 +451,7 @@ class TestReturnDirectlyAndSchemaValidation:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=original_hash,
             question="List users",
@@ -532,7 +532,7 @@ class TestReturnDirectlyAndSchemaValidation:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="Broken query",
@@ -576,7 +576,7 @@ class TestReturnDirectlyAndSchemaValidation:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="List users",
