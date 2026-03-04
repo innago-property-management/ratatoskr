@@ -5,10 +5,10 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-import httpx
 import yaml
 
 from ..config import settings
+from ..pool import pool
 from ..schema.reducer import reduce_schema
 
 logger = logging.getLogger(__name__)
@@ -33,10 +33,10 @@ async def load_openapi_spec(
     request_headers = dict(headers) if headers else {}
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(spec_url, headers=request_headers)
-            resp.raise_for_status()
-            raw = resp.text
+        client = await pool.get_http_client(spec_url)
+        resp = await client.get(spec_url, headers=request_headers)
+        resp.raise_for_status()
+        raw = resp.text
 
         # Parse JSON or YAML
         if raw.strip().startswith("{"):

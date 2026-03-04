@@ -1,6 +1,8 @@
 """API Agent MCP Server - Universal GraphQL/REST to MCP gateway."""
 
 import argparse
+import asyncio
+import atexit
 import logging
 import os
 from typing import Literal, cast
@@ -14,6 +16,7 @@ from starlette.routing import Route
 
 from .config import settings
 from .middleware import DynamicToolNamingMiddleware
+from .pool import pool
 from .tools import register_all_tools
 
 logging.basicConfig(
@@ -135,6 +138,22 @@ def create_app():
         return JSONResponse({"status": "ok"})
 
     app.router.routes.append(Route("/health", health, methods=["GET"]))
+
+    async def shutdown():
+        await pool.close_all()
+
+    app.add_event_handler("shutdown", shutdown)
+
+    def _sync_cleanup():
+        try:
+            loop = asyncio.get_event_loop()
+            if not loop.is_closed():
+                loop.run_until_complete(pool.close_all())
+        except RuntimeError:
+            pass
+
+    atexit.register(_sync_cleanup)
+
     return app
 
 

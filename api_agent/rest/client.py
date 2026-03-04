@@ -7,6 +7,8 @@ from urllib.parse import urlencode, urlparse
 
 import httpx
 
+from ..pool import pool
+
 logger = logging.getLogger(__name__)
 
 # Unsafe HTTP methods (blocked by default)
@@ -123,39 +125,39 @@ async def execute_request(
         sorted(request_headers.keys()),
     )
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    client = await pool.get_http_client(base_url)
+    try:
+        if method == "GET":
+            resp = await client.get(url, headers=request_headers)
+        elif method in {"POST", "PUT", "PATCH"}:
+            request_headers["Content-Type"] = "application/json"
+            resp = await client.request(method, url, json=body, headers=request_headers)
+        elif method == "DELETE":
+            resp = await client.delete(url, headers=request_headers)
+        else:
+            return {"success": False, "error": f"Unsupported method: {method}"}
+
+        resp.raise_for_status()
+
+        # Handle different content types
+        content_type = resp.headers.get("content-type", "")
+        if "application/json" in content_type:
+            data = resp.json()
+        else:
+            data = resp.text
+
+        return {"success": True, "data": data}
+
+    except httpx.HTTPStatusError as e:
+        # Try to get error body
         try:
-            if method == "GET":
-                resp = await client.get(url, headers=request_headers)
-            elif method in {"POST", "PUT", "PATCH"}:
-                request_headers["Content-Type"] = "application/json"
-                resp = await client.request(method, url, json=body, headers=request_headers)
-            elif method == "DELETE":
-                resp = await client.delete(url, headers=request_headers)
-            else:
-                return {"success": False, "error": f"Unsupported method: {method}"}
-
-            resp.raise_for_status()
-
-            # Handle different content types
-            content_type = resp.headers.get("content-type", "")
-            if "application/json" in content_type:
-                data = resp.json()
-            else:
-                data = resp.text
-
-            return {"success": True, "data": data}
-
-        except httpx.HTTPStatusError as e:
-            # Try to get error body
-            try:
-                error_body = e.response.json()
-            except Exception:
-                error_body = e.response.text[:500]
-            return {
-                "success": False,
-                "error": f"HTTP {e.response.status_code}: {error_body}",
-            }
-        except Exception as e:
-            logger.exception("REST API error")
-            return {"success": False, "error": str(e)}
+            error_body = e.response.json()
+        except Exception:
+            error_body = e.response.text[:500]
+        return {
+            "success": False,
+            "error": f"HTTP {e.response.status_code}: {error_body}",
+        }
+    except Exception as e:
+        logger.exception("REST API error")
+        return {"success": False, "error": str(e)}

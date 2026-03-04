@@ -52,7 +52,7 @@ class TestExecuteUnaryRpc:
     """Test execute_unary_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -80,10 +80,10 @@ class TestExecuteUnaryRpc:
         assert result["success"] is True
         assert result["data"] == {"greeting": "hello world"}
         mock_channel.unary_unary.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_rpc_error_returns_failure(
@@ -116,7 +116,7 @@ class TestExecuteUnaryRpc:
         assert result["success"] is False
         assert "NOT_FOUND" in result["error"]
         assert "Method not found" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
     async def test_unknown_input_type_returns_error(self):
@@ -170,7 +170,7 @@ class TestExecuteUnaryRpc:
         assert "unknown.Resp" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -199,7 +199,7 @@ class TestExecuteUnaryRpc:
         assert call_args[0][0] == "/test.Svc/Hello"
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -224,7 +224,7 @@ class TestExecuteUnaryRpc:
             output_type_name="test.Resp",
         )
 
-        mock_create_channel.assert_called_once_with("api.example.com:443", True)
+        mock_create_channel.assert_awaited_once_with("api.example.com:443", True)
 
     @pytest.mark.asyncio
     @patch("api_agent.grpc.client.GetMessageClass")
@@ -248,7 +248,7 @@ class TestExecuteUnaryRpc:
         assert "Failed to build request" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -281,7 +281,7 @@ class TestExecuteUnaryRpc:
         assert call_kwargs["metadata"] == test_metadata
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_generic_exception_returns_rpc_failed(
@@ -308,10 +308,10 @@ class TestExecuteUnaryRpc:
         assert result["success"] is False
         assert "RPC call failed" in result["error"]
         assert "unexpected serialization error" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_rpc_error_empty_details_uses_code(
@@ -345,7 +345,7 @@ class TestExecuteUnaryRpc:
         assert "INTERNAL" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_rpc_error_includes_hint_text(
@@ -380,7 +380,7 @@ class TestExecuteUnaryRpc:
         assert "not found on the server" in result["error"].lower()
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -502,7 +502,7 @@ class TestExecuteServerStreamingRpc:
     """Test execute_server_streaming_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -541,10 +541,10 @@ class TestExecuteServerStreamingRpc:
         assert result["data"][1] == {"id": 2, "name": "beta"}
         assert result["data"][2] == {"id": 3, "name": "gamma"}
         mock_channel.unary_stream.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -572,10 +572,10 @@ class TestExecuteServerStreamingRpc:
         assert result["success"] is True
         assert result["message_count"] == 0
         assert result["data"] == []
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -611,10 +611,10 @@ class TestExecuteServerStreamingRpc:
         # First 5 messages should be collected
         for i in range(5):
             assert result["data"][i] == {"index": i}
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -661,10 +661,10 @@ class TestExecuteServerStreamingRpc:
         assert "stream broken" in result["error"]
         assert len(result["partial_data"]) == 2
         assert result["partial_data"][0] == {"id": 1, "val": "first"}
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -715,10 +715,10 @@ class TestExecuteServerStreamingRpc:
         assert result["success"] is False
         assert "timeout" in result["error"].lower() or "timed out" in result["error"].lower()
         assert len(result["partial_data"]) == 1
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -760,7 +760,7 @@ class TestExecuteServerStreamingRpc:
         assert result["success"] is False
         assert "unexpected stream error" in result["error"]
         # CRITICAL: channel must be closed even after errors
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
 
 # ---------------------------------------------------------------------------
@@ -795,6 +795,7 @@ class MockClientStreamCall:
     def __await__(self):
         async def _get_response():
             return self._response
+
         return _get_response().__await__()
 
 
@@ -818,7 +819,7 @@ class TestExecuteClientStreamingRpc:
     """Test execute_client_streaming_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -851,10 +852,10 @@ class TestExecuteClientStreamingRpc:
         assert len(call._written) == 3
         assert call._done_writing_called
         mock_channel.stream_unary.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -886,7 +887,7 @@ class TestExecuteClientStreamingRpc:
         assert call._done_writing_called
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_client_stream_rpc_error(
@@ -919,7 +920,7 @@ class TestExecuteClientStreamingRpc:
         assert result["success"] is False
         assert "RESOURCE_EXHAUSTED" in result["error"]
         assert "Too many items" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
     async def test_client_stream_unknown_input_type(self):
@@ -970,7 +971,7 @@ class TestExecuteClientStreamingRpc:
         assert "unknown.Resp" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1004,7 +1005,7 @@ class TestExecuteClientStreamingRpc:
         assert call_kwargs["metadata"] == test_metadata
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1034,7 +1035,7 @@ class TestExecuteClientStreamingRpc:
         assert call_args[0][0] == "/test.Svc/Upload"
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_client_stream_generic_exception(
@@ -1061,7 +1062,7 @@ class TestExecuteClientStreamingRpc:
 
         assert result["success"] is False
         assert "Client-streaming RPC failed" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
 
 # ---------------------------------------------------------------------------
@@ -1128,7 +1129,7 @@ class TestExecuteBidiStreamingRpc:
     """Test execute_bidi_streaming_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1164,10 +1165,10 @@ class TestExecuteBidiStreamingRpc:
         assert len(result["data"]) == 3
         assert result["data"][0] == {"id": 1, "echo": "a"}
         mock_channel.stream_stream.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1198,7 +1199,7 @@ class TestExecuteBidiStreamingRpc:
         assert result["message_count"] == 1
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1232,7 +1233,7 @@ class TestExecuteBidiStreamingRpc:
         assert len(result["data"]) == 5
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1272,10 +1273,10 @@ class TestExecuteBidiStreamingRpc:
         assert result["success"] is False
         assert "INTERNAL" in result["error"]
         assert len(result["partial_data"]) == 2
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1323,10 +1324,10 @@ class TestExecuteBidiStreamingRpc:
         assert result["success"] is False
         assert "timed out" in result["error"].lower() or "timeout" in result["error"].lower()
         assert len(result["partial_data"]) == 1
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
@@ -1360,7 +1361,7 @@ class TestExecuteBidiStreamingRpc:
         assert call_kwargs["metadata"] == test_metadata
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_bidi_stream_generic_exception(
@@ -1371,9 +1372,7 @@ class TestExecuteBidiStreamingRpc:
         mock_get_class.return_value = MagicMock()
         mock_parse_dict.return_value = MagicMock()
 
-        mock_channel = _make_bidi_streaming_channel(
-            error=RuntimeError("unexpected bidi error")
-        )
+        mock_channel = _make_bidi_streaming_channel(error=RuntimeError("unexpected bidi error"))
         mock_create_channel.return_value = mock_channel
 
         result = await execute_bidi_streaming_rpc(
@@ -1387,7 +1386,7 @@ class TestExecuteBidiStreamingRpc:
 
         assert result["success"] is False
         assert "Bidi-streaming RPC failed" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
     async def test_bidi_stream_unknown_input_type(self):

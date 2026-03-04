@@ -10,6 +10,7 @@ from google.protobuf import descriptor_pool as dp_module
 from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.message_factory import GetMessageClass
 
+from ..pool import pool as connection_pool
 from .reflection import parse_grpc_target
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,11 @@ def _create_channel(target: str, tls: bool) -> grpc.aio.Channel:
         creds = grpc.ssl_channel_credentials()
         return grpc.aio.secure_channel(target, creds)
     return grpc.aio.insecure_channel(target)
+
+
+async def _get_channel(target: str, tls: bool) -> grpc.aio.Channel:
+    """Get a pooled gRPC channel for the given target."""
+    return await connection_pool.get_grpc_channel(target, tls)
 
 
 async def execute_unary_rpc(
@@ -81,7 +87,7 @@ async def execute_unary_rpc(
     if not method_path.startswith("/"):
         method_path = f"/{method_path}"
 
-    channel = _create_channel(target, tls)
+    channel = await _get_channel(target, tls)
 
     try:
         stub = channel.unary_unary(
@@ -110,8 +116,6 @@ async def execute_unary_rpc(
         return {"success": False, "error": error_msg}
     except Exception as e:
         return {"success": False, "error": f"RPC call failed: {e}"}
-    finally:
-        await channel.close()
 
 
 async def execute_server_streaming_rpc(
@@ -180,7 +184,7 @@ async def execute_server_streaming_rpc(
     if not method_path.startswith("/"):
         method_path = f"/{method_path}"
 
-    channel = _create_channel(target, tls)
+    channel = await _get_channel(target, tls)
     collected: list[dict[str, Any]] = []
     call = None
 
@@ -237,7 +241,6 @@ async def execute_server_streaming_rpc(
         # Cancel the stream if it wasn't fully exhausted
         if call is not None and hasattr(call, "cancel"):
             call.cancel()
-        await channel.close()
 
 
 async def execute_client_streaming_rpc(
@@ -301,7 +304,7 @@ async def execute_client_streaming_rpc(
     if not method_path.startswith("/"):
         method_path = f"/{method_path}"
 
-    channel = _create_channel(target, tls)
+    channel = await _get_channel(target, tls)
 
     try:
         stub = channel.stream_unary(
@@ -338,8 +341,6 @@ async def execute_client_streaming_rpc(
         return {"success": False, "error": error_msg}
     except Exception as e:
         return {"success": False, "error": f"Client-streaming RPC failed: {e}"}
-    finally:
-        await channel.close()
 
 
 async def execute_bidi_streaming_rpc(
@@ -409,7 +410,7 @@ async def execute_bidi_streaming_rpc(
     if not method_path.startswith("/"):
         method_path = f"/{method_path}"
 
-    channel = _create_channel(target, tls)
+    channel = await _get_channel(target, tls)
     collected: list[dict[str, Any]] = []
     call = None
 
@@ -467,7 +468,6 @@ async def execute_bidi_streaming_rpc(
     finally:
         if call is not None and hasattr(call, "cancel"):
             call.cancel()
-        await channel.close()
 
 
 def _error_hint(code: grpc.StatusCode) -> str:

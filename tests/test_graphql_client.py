@@ -121,6 +121,21 @@ def _make_client_factory(transport):
     return factory
 
 
+def _patch_pool_http_client(monkeypatch, transport):
+    """Patch pool.get_http_client to return a client with the given mock transport.
+
+    This replaces the old pattern of monkeypatching httpx.AsyncClient directly,
+    since clients now come from the connection pool.
+    """
+    client = httpx.AsyncClient(transport=transport)
+
+    async def _get_http_client(url):
+        return client
+
+    monkeypatch.setattr("api_agent.graphql.client.pool.get_http_client", _get_http_client)
+    return client
+
+
 # ---------------------------------------------------------------------------
 # T012: Response parsing
 # ---------------------------------------------------------------------------
@@ -131,10 +146,7 @@ class TestResponseParsing:
     async def test_success_response(self, monkeypatch):
         """Standard success: {data: ...} -> {success: True, data: ...}."""
         transport = _MockTransport([(200, {"data": {"users": [{"id": "1"}]}})])
-        monkeypatch.setattr(
-            "api_agent.graphql.client.httpx.AsyncClient",
-            _make_client_factory(transport),
-        )
+        _patch_pool_http_client(monkeypatch, transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -146,10 +158,7 @@ class TestResponseParsing:
         """Error-only response: {errors: [...]} -> {success: False, error: [...]}."""
         body = {"errors": [{"message": "Not found"}]}
         transport = _MockTransport([(200, body)])
-        monkeypatch.setattr(
-            "api_agent.graphql.client.httpx.AsyncClient",
-            _make_client_factory(transport),
-        )
+        _patch_pool_http_client(monkeypatch, transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -164,10 +173,7 @@ class TestResponseParsing:
             "errors": [{"message": "Deprecated field"}],
         }
         transport = _MockTransport([(200, body)])
-        monkeypatch.setattr(
-            "api_agent.graphql.client.httpx.AsyncClient",
-            _make_client_factory(transport),
-        )
+        _patch_pool_http_client(monkeypatch, transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -180,10 +186,7 @@ class TestResponseParsing:
     async def test_http_status_error(self, monkeypatch):
         """HTTP 500 -> {success: False, error: 'HTTP 500'}."""
         transport = _MockTransport([(500, {"error": "Internal Server Error"})])
-        monkeypatch.setattr(
-            "api_agent.graphql.client.httpx.AsyncClient",
-            _make_client_factory(transport),
-        )
+        _patch_pool_http_client(monkeypatch, transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -209,10 +212,7 @@ class TestValidQueryExecution:
     async def test_sends_correct_payload(self, monkeypatch):
         """POST body must contain query and variables in JSON."""
         transport = _CapturingTransport(200, {"data": {"ok": True}})
-        monkeypatch.setattr(
-            "api_agent.graphql.client.httpx.AsyncClient",
-            _make_client_factory(transport),
-        )
+        _patch_pool_http_client(monkeypatch, transport)
 
         query = "{ users(limit: 5) { id name } }"
         variables = {"limit": 5}
@@ -235,10 +235,7 @@ class TestValidQueryExecution:
     async def test_sends_correct_headers(self, monkeypatch):
         """Custom headers must be merged with Content-Type."""
         transport = _CapturingTransport(200, {"data": {"ok": True}})
-        monkeypatch.setattr(
-            "api_agent.graphql.client.httpx.AsyncClient",
-            _make_client_factory(transport),
-        )
+        _patch_pool_http_client(monkeypatch, transport)
 
         custom_headers = {"Authorization": "Bearer secret", "X-Custom": "value"}
 
@@ -254,10 +251,7 @@ class TestValidQueryExecution:
     async def test_omits_variables_when_none(self, monkeypatch):
         """When variables is None, payload should not contain 'variables' key."""
         transport = _CapturingTransport(200, {"data": {"ok": True}})
-        monkeypatch.setattr(
-            "api_agent.graphql.client.httpx.AsyncClient",
-            _make_client_factory(transport),
-        )
+        _patch_pool_http_client(monkeypatch, transport)
 
         await execute_query("{ test }", None, "https://api.test/graphql")
 
