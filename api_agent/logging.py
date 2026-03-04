@@ -70,7 +70,7 @@ def configure_logging(log_format: str = "json", debug: bool = False) -> None:
     """
     log_level = logging.DEBUG if debug else logging.INFO
 
-    shared_processors: list[structlog.types.Processor] = [
+    shared_processors: list[Any] = [
         structlog.contextvars.merge_contextvars,
         _add_request_id,
         structlog.stdlib.add_log_level,
