@@ -27,7 +27,8 @@ FROM python:3.11.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_CACHE_DIR=/tmp/uv-cache
+    UV_CACHE_DIR=/tmp/uv-cache \
+    PORT=3000
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -41,12 +42,11 @@ WORKDIR /app
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /app /app
 
-COPY start.sh ./
-RUN chmod +x ./start.sh && chown -R appuser:appuser /app
+COPY start.sh healthcheck.sh ./
+RUN chmod +x ./start.sh ./healthcheck.sh && chown -R appuser:appuser /app
 
-EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-3000}/health')"
+EXPOSE ${PORT}
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["./healthcheck.sh"]
 
 USER appuser
 ENTRYPOINT ["/app/start.sh"]
