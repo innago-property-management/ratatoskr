@@ -26,6 +26,7 @@ from ..recipe import (
     maybe_extract_and_save_recipe,
 )
 from ..recipe.store import render_text_template
+from ..sanitize import sanitize_error
 from ..schema.reducer import reduce_schema
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
@@ -915,7 +916,7 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
                 "ok": False,
                 "data": None,
                 "rpc_calls": [],
-                "error": f"Failed to connect to gRPC server: {error_msg}",
+                "error": f"Failed to connect to gRPC server: {sanitize_error(e)}",
             }
 
         if not schema.services:
@@ -1025,5 +1026,5 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
             "ok": False,
             "data": None,
             "rpc_calls": [],
-            "error": str(e),
+            "error": sanitize_error(e),
         }

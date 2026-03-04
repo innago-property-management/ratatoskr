@@ -21,7 +21,8 @@ from ..recipe import (
 )
 from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
-from .contextvar_utils import safe_append_contextvar_list
+from ..sanitize import sanitize_error
+from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
 from .model import provider
 from .orchestrator import (
     AgentContextVars,
@@ -649,5 +650,5 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
             "ok": False,
             "data": None,
             "api_calls": [],
-            "error": str(e),
+            "error": sanitize_error(e),
         }

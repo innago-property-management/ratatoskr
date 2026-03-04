@@ -19,6 +19,7 @@ from ..recipe import (
     maybe_extract_and_save_recipe,
     render_text_template,
 )
+from ..sanitize import sanitize_schema_text
 from ..schema.reducer import reduce_schema
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
@@ -150,7 +151,8 @@ def _format_field(fld: dict) -> str:
         arg_str = "(" + ", ".join(_format_arg(a) for a in args) + ")"
     else:
         arg_str = ""
-    desc = f" # {fld['description']}" if fld.get("description") else ""
+    raw_desc = fld.get("description")
+    desc = f" # {sanitize_schema_text(raw_desc)}" if raw_desc else ""
     return f"  {fld['name']}{arg_str}: {_format_type(fld['type'])}{desc}"
 
 
@@ -171,7 +173,8 @@ def _build_schema_context(schema: dict) -> str:
 
     lines = ["<queries>"]
     for f in queries:
-        desc = f" # {f['description']}" if f.get("description") else ""
+        raw_desc = f.get("description")
+        desc = f" # {sanitize_schema_text(raw_desc)}" if raw_desc else ""
         # Only show required args
         required_args = _filter_required_args(f.get("args", []))
         args = ", ".join(_format_arg(a) for a in required_args)

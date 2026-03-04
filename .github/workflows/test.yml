@@ -41,6 +41,9 @@ jobs:
       - name: Run type checker
         run: uv run ty check
 
+      - name: Audit dependencies for known vulnerabilities
+        run: uv run pip-audit
+
   docker-build:
     runs-on: ubuntu-latest
     steps:

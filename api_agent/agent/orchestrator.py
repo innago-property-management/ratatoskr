@@ -36,6 +36,7 @@ from ..recipe import (
     validate_and_prepare_recipe,
     validate_recipe_params,
 )
+from ..sanitize import sanitize_error
 from ..tracing import trace_metadata
 from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
 from .model import get_inject_instructions
@@ -565,7 +566,7 @@ async def _run_agent_orchestration_impl(
                 "data": None,
                 "result": None,
                 config.call_key: [],
-                "error": str(e),
+                "error": sanitize_error(e),
             },
             should_extract_recipe=False,
         )

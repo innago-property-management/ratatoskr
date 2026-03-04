@@ -48,7 +48,10 @@ def normalize_ws(text: str) -> str:
 
 
 def render_text_template(template: str, params: dict[str, Any]) -> str:
-    """Render {{param}} placeholders using raw string insertion (template carries quoting)."""
+    """Render {{param}} placeholders using raw string insertion (template carries quoting).
+
+    Parameter values containing '{{' are rejected to prevent template injection.
+    """
 
     def _as_text(v: Any) -> str:
         if isinstance(v, bool):
@@ -61,7 +64,12 @@ def render_text_template(template: str, params: dict[str, Any]) -> str:
         name = m.group(1)
         if name not in params:
             raise KeyError(f"missing param: {name}")
-        return _as_text(params[name])
+        text = _as_text(params[name])
+        if "{{" in text:
+            raise ValueError(
+                f"parameter '{name}' contains template syntax '{{{{}}'  which is not allowed"
+            )
+        return text
 
     return _PLACEHOLDER_RE.sub(repl, template)
 
