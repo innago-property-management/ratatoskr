@@ -310,7 +310,11 @@ async def create_recipe_tools(
         if not recipe:
             continue
 
-        tool_name = deduplicate_tool_name(s.get("tool_name", "unknown_recipe"), seen_names)
+        try:
+            tool_name = deduplicate_tool_name(s.get("tool_name", "unknown_recipe"), seen_names)
+        except ValueError:
+            logger.warning("recipe_tool_name_exhausted", recipe_id=s["recipe_id"])
+            continue
         params_spec = recipe.get("params", {})
         docstring = build_recipe_docstring(
             s["question"],

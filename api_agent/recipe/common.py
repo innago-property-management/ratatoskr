@@ -136,25 +136,28 @@ async def maybe_extract_and_save_recipe(
             existing_recipes=existing_recipes,
         )
         if recipe:
-            # Skip if recipe already exists (same steps/sql/params)
-            for existing in existing_recipes:
-                if _recipes_equivalent(existing, recipe, api_type):
-                    return
-
             # Ensure tool_name does not collide with existing recipes
             seen: set[str] = {r["tool_name"] for r in existing_recipes if r.get("tool_name")}
             recipe["tool_name"] = deduplicate_tool_name(
                 recipe.get("tool_name", ""), seen_names=seen, max_len=40
             )
             tool_name = recipe.get("tool_name", "")
-            recipe_id = await RECIPE_STORE.save_recipe(
+
+            # Atomic check-and-insert: holds lock across equivalence check + save
+            # to prevent TOCTOU race where two concurrent requests both insert.
+            def _equiv_checker(existing_recipe: dict, candidate: dict) -> bool:
+                return _recipes_equivalent(existing_recipe, candidate, api_type)
+
+            recipe_id = await RECIPE_STORE.save_recipe_if_unique(
                 api_id=api_id,
                 schema_hash=schema_hash,
                 question=question,
                 recipe=recipe,
                 tool_name=tool_name,
+                equivalence_checker=_equiv_checker,
             )
-            mark_recipe_changed(recipe_id)
+            if recipe_id is not None:
+                mark_recipe_changed(recipe_id)
     except Exception:
         logger.exception("recipe_extraction_failed")
 

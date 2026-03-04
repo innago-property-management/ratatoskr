@@ -10,7 +10,7 @@ import time
 import uuid
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 import structlog
 from rapidfuzz import fuzz
@@ -94,6 +94,8 @@ def render_sql_safe(template: str, params: dict[str, Any]) -> str:
       parameter values are escaped.
     - It does not prevent abuse of legitimate SQL operators (LIKE, UNION)
       within parameter values beyond stripping known injection vectors.
+    - String values are **not** auto-quoted.  The template must supply
+      surrounding quotes (e.g., ``'{{param}}'`` not ``{{param}}``).
     - For defense-in-depth, always combine with DuckDB sandboxing
       (read-only mode, restricted functions) as provided by ``executor.py``.
     """
@@ -255,6 +257,58 @@ class RecipeStore:
         )
 
         async with self._lock:
+            self._records[recipe_id] = record
+            self._by_key[(api_id, schema_hash)].add(recipe_id)
+            self._touch(recipe_id)
+            self._evict_if_needed()
+
+        params = list(recipe.get("params", {}).keys())
+        _log_recipe(f"SAVE {recipe_id} params={params} q={question[:40]}")
+        return recipe_id
+
+    async def save_recipe_if_unique(
+        self,
+        *,
+        api_id: str,
+        schema_hash: str,
+        question: str,
+        recipe: dict[str, Any],
+        tool_name: str,
+        equivalence_checker: Callable[[dict[str, Any], dict[str, Any]], bool] | None = None,
+    ) -> str | None:
+        """Atomically check for duplicates and save in a single lock acquisition.
+
+        This avoids the TOCTOU race where two concurrent coroutines both see
+        no duplicate and both insert.  The *equivalence_checker* receives
+        ``(existing_recipe_dict, candidate_recipe_dict)`` and should return
+        ``True`` if they are equivalent.
+
+        Returns the new recipe_id on success, or ``None`` if a duplicate was
+        found (or no checker was supplied and the save proceeds normally).
+        """
+        recipe_id = f"r_{uuid.uuid4().hex[:8]}"
+        now = time.time()
+        record = RecipeRecord(
+            recipe_id=recipe_id,
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question=question,
+            question_sig=_normalize_question(question),
+            question_tokens=_tokens(question),
+            recipe=dict(recipe),
+            tool_name=tool_name,
+            created_at=now,
+            last_used_at=now,
+        )
+
+        async with self._lock:
+            if equivalence_checker is not None:
+                key = (api_id, schema_hash)
+                for rid in list(self._by_key.get(key, set())):
+                    existing = self._records.get(rid)
+                    if existing and equivalence_checker(existing.recipe, recipe):
+                        return None
+
             self._records[recipe_id] = record
             self._by_key[(api_id, schema_hash)].add(recipe_id)
             self._touch(recipe_id)
