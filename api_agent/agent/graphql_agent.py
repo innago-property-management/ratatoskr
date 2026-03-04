@@ -17,6 +17,7 @@ from ..recipe import (
     maybe_extract_and_save_recipe,
     render_text_template,
 )
+from ..schema.reducer import reduce_schema
 from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
 from .model import provider
 from .orchestrator import (
@@ -280,8 +281,6 @@ async def _fetch_schema_context(
         context = _strip_descriptions(context)
 
     # Smart schema reduction (TOON + Haiku + hard truncation fallback)
-    from ..schema.reducer import reduce_schema
-
     result = await reduce_schema(
         schema_text=context,
         question=question,

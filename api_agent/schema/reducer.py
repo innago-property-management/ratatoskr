@@ -236,7 +236,12 @@ class HaikuLayer:
 
 @lru_cache(maxsize=8)
 def _get_haiku_layer(api_key: str, model: str, timeout_ms: int, max_output_tokens: int) -> HaikuLayer:
-    """Return a cached HaikuLayer to reuse httpx connection pools."""
+    """Return a cached HaikuLayer to reuse httpx connection pools.
+
+    Keyed on all constructor args. Note: if the API key is rotated at runtime
+    (e.g., via env-var reload), the old client remains cached until process
+    restart or cache eviction.
+    """
     return HaikuLayer(api_key, model, timeout_ms, max_output_tokens)
 
 

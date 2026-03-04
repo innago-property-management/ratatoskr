@@ -25,6 +25,7 @@ from ..recipe import (
     maybe_extract_and_save_recipe,
 )
 from ..recipe.store import render_text_template
+from ..schema.reducer import reduce_schema
 from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
 from .model import provider
 from .orchestrator import (
@@ -951,12 +952,10 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
             )
 
         # Smart schema reduction (TOON + Haiku + hard truncation fallback)
-        from ..schema.reducer import reduce_schema
-
         reduction = await reduce_schema(
             schema_text=schema.raw_schema_text,
             question=question,
-            threshold=settings.MAX_TOOL_RESPONSE_CHARS,
+            threshold=settings.MAX_SCHEMA_CHARS,
             api_key=settings.SCHEMA_REDUCTION_API_KEY,
             model=settings.SCHEMA_REDUCTION_MODEL,
             timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,

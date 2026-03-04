@@ -9,6 +9,7 @@ import httpx
 import yaml
 
 from ..config import settings
+from ..schema.reducer import reduce_schema
 
 logger = logging.getLogger(__name__)
 
@@ -376,8 +377,6 @@ async def fetch_schema_context(
     base_url = get_base_url_from_spec(spec, spec_url)
 
     # Smart schema reduction (TOON + Haiku + hard truncation fallback)
-    from ..schema.reducer import reduce_schema
-
     result = await reduce_schema(
         schema_text=dsl_context,
         question=question,
