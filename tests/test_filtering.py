@@ -1,6 +1,5 @@
 """Tests for endpoint allowlist filtering logic."""
 
-import pytest
 
 from api_agent.filtering import (
     _collect_referenced_types,
@@ -13,7 +12,6 @@ from api_agent.filtering import (
     parse_config_allowlist,
 )
 from api_agent.grpc.reflection import MethodInfo, ServiceInfo
-
 
 # ---------------------------------------------------------------------------
 # parse_config_allowlist

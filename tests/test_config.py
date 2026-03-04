@@ -269,3 +269,67 @@ class TestLegacyAliases:
         monkeypatch.setenv("API_AGENT_OPENAI_BASE_URL", "https://prefixed/v1")
         s = Settings()
         assert s.OPENAI_BASE_URL == "https://prefixed/v1"
+
+
+# ---------------------------------------------------------------------------
+# Schema reduction settings
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaReductionDefaults:
+    """Verify schema reduction settings have correct defaults."""
+
+    def test_enabled_default(self):
+        assert Settings().SCHEMA_REDUCTION_ENABLED is True
+
+    def test_model_default(self):
+        assert Settings().SCHEMA_REDUCTION_MODEL == "claude-haiku-4-5-20251001"
+
+    def test_timeout_default(self):
+        assert Settings().SCHEMA_REDUCTION_TIMEOUT_MS == 30_000
+
+    def test_api_key_empty_default(self):
+        assert Settings().SCHEMA_REDUCTION_API_KEY == ""
+
+    def test_max_input_chars_default(self):
+        assert Settings().SCHEMA_REDUCTION_MAX_INPUT_CHARS == 100_000
+
+
+class TestSchemaReductionEnvOverrides:
+    """Verify schema reduction settings can be overridden via env vars."""
+
+    def test_enabled_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_ENABLED", "false")
+        assert Settings().SCHEMA_REDUCTION_ENABLED is False
+
+    def test_model_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_MODEL", "claude-haiku-4-5-20251001")
+        assert Settings().SCHEMA_REDUCTION_MODEL == "claude-haiku-4-5-20251001"
+
+    def test_timeout_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_TIMEOUT_MS", "10000")
+        assert Settings().SCHEMA_REDUCTION_TIMEOUT_MS == 10_000
+
+    def test_api_key_via_prefixed_env(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_API_KEY", "sk-ant-explicit")
+        assert Settings().SCHEMA_REDUCTION_API_KEY == "sk-ant-explicit"
+
+    def test_api_key_falls_back_to_anthropic_key(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
+        assert Settings().SCHEMA_REDUCTION_API_KEY == "sk-ant-fallback"
+
+    def test_explicit_api_key_wins_over_anthropic(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_API_KEY", "sk-explicit")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fallback")
+        assert Settings().SCHEMA_REDUCTION_API_KEY == "sk-explicit"
+
+    def test_max_input_chars_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_MAX_INPUT_CHARS", "50000")
+        assert Settings().SCHEMA_REDUCTION_MAX_INPUT_CHARS == 50_000
+
+    def test_max_output_tokens_default(self):
+        assert Settings().SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS == 8192
+
+    def test_max_output_tokens_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS", "16384")
+        assert Settings().SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS == 16_384

@@ -148,9 +148,7 @@ class LLMProvider(ABC):
             ),
         )
 
-    def _build_initial_messages(
-        self, instructions: str, user_message: str
-    ) -> list[dict[str, Any]]:
+    def _build_initial_messages(self, instructions: str, user_message: str) -> list[dict[str, Any]]:
         """Build initial message list. Override for providers with different system message handling."""
         return [
             {"role": "system", "content": instructions},

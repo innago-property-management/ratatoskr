@@ -77,6 +77,7 @@ dependencies = [
     { name = "pyyaml" },
     { name = "rapidfuzz" },
     { name = "starlette" },
+    { name = "toon-format" },
     { name = "uvicorn" },
 ]
 
@@ -103,6 +104,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "rapidfuzz", specifier = ">=3.0.0" },
     { name = "starlette", specifier = ">=0.50.0" },
+    { name = "toon-format", git = "https://github.com/toon-format/toon-python.git?rev=6b26984a01279defdcf40ab9d09bc418fe8133ac" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
 
@@ -1835,6 +1837,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/c4/68/79977123bb7be889a
 wheels = [
     { url = "https://files.pythonhosted.org/packages/81/0d/13d1d239a25cbfb19e740db83143e95c772a1fe10202dda4b76792b114dd/starlette-0.52.1-py3-none-any.whl", hash = "sha256:0029d43eb3d273bc4f83a08720b4912ea4b071087a3b48db01b7c839f7954d74", size = 74272, upload-time = "2026-01-18T13:34:09.188Z" },
 ]
+
+[[package]]
+name = "toon-format"
+version = "0.9.0b1"
+source = { git = "https://github.com/toon-format/toon-python.git?rev=6b26984a01279defdcf40ab9d09bc418fe8133ac#6b26984a01279defdcf40ab9d09bc418fe8133ac" }
 
 [[package]]
 name = "tqdm"

@@ -12,7 +12,7 @@ from fastmcp import FastMCP
 
 from api_agent.context import MissingHeaderError, RequestContext
 from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
-from api_agent.tools.execute import _find_grpc_method, register_execute_tool
+from api_agent.tools.execute import register_execute_tool
 
 
 @pytest_asyncio.fixture

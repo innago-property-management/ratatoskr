@@ -79,7 +79,9 @@ class Settings(BaseSettings):
     )
 
     # Default target (optional — fallback when headers omitted, useful for single-API instances)
-    DEFAULT_TARGET_URL: str = ""  # e.g. "https://swapi-graphql.netlify.app/.netlify/functions/graphql"
+    DEFAULT_TARGET_URL: str = (
+        ""  # e.g. "https://swapi-graphql.netlify.app/.netlify/functions/graphql"
+    )
     DEFAULT_API_TYPE: str = ""  # "graphql", "rest", or "grpc"
     DEFAULT_BASE_URL: str = ""  # REST base URL override
     DEFAULT_TARGET_HEADERS: str = ""  # JSON object, e.g. '{"Accept": "application/json"}'
@@ -88,6 +90,17 @@ class Settings(BaseSettings):
     ALLOW_ENDPOINTS_REST: str = ""  # CSV: "GET /users/*,GET /orders/*"
     ALLOW_ENDPOINTS_GRAPHQL: str = ""  # CSV: "Query.user*,Query.orders"
     ALLOW_ENDPOINTS_GRPC: str = ""  # CSV: "helloworld.Greeter/*"
+
+    # Schema reduction pipeline
+    SCHEMA_REDUCTION_ENABLED: bool = True
+    SCHEMA_REDUCTION_MODEL: str = "claude-haiku-4-5-20251001"
+    SCHEMA_REDUCTION_TIMEOUT_MS: int = 30_000
+    SCHEMA_REDUCTION_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices("API_AGENT_SCHEMA_REDUCTION_API_KEY", "ANTHROPIC_API_KEY"),
+    )
+    SCHEMA_REDUCTION_MAX_INPUT_CHARS: int = 100_000
+    SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS: int = 8192
 
 
 settings = Settings()

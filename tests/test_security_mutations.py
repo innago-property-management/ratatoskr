@@ -11,7 +11,6 @@ import pytest
 
 from api_agent.graphql.client import _is_mutation, execute_query
 
-
 # ---------------------------------------------------------------------------
 # F6: GraphQL mutation regex hardening
 # ---------------------------------------------------------------------------

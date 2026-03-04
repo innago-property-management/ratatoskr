@@ -96,9 +96,7 @@ async def execute_unary_rpc(
             timeout=timeout_s,
         )
 
-        response_dict = MessageToDict(
-            response_msg, preserving_proto_field_name=True
-        )
+        response_dict = MessageToDict(response_msg, preserving_proto_field_name=True)
 
         return {"success": True, "data": response_dict}
 
@@ -200,9 +198,7 @@ async def execute_server_streaming_rpc(
         )
 
         async for response_msg in call:
-            response_dict = MessageToDict(
-                response_msg, preserving_proto_field_name=True
-            )
+            response_dict = MessageToDict(response_msg, preserving_proto_field_name=True)
             collected.append(response_dict)
             if len(collected) >= max_messages:
                 break
@@ -324,9 +320,7 @@ async def execute_client_streaming_rpc(
 
         response_msg = await call
 
-        response_dict = MessageToDict(
-            response_msg, preserving_proto_field_name=True
-        )
+        response_dict = MessageToDict(response_msg, preserving_proto_field_name=True)
 
         return {
             "success": True,
@@ -434,9 +428,7 @@ async def execute_bidi_streaming_rpc(
         call = stub(request_iter(), metadata=metadata, timeout=timeout_s)
 
         async for response_msg in call:
-            response_dict = MessageToDict(
-                response_msg, preserving_proto_field_name=True
-            )
+            response_dict = MessageToDict(response_msg, preserving_proto_field_name=True)
             collected.append(response_dict)
             if len(collected) >= max_messages:
                 break

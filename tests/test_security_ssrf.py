@@ -8,7 +8,6 @@ import pytest
 
 from api_agent.context import MissingHeaderError, validate_target_url
 
-
 # ---------------------------------------------------------------------------
 # Scheme validation
 # ---------------------------------------------------------------------------

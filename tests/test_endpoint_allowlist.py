@@ -17,7 +17,6 @@ from api_agent.agent.rest_agent import process_rest_query
 from api_agent.context import RequestContext
 from tests.conftest import make_text_response, make_tool_call_response
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -140,9 +139,7 @@ class TestGraphqlAllowlistEmpty:
             "api_agent.agent.graphql_agent.settings.ALLOW_ENDPOINTS_GRAPHQL",
             "Query.nonexistent*",
         )
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False)
 
         async def mock_fetch(query, variables, endpoint, headers):
             return SAMPLE_INTROSPECTION
@@ -157,12 +154,8 @@ class TestGraphqlAllowlistEmpty:
     @pytest.mark.asyncio
     async def test_header_filters_all_returns_error(self, monkeypatch):
         """Header allowlist that matches nothing → error."""
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.settings.ALLOW_ENDPOINTS_GRAPHQL", ""
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.settings.ALLOW_ENDPOINTS_GRAPHQL", "")
+        monkeypatch.setattr("api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False)
 
         async def mock_fetch(query, variables, endpoint, headers):
             return SAMPLE_INTROSPECTION
@@ -185,16 +178,10 @@ class TestGraphqlAllowlistPartial:
     """Allowlist keeps some fields — agent runs with filtered schema."""
 
     @pytest.mark.asyncio
-    async def test_header_narrows_to_users_only(
-        self, monkeypatch, fake_provider_factory
-    ):
+    async def test_header_narrows_to_users_only(self, monkeypatch, fake_provider_factory):
         """Header allowlist 'Query.users' → agent only sees users, not posts."""
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.settings.ALLOW_ENDPOINTS_GRAPHQL", ""
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.settings.ALLOW_ENDPOINTS_GRAPHQL", "")
+        monkeypatch.setattr("api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False)
 
         introspection_calls = []
 
@@ -246,20 +233,16 @@ class TestRestAllowlistEmpty:
             "api_agent.agent.rest_agent.settings.ALLOW_ENDPOINTS_REST",
             "GET /nonexistent*",
         )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
-        async def mock_fetch_schema(spec_url, headers=None, spec_filter=None):
+        async def mock_fetch_schema(spec_url, headers=None, spec_filter=None, question=""):
             spec = dict(SAMPLE_OPENAPI_SPEC)
             if spec_filter:
                 spec = spec_filter(spec)
             raw = json.dumps(spec, indent=2)
             return "<endpoints>\n", "https://api.example.com/v1", raw
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         result = await process_rest_query("List users", _rest_ctx())
 
@@ -269,23 +252,17 @@ class TestRestAllowlistEmpty:
     @pytest.mark.asyncio
     async def test_header_filters_all_returns_error(self, monkeypatch):
         """Header allowlist that matches nothing → error."""
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ALLOW_ENDPOINTS_REST", ""
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ALLOW_ENDPOINTS_REST", "")
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
-        async def mock_fetch_schema(spec_url, headers=None, spec_filter=None):
+        async def mock_fetch_schema(spec_url, headers=None, spec_filter=None, question=""):
             spec = dict(SAMPLE_OPENAPI_SPEC)
             if spec_filter:
                 spec = spec_filter(spec)
             raw = json.dumps(spec, indent=2)
             return "<endpoints>\n", "https://api.example.com/v1", raw
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         ctx = _rest_ctx(allow_endpoints=("GET /nonexistent",))
         result = await process_rest_query("List users", ctx)
@@ -309,11 +286,9 @@ class TestRestAllowlistIntersection:
             "api_agent.agent.rest_agent.settings.ALLOW_ENDPOINTS_REST",
             "GET /users,GET /posts",
         )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
-        async def mock_fetch_schema(spec_url, headers=None, spec_filter=None):
+        async def mock_fetch_schema(spec_url, headers=None, spec_filter=None, question=""):
             import copy
 
             spec = copy.deepcopy(SAMPLE_OPENAPI_SPEC)
@@ -331,9 +306,7 @@ class TestRestAllowlistIntersection:
             raw = json.dumps(spec, indent=2)
             return schema_text, "https://api.example.com/v1", raw
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         async def mock_execute_request(*args, **kwargs):
             return {
@@ -341,9 +314,7 @@ class TestRestAllowlistIntersection:
                 "data": {"users": [{"id": 1, "name": "Alice"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.execute_request", mock_execute_request
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.execute_request", mock_execute_request)
 
         fake_provider_factory(
             monkeypatch,
@@ -374,12 +345,8 @@ class TestSearchSchemaNoLeak:
     @pytest.mark.asyncio
     async def test_filtered_schema_excludes_blocked_type(self, monkeypatch):
         """After filtering to Query.users, raw schema shouldn't contain Post type."""
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.settings.ALLOW_ENDPOINTS_GRAPHQL", ""
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.graphql_agent.settings.ALLOW_ENDPOINTS_GRAPHQL", "")
+        monkeypatch.setattr("api_agent.agent.graphql_agent.settings.ENABLE_RECIPES", False)
 
         async def mock_fetch(query, variables, endpoint, headers):
             if "__schema" in query:
@@ -432,9 +399,7 @@ class TestGrpcAllowlistEmpty:
             "api_agent.agent.grpc_agent.settings.ALLOW_ENDPOINTS_GRPC",
             "nonexistent.Service/*",
         )
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.settings.ENABLE_RECIPES", False)
 
         schema = GrpcSchema(
             services=[
@@ -457,9 +422,7 @@ class TestGrpcAllowlistEmpty:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         ctx = RequestContext(
             target_url="grpc://localhost:50051",
@@ -484,12 +447,8 @@ class TestGrpcAllowlistEmpty:
         from api_agent.agent.grpc_agent import process_grpc_query
         from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.settings.ALLOW_ENDPOINTS_GRPC", ""
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.settings.ALLOW_ENDPOINTS_GRPC", "")
+        monkeypatch.setattr("api_agent.agent.grpc_agent.settings.ENABLE_RECIPES", False)
 
         schema = GrpcSchema(
             services=[
@@ -512,9 +471,7 @@ class TestGrpcAllowlistEmpty:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         ctx = RequestContext(
             target_url="grpc://localhost:50051",
