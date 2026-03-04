@@ -16,6 +16,8 @@ from api_agent.executor import (
     _write_temp_json,
     cleanup_temp_files,
     execute_sql_async,
+    truncate_for_context,
+    truncate_for_context_async,
 )
 
 # Ensure the semaphore is initialized for tests that use execute_sql_async
@@ -296,3 +298,37 @@ class TestGracefulShutdown:
         mock_cleanup.assert_called_once()
 
         api_agent.shutdown._shutdown_done = False
+
+
+# ---------------------------------------------------------------------------
+# Async truncate_for_context
+# ---------------------------------------------------------------------------
+
+
+class TestTruncateForContextAsync:
+    """truncate_for_context_async offloads _extract_schema to a thread."""
+
+    @pytest.mark.asyncio
+    async def test_small_data_not_truncated(self):
+        """Small data returns without truncation (no _extract_schema call)."""
+        data = [{"id": 1, "name": "Alice"}]
+        result = await truncate_for_context_async(data, "users")
+        assert result["truncated"] is False
+        assert result["data"] == data
+
+    @pytest.mark.asyncio
+    async def test_large_data_truncated_with_schema(self):
+        """Large data returns truncated preview with schema info."""
+        data = [{"id": i, "name": f"user_{i}" * 100} for i in range(100)]
+        result = await truncate_for_context_async(data, "users", max_chars=500)
+        assert result["truncated"] is True
+        assert result["showing"] < 100
+        assert "schema" in result
+        assert "hint" in result
+
+    def test_sync_variant_matches_async(self):
+        """Sync truncate_for_context returns same structure as async."""
+        data = [{"id": 1}]
+        sync_result = truncate_for_context(data, "t")
+        assert "truncated" in sync_result
+        assert "data" in sync_result

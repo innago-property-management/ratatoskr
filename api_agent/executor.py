@@ -224,10 +224,41 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
             _unlink_temp(temp_file)
 
 
+def _truncate_preview(
+    data: list[dict], table_name: str, max_chars: int
+) -> dict[str, Any] | None:
+    """Build truncated preview if data exceeds max_chars. Returns None if it fits."""
+    total_rows = len(data)
+    if len(json.dumps(data)) <= max_chars:
+        return None
+
+    preview: list[dict] = []
+    current_size = 2  # "[]"
+    for row in data:
+        row_json = json.dumps(row)
+        new_size = current_size + len(row_json) + (1 if preview else 0)
+        if new_size > max_chars:
+            break
+        preview.append(row)
+        current_size = new_size
+
+    return {
+        "table": table_name,
+        "rows": total_rows,
+        "showing": len(preview),
+        "data": preview,
+        "truncated": True,
+    }
+
+
 def truncate_for_context(
     data: list[dict], table_name: str, max_chars: int | None = None
 ) -> dict[str, Any]:
     """Truncate data for LLM context safety, include schema if truncated.
+
+    Note: This is synchronous and calls _extract_schema (file I/O + DuckDB).
+    From async contexts, prefer ``truncate_for_context_async`` to avoid
+    blocking the event loop.
 
     Args:
         data: List of records
@@ -242,31 +273,36 @@ def truncate_for_context(
     max_chars = max_chars or settings.MAX_TOOL_RESPONSE_CHARS
     total_rows = len(data)
 
-    # Check if full data fits
-    if len(json.dumps(data)) <= max_chars:
+    result = _truncate_preview(data, table_name, max_chars)
+    if result is None:
         return {"table": table_name, "rows": total_rows, "data": data, "truncated": False}
 
-    # Find how many complete rows fit
-    preview: list[dict] = []
-    current_size = 2  # "[]"
-    for row in data:
-        row_json = json.dumps(row)
-        new_size = current_size + len(row_json) + (1 if preview else 0)
-        if new_size > max_chars:
-            break
-        preview.append(row)
-        current_size = new_size
-
     schema = _extract_schema(data, table_name)
-    return {
-        "table": table_name,
-        "rows": total_rows,
-        "showing": len(preview),
-        "schema": schema.get("schema", ""),
-        "data": preview,
-        "truncated": True,
-        "hint": f"Showing {len(preview)}/{total_rows}. Use sql_query to filter.",
-    }
+    result["schema"] = schema.get("schema", "")
+    result["hint"] = f"Showing {result['showing']}/{total_rows}. Use sql_query to filter."
+    return result
+
+
+async def truncate_for_context_async(
+    data: list[dict], table_name: str, max_chars: int | None = None
+) -> dict[str, Any]:
+    """Async variant of truncate_for_context — offloads _extract_schema to a thread.
+
+    Use this from async tool callbacks to avoid blocking the event loop.
+    """
+    from .config import settings
+
+    max_chars = max_chars or settings.MAX_TOOL_RESPONSE_CHARS
+    total_rows = len(data)
+
+    result = _truncate_preview(data, table_name, max_chars)
+    if result is None:
+        return {"table": table_name, "rows": total_rows, "data": data, "truncated": False}
+
+    schema = await asyncio.to_thread(_extract_schema, data, table_name)
+    result["schema"] = schema.get("schema", "")
+    result["hint"] = f"Showing {result['showing']}/{total_rows}. Use sql_query to filter."
+    return result
 
 
 # Keep for backwards compatibility
