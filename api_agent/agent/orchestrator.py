@@ -112,6 +112,32 @@ class OrchestrationResult:
     sql_steps: list[str] = field(default_factory=list)
     raw_schema_value: str = ""
 
+    @classmethod
+    def from_contextvars(
+        cls,
+        ctx_vars: "AgentContextVars",
+        *,
+        result_dict: dict[str, Any],
+        should_extract_recipe: bool,
+        api_calls: list | None = None,
+        agent_output: str | None = None,
+    ) -> "OrchestrationResult":
+        """Build an OrchestrationResult, snapshotting ContextVar values.
+
+        Must be called from within the isolated context copy (before the
+        task completes), because ContextVar values are not accessible from
+        the parent context after the copy exits.
+        """
+        return cls(
+            result_dict=result_dict,
+            should_extract_recipe=should_extract_recipe,
+            api_calls=api_calls if api_calls is not None else [],
+            agent_output=agent_output,
+            recipe_steps=list(safe_get_contextvar(ctx_vars.recipe_steps, [])),
+            sql_steps=list(safe_get_contextvar(ctx_vars.sql_steps, [])),
+            raw_schema_value=safe_get_contextvar(ctx_vars.raw_schema, ""),
+        )
+
 
 # ---------------------------------------------------------------------------
 # Utility functions
@@ -367,6 +393,14 @@ async def run_agent_orchestration(
     monkeypatch targets in tests.  ContextVar values needed for recipe
     extraction are captured in OrchestrationResult before leaving the
     isolated context.
+
+    Note on ``create_task(context=)``:
+        ``copy_context().run()`` only accepts *sync* callables.  For async
+        coroutines the correct Python 3.11+ pattern is
+        ``asyncio.create_task(coro, context=copy_context())``, which
+        schedules the coroutine in a copied context.  The immediate
+        ``await`` is intentional — the task exists solely for context
+        isolation, not parallelism.
     """
     ctx = contextvars.copy_context()
     task = asyncio.create_task(
@@ -374,15 +408,6 @@ async def run_agent_orchestration(
         context=ctx,
     )
     return await task
-
-
-def _capture_contextvar_values(ctx_vars: AgentContextVars) -> dict[str, Any]:
-    """Snapshot ContextVar values before leaving the isolated context."""
-    return {
-        "recipe_steps": list(safe_get_contextvar(ctx_vars.recipe_steps, [])),
-        "sql_steps": list(safe_get_contextvar(ctx_vars.sql_steps, [])),
-        "raw_schema_value": safe_get_contextvar(ctx_vars.raw_schema, ""),
-    }
 
 
 async def _run_agent_orchestration_impl(
@@ -466,11 +491,11 @@ async def _run_agent_orchestration_impl(
             api_calls = ctx_vars.api_calls.get()
             last_data = ctx_vars.last_result.get()[0]
             turn_info = get_turn_context(settings.MAX_AGENT_TURNS)
-            return OrchestrationResult(
+            return OrchestrationResult.from_contextvars(
+                ctx_vars,
                 result_dict=build_partial_result(last_data, api_calls, turn_info, config.call_key),
                 should_extract_recipe=False,
                 api_calls=api_calls,
-                **_capture_contextvar_values(ctx_vars),
             )
 
         # Check if tool requested direct return
@@ -484,9 +509,9 @@ async def _run_agent_orchestration_impl(
 
         # Handle empty output
         if not result.final_output and not is_direct_return:
-            captured = _capture_contextvar_values(ctx_vars)
             if last_data:
-                return OrchestrationResult(
+                return OrchestrationResult.from_contextvars(
+                    ctx_vars,
                     result_dict={
                         "ok": True,
                         "data": f"[Partial - {turn_info}] Data retrieved but agent didn't complete.",
@@ -496,9 +521,9 @@ async def _run_agent_orchestration_impl(
                     },
                     should_extract_recipe=False,
                     api_calls=api_calls,
-                    **captured,
                 )
-            return OrchestrationResult(
+            return OrchestrationResult.from_contextvars(
+                ctx_vars,
                 result_dict={
                     "ok": False,
                     "data": None,
@@ -508,7 +533,6 @@ async def _run_agent_orchestration_impl(
                 },
                 should_extract_recipe=False,
                 api_calls=api_calls,
-                **captured,
             )
 
         # Build success result
@@ -518,7 +542,8 @@ async def _run_agent_orchestration_impl(
             agent_output = str(result.final_output)
             log(f"DONE calls={len(api_calls)} output={agent_output[:100]}")
 
-        return OrchestrationResult(
+        return OrchestrationResult.from_contextvars(
+            ctx_vars,
             result_dict={
                 "ok": True,
                 "data": agent_output,
@@ -529,7 +554,6 @@ async def _run_agent_orchestration_impl(
             should_extract_recipe=True,
             api_calls=api_calls,
             agent_output=agent_output,
-            **_capture_contextvar_values(ctx_vars),
         )
 
     except Exception as e:

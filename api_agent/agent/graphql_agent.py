@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -228,13 +229,30 @@ def _is_depth_limit_error(result: dict) -> bool:
     return False
 
 
+@dataclass
+class SchemaFetchResult:
+    """Typed result from ``_fetch_schema_context``.
+
+    Replaces a bare ``tuple[str, int | None, str]`` for clarity at call sites.
+    """
+
+    schema_context: str
+    """Compact SDL context for the LLM prompt (may be reduced/truncated)."""
+
+    allowed_field_count: int | None
+    """Number of query fields after allowlist filtering.  ``None`` when no allowlist is active."""
+
+    raw_schema_json: str
+    """Full introspection JSON (filtered if allowlist active) for recipe matching."""
+
+
 async def _fetch_schema_context(
     endpoint: str,
     headers: dict[str, str] | None,
     config_patterns: tuple[str, ...] | None = None,
     header_patterns: tuple[str, ...] | None = None,
     question: str = "",
-) -> tuple[str, int | None, str]:
+) -> SchemaFetchResult:
     """Fetch schema in compact SDL format. Falls back to shallow query on depth limit.
 
     Args:
@@ -245,7 +263,7 @@ async def _fetch_schema_context(
         question: User's NL question (guides smart schema reduction)
 
     Returns:
-        Tuple of (schema_context, allowed_field_count, raw_schema_json).
+        SchemaFetchResult with schema_context, allowed_field_count, and raw_schema_json.
         allowed_field_count is None when no allowlist is active; 0+ when filtering applied.
         raw_schema_json is the full introspection JSON (filtered if allowlist active).
     """
@@ -257,7 +275,7 @@ async def _fetch_schema_context(
         result = await graphql_fetch(_INTROSPECTION_QUERY_SHALLOW, None, endpoint, headers)
 
     if not result.get("success") or not result.get("data"):
-        return "", None, ""
+        return SchemaFetchResult(schema_context="", allowed_field_count=None, raw_schema_json="")
 
     schema = result["data"]["__schema"]
     allowed_count: int | None = None
@@ -296,7 +314,11 @@ async def _fetch_schema_context(
     )
     context = result.schema_text
 
-    return context, allowed_count, raw_schema_json
+    return SchemaFetchResult(
+        schema_context=context,
+        allowed_field_count=allowed_count,
+        raw_schema_json=raw_schema_json,
+    )
 
 
 async def fetch_graphql_schema_raw(endpoint: str, headers: dict[str, str] | None) -> str:
@@ -500,12 +522,12 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
     config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRAPHQL)
     # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
     header_pats = ctx.allow_endpoints or None
-    schema_ctx, allowed_count, raw_schema = await _fetch_schema_context(
+    schema_result = await _fetch_schema_context(
         ctx.target_url, ctx.target_headers, config_pats, header_pats, question=question
     )
 
     # Check if allowlist filtered out all query fields (uses count from _fetch_schema_context)
-    if allowed_count is not None and allowed_count == 0:
+    if schema_result.allowed_field_count is not None and schema_result.allowed_field_count == 0:
         return {
             "ok": False,
             "data": None,
@@ -527,8 +549,8 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
         log_prefix="[GQL]",
         call_key="queries",
         ctx_vars=_ctx_vars,
-        schema_text=schema_ctx,
-        raw_schema=raw_schema,
+        schema_text=schema_result.schema_context,
+        raw_schema=schema_result.raw_schema_json,
         provider=provider,
         tools=tools,
         instructions=instructions,
