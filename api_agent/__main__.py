@@ -15,10 +15,14 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .config import settings
+from .executor import _init_temp_file_limit
 from .logging import configure_logging
 from .middleware import DynamicToolNamingMiddleware
 from .pool import pool
+from .shutdown import shutdown_cleanup
 from .tools import register_all_tools
+
+_init_temp_file_limit()
 
 configure_logging(log_format=settings.LOG_FORMAT, debug=settings.DEBUG)
 logger = structlog.get_logger(__name__)
@@ -138,14 +142,14 @@ def create_app():
     app.router.routes.append(Route("/health", health, methods=["GET"]))
 
     async def shutdown():
-        await pool.close_all()
+        await shutdown_cleanup(pool)
 
     app.add_event_handler("shutdown", shutdown)
 
     def _sync_cleanup():
         try:
             loop = asyncio.new_event_loop()
-            loop.run_until_complete(pool.close_all())
+            loop.run_until_complete(shutdown_cleanup(pool))
             loop.close()
         except Exception:
             pass
