@@ -146,10 +146,10 @@ def create_app():
 
     def _sync_cleanup():
         try:
-            loop = asyncio.get_event_loop()
-            if not loop.is_closed():
-                loop.run_until_complete(pool.close_all())
-        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(pool.close_all())
+            loop.close()
+        except Exception:
             pass
 
     atexit.register(_sync_cleanup)

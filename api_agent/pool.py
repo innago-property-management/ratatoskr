@@ -47,7 +47,7 @@ class ConnectionPool:
                     return client
 
             client = httpx.AsyncClient(
-                timeout=30.0,
+                timeout=settings.HTTP_POOL_TIMEOUT,
                 limits=httpx.Limits(
                     max_connections=settings.HTTP_POOL_MAX_CONNECTIONS,
                     max_keepalive_connections=settings.HTTP_POOL_MAX_KEEPALIVE,

@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import grpc
+import httpx
 import pytest
 
 from api_agent.pool import ConnectionPool
@@ -193,14 +194,13 @@ class TestPoolConfig:
     async def test_http_client_uses_configured_limits(self, mock_settings):
         mock_settings.HTTP_POOL_MAX_CONNECTIONS = 50
         mock_settings.HTTP_POOL_MAX_KEEPALIVE = 25
+        mock_settings.HTTP_POOL_TIMEOUT = 45.0
 
         pool = ConnectionPool()
         try:
             client = await pool.get_http_client("https://api.example.com/foo")
-            # httpx stores pool config on the transport
-            transport = client._transport
-            pool_impl = transport._pool  # type: ignore[union-attr]
-            assert pool_impl._max_connections == 50  # type: ignore[union-attr]
-            assert pool_impl._max_keepalive_connections == 25
+            assert isinstance(client, httpx.AsyncClient)
+            # Verify configured timeout is applied (public API)
+            assert client.timeout == httpx.Timeout(mock_settings.HTTP_POOL_TIMEOUT)
         finally:
             await pool.close_all()

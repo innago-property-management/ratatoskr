@@ -94,6 +94,7 @@ class Settings(BaseSettings):
     # Connection pool
     HTTP_POOL_MAX_CONNECTIONS: int = 20
     HTTP_POOL_MAX_KEEPALIVE: int = 10
+    HTTP_POOL_TIMEOUT: float = 30.0
 
     # Schema reduction pipeline
     SCHEMA_REDUCTION_ENABLED: bool = True

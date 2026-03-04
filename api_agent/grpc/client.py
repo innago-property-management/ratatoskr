@@ -16,14 +16,6 @@ from .reflection import parse_grpc_target
 logger = logging.getLogger(__name__)
 
 
-def _create_channel(target: str, tls: bool) -> grpc.aio.Channel:
-    """Create an async gRPC channel. Extracted for testability."""
-    if tls:
-        creds = grpc.ssl_channel_credentials()
-        return grpc.aio.secure_channel(target, creds)
-    return grpc.aio.insecure_channel(target)
-
-
 async def _get_channel(target: str, tls: bool) -> grpc.aio.Channel:
     """Get a pooled gRPC channel for the given target."""
     return await connection_pool.get_grpc_channel(target, tls)

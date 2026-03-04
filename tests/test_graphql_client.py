@@ -4,6 +4,7 @@ import json
 
 import httpx
 import pytest
+import pytest_asyncio
 
 from api_agent.graphql.client import execute_query
 
@@ -17,7 +18,7 @@ class TestMutationBlocker:
     @pytest.mark.asyncio
     async def test_standard_mutation_blocked(self):
         result = await execute_query(
-            "mutation { createUser(name: \"Alice\") { id } }",
+            'mutation { createUser(name: "Alice") { id } }',
             endpoint="https://api.example.com/graphql",
         )
         assert result["success"] is False
@@ -26,7 +27,7 @@ class TestMutationBlocker:
     @pytest.mark.asyncio
     async def test_mixed_case_mutation_blocked(self):
         result = await execute_query(
-            "MuTaTiOn { createUser(name: \"Bob\") { id } }",
+            'MuTaTiOn { createUser(name: "Bob") { id } }',
             endpoint="https://api.example.com/graphql",
         )
         assert result["success"] is False
@@ -53,7 +54,7 @@ class TestMutationBlocker:
     @pytest.mark.asyncio
     async def test_named_mutation_blocked(self):
         result = await execute_query(
-            "mutation CreateUser { createUser(name: \"Eve\") { id } }",
+            'mutation CreateUser { createUser(name: "Eve") { id } }',
             endpoint="https://api.example.com/graphql",
         )
         assert result["success"] is False
@@ -106,34 +107,34 @@ class _CapturingTransport(httpx.AsyncBaseTransport):
         return httpx.Response(self._status, json=self._body, request=request)
 
 
-def _make_client_factory(transport):
-    """Create a factory function that replaces httpx.AsyncClient with a transport-injected one.
+@pytest_asyncio.fixture
+async def patch_pool(monkeypatch):
+    """Yield a helper that wires a mock transport into the connection pool.
 
-    We capture the real httpx.AsyncClient before the monkeypatch takes effect,
-    so we avoid recursion.
+    Usage inside a test::
+
+        client = patch_pool(transport)
+
+    The client is closed automatically after the test finishes, avoiding
+    ``ResourceWarning: unclosed <httpx.AsyncClient>``.
     """
-    _RealAsyncClient = httpx.AsyncClient
+    _clients: list[httpx.AsyncClient] = []
 
-    def factory(**kwargs):
-        kwargs.pop("timeout", None)
-        return _RealAsyncClient(transport=transport, **kwargs)
+    def _wire(transport) -> httpx.AsyncClient:
+        client = httpx.AsyncClient(transport=transport)
+        _clients.append(client)
 
-    return factory
+        async def _get_http_client(url: str) -> httpx.AsyncClient:
+            return client
 
-
-def _patch_pool_http_client(monkeypatch, transport):
-    """Patch pool.get_http_client to return a client with the given mock transport.
-
-    This replaces the old pattern of monkeypatching httpx.AsyncClient directly,
-    since clients now come from the connection pool.
-    """
-    client = httpx.AsyncClient(transport=transport)
-
-    async def _get_http_client(url):
+        monkeypatch.setattr("api_agent.graphql.client.pool.get_http_client", _get_http_client)
         return client
 
-    monkeypatch.setattr("api_agent.graphql.client.pool.get_http_client", _get_http_client)
-    return client
+    yield _wire
+
+    for c in _clients:
+        if not c.is_closed:
+            await c.aclose()
 
 
 # ---------------------------------------------------------------------------
@@ -143,10 +144,10 @@ class TestResponseParsing:
     """execute_query must parse various GraphQL response shapes correctly."""
 
     @pytest.mark.asyncio
-    async def test_success_response(self, monkeypatch):
+    async def test_success_response(self, patch_pool):
         """Standard success: {data: ...} -> {success: True, data: ...}."""
         transport = _MockTransport([(200, {"data": {"users": [{"id": "1"}]}})])
-        _patch_pool_http_client(monkeypatch, transport)
+        patch_pool(transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -154,11 +155,11 @@ class TestResponseParsing:
         assert result["data"] == {"users": [{"id": "1"}]}
 
     @pytest.mark.asyncio
-    async def test_error_only_response(self, monkeypatch):
+    async def test_error_only_response(self, patch_pool):
         """Error-only response: {errors: [...]} -> {success: False, error: [...]}."""
         body = {"errors": [{"message": "Not found"}]}
         transport = _MockTransport([(200, body)])
-        _patch_pool_http_client(monkeypatch, transport)
+        patch_pool(transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -166,14 +167,14 @@ class TestResponseParsing:
         assert result["error"] == [{"message": "Not found"}]
 
     @pytest.mark.asyncio
-    async def test_partial_success_with_errors(self, monkeypatch):
+    async def test_partial_success_with_errors(self, patch_pool):
         """Partial success: {data: ..., errors: [...]} -> returns both per GraphQL spec (T004 fix)."""
         body = {
             "data": {"users": [{"id": "1"}]},
             "errors": [{"message": "Deprecated field"}],
         }
         transport = _MockTransport([(200, body)])
-        _patch_pool_http_client(monkeypatch, transport)
+        patch_pool(transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -183,10 +184,10 @@ class TestResponseParsing:
         assert result["errors"] == [{"message": "Deprecated field"}]
 
     @pytest.mark.asyncio
-    async def test_http_status_error(self, monkeypatch):
+    async def test_http_status_error(self, patch_pool):
         """HTTP 500 -> {success: False, error: 'HTTP 500'}."""
         transport = _MockTransport([(500, {"error": "Internal Server Error"})])
-        _patch_pool_http_client(monkeypatch, transport)
+        patch_pool(transport)
 
         result = await execute_query("{ users { id } }", endpoint="https://x.test/graphql")
 
@@ -209,10 +210,10 @@ class TestValidQueryExecution:
     """Verify that execute_query sends the correct HTTP request."""
 
     @pytest.mark.asyncio
-    async def test_sends_correct_payload(self, monkeypatch):
+    async def test_sends_correct_payload(self, patch_pool):
         """POST body must contain query and variables in JSON."""
         transport = _CapturingTransport(200, {"data": {"ok": True}})
-        _patch_pool_http_client(monkeypatch, transport)
+        patch_pool(transport)
 
         query = "{ users(limit: 5) { id name } }"
         variables = {"limit": 5}
@@ -232,10 +233,10 @@ class TestValidQueryExecution:
         assert body["variables"] == variables
 
     @pytest.mark.asyncio
-    async def test_sends_correct_headers(self, monkeypatch):
+    async def test_sends_correct_headers(self, patch_pool):
         """Custom headers must be merged with Content-Type."""
         transport = _CapturingTransport(200, {"data": {"ok": True}})
-        _patch_pool_http_client(monkeypatch, transport)
+        patch_pool(transport)
 
         custom_headers = {"Authorization": "Bearer secret", "X-Custom": "value"}
 
@@ -248,10 +249,10 @@ class TestValidQueryExecution:
         assert req.headers["x-custom"] == "value"
 
     @pytest.mark.asyncio
-    async def test_omits_variables_when_none(self, monkeypatch):
+    async def test_omits_variables_when_none(self, patch_pool):
         """When variables is None, payload should not contain 'variables' key."""
         transport = _CapturingTransport(200, {"data": {"ok": True}})
-        _patch_pool_http_client(monkeypatch, transport)
+        patch_pool(transport)
 
         await execute_query("{ test }", None, "https://api.test/graphql")
 
