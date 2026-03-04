@@ -253,8 +253,9 @@ class TestGracefulShutdown:
             assert shutdown_event.is_set()
             cleanup.assert_awaited_once()
         finally:
-            # Remove asyncio signal handler so other tests aren't affected
+            # Remove asyncio signal handlers so other tests aren't affected
             loop.remove_signal_handler(signal.SIGTERM)
+            loop.remove_signal_handler(signal.SIGINT)
 
     @pytest.mark.asyncio
     async def test_shutdown_cleanup_closes_resources(self):
@@ -324,9 +325,18 @@ class TestTruncateForContextAsync:
         assert "hint" in result
 
     @pytest.mark.asyncio
-    async def test_sync_variant_matches_async(self):
-        """Both variants return identical structure."""
+    async def test_sync_variant_matches_async_small(self):
+        """Both variants return identical structure for non-truncated data."""
         data = [{"id": 1}]
         sync_result = truncate_for_context(data, "t")
         async_result = await truncate_for_context_async(data, "t")
         assert sync_result == async_result
+
+    @pytest.mark.asyncio
+    async def test_sync_variant_matches_async_truncated(self):
+        """Both variants produce identical output when truncation+schema occurs."""
+        data = [{"id": i, "name": f"user_{i}" * 100} for i in range(100)]
+        sync_result = truncate_for_context(data, "users", max_chars=500)
+        async_result = await truncate_for_context_async(data, "users", max_chars=500)
+        assert sync_result == async_result
+        assert sync_result["truncated"] is True
