@@ -562,6 +562,7 @@ async def _run_agent_orchestration_impl(
             result_dict={
                 "ok": False,
                 "data": None,
+                "result": None,
                 config.call_key: [],
                 "error": str(e),
             },

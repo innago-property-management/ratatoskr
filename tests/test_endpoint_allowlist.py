@@ -359,7 +359,7 @@ class TestSearchSchemaNoLeak:
         fake_provider.run_tool_loop = AsyncMock()
 
         # Use _fetch_schema_context directly to verify raw schema filtering
-        from api_agent.agent.graphql_agent import _fetch_schema_context, _raw_schema
+        from api_agent.agent.graphql_agent import _fetch_schema_context
 
         ctx = _graphql_ctx(allow_endpoints=("Query.users",))
         schema_result = await _fetch_schema_context(
