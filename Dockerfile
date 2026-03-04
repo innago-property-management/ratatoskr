@@ -45,6 +45,8 @@ COPY start.sh ./
 RUN chmod +x ./start.sh && chown -R appuser:appuser /app
 
 EXPOSE 3000
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:${PORT:-3000}/health')"
 
 USER appuser
 ENTRYPOINT ["/app/start.sh"]
