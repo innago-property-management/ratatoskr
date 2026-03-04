@@ -175,8 +175,8 @@ def get_table_schema_summary(data: list[dict], table_name: str) -> dict[str, Any
 
 
 _DDL_DML_RE = re.compile(
-    r"^\s*(?:CREATE|DROP|INSERT|UPDATE|DELETE|ALTER|TRUNCATE|ATTACH|DETACH|COPY|LOAD|INSTALL|EXPORT|IMPORT)\b",
-    re.I | re.MULTILINE,
+    r"\b(?:CREATE|DROP|INSERT|UPDATE|DELETE|ALTER|TRUNCATE|ATTACH|DETACH|COPY|LOAD|INSTALL|EXPORT|IMPORT)\b",
+    re.I,
 )
 
 # Strip SQL comments before checking for DDL/DML
@@ -191,6 +191,9 @@ def _validate_sql_readonly(query: str) -> str | None:
     stripped = stripped.strip()
     if not stripped:
         return "Empty SQL query"
+    # Block multi-statement queries (no legitimate need for semicolons)
+    if ";" in stripped:
+        return "Multi-statement queries are not allowed"
     if _DDL_DML_RE.search(stripped):
         return "Only SELECT and WITH (CTE) statements are allowed"
     # Check that the top-level statement starts with SELECT or WITH

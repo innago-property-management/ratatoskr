@@ -67,7 +67,7 @@ def render_text_template(template: str, params: dict[str, Any]) -> str:
         text = _as_text(params[name])
         if "{{" in text:
             raise ValueError(
-                f"parameter '{name}' contains template syntax '{{{{}}'  which is not allowed"
+                "parameter '" + name + "' contains template syntax '{{' which is not allowed"
             )
         return text
 

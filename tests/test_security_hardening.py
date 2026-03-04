@@ -125,6 +125,17 @@ class TestSanitizeError:
         result = sanitize_error(ConnectionError("timeout"))
         assert result.startswith("ConnectionError:")
 
+    def test_empty_error_message(self):
+        result = sanitize_error(ValueError(""))
+        assert result.startswith("ValueError:")
+        # Should not leak anything beyond the type name
+        assert len(result) < 50
+
+    def test_multiline_without_traceback(self):
+        result = sanitize_error(Exception("first line\nsecond line\nthird line"))
+        # Should preserve content (no traceback prefix to strip)
+        assert "first line" in result
+
 
 # ---------------------------------------------------------------------------
 # DuckDB DDL/DML blocking tests
@@ -208,6 +219,23 @@ class TestSQLValidation:
         result = _validate_sql_readonly("   ")
         assert result is not None
 
+    def test_multi_statement_blocked(self):
+        result = _validate_sql_readonly("SELECT 1; DROP TABLE data")
+        assert result is not None
+        assert "Multi-statement" in result
+
+    def test_cte_wrapped_dml_blocked(self):
+        result = _validate_sql_readonly("WITH x AS (DELETE FROM t RETURNING *) SELECT * FROM x")
+        assert result is not None
+
+    def test_pragma_blocked(self):
+        result = _validate_sql_readonly("PRAGMA version")
+        assert result is not None
+
+    def test_values_blocked(self):
+        result = _validate_sql_readonly("VALUES (1)")
+        assert result is not None
+
 
 class TestExecuteSQLBlocking:
     """Integration test: execute_sql should block DDL/DML."""
@@ -237,6 +265,24 @@ class TestExecuteSQLBlocking:
     def test_insert_blocked(self):
         data = {"items": [{"id": 1}]}
         result = execute_sql(data, "INSERT INTO items VALUES (99)")
+        assert result["success"] is False
+        assert "blocked" in result["error"].lower()
+
+    def test_empty_query_blocked(self):
+        data = {"items": [{"id": 1}]}
+        result = execute_sql(data, "")
+        assert result["success"] is False
+        assert "blocked" in result["error"].lower()
+
+    def test_whitespace_query_blocked(self):
+        data = {"items": [{"id": 1}]}
+        result = execute_sql(data, "   \n  ")
+        assert result["success"] is False
+        assert "blocked" in result["error"].lower()
+
+    def test_non_select_blocked(self):
+        data = {"items": [{"id": 1}]}
+        result = execute_sql(data, "PRAGMA version")
         assert result["success"] is False
         assert "blocked" in result["error"].lower()
 
@@ -273,3 +319,7 @@ class TestRecipeTemplateInjection:
     def test_none_param_ok(self):
         result = render_text_template("val = {{val}}", {"val": None})
         assert result == "val = null"
+
+    def test_missing_param_raises_keyerror(self):
+        with pytest.raises(KeyError, match="missing param"):
+            render_text_template("SELECT {{id}}", {})
