@@ -12,13 +12,13 @@ MAX_DESCRIPTION_CHARS = 500
 # Patterns that look like prompt injection attempts in schema descriptions.
 # Compiled once at module load for performance.
 _INJECTION_PATTERNS = re.compile(
-    r"(?i)"
+    r"(?im)"
     r"(?:ignore\s+(?:previous|all|above|prior)\s+(?:instructions?|prompts?|rules?))"
     r"|(?:you\s+are\s+(?:a|an|now)\s+)"
     r"|(?:system\s*:\s*)"
-    r"|(?:assistant\s*:\s*)"
+    r"|(?:^\s*assistant\s*:\s*)"
     r"|(?:human\s*:\s*)"
-    r"|(?:user\s*:\s*)"
+    r"|(?:^\s*user\s*:\s*)"
     r"|(?:forget\s+(?:everything|all|previous))"
     r"|(?:disregard\s+(?:previous|all|above|prior))"
     r"|(?:new\s+instructions?\s*:)"
@@ -52,9 +52,9 @@ def sanitize_schema_text(text: str | None) -> str:
     # Strip XML-like prompt structure tags
     result = _TAG_PATTERN.sub("", result)
 
-    # Truncate to max length
+    # Truncate to max length (subtract 3 for the "..." suffix to stay within budget)
     if len(result) > MAX_DESCRIPTION_CHARS:
-        result = result[:MAX_DESCRIPTION_CHARS] + "..."
+        result = result[: MAX_DESCRIPTION_CHARS - 3] + "..."
 
     return result
 

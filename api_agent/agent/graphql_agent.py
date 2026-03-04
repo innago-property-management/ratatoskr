@@ -19,7 +19,7 @@ from ..recipe import (
     maybe_extract_and_save_recipe,
     render_text_template,
 )
-from ..sanitize import sanitize_schema_text
+from ..sanitize import sanitize_error, sanitize_schema_text
 from ..schema.reducer import reduce_schema
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
@@ -524,6 +524,20 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
         question: Natural language question
         ctx: Request context with target_url and target_headers
     """
+    try:
+        return await _process_query_inner(question, ctx)
+    except Exception as e:
+        logger.exception("GraphQL Agent error")
+        return {
+            "ok": False,
+            "data": None,
+            "queries": [],
+            "error": sanitize_error(e),
+        }
+
+
+async def _process_query_inner(question: str, ctx: RequestContext) -> dict[str, Any]:
+    """Inner implementation of process_query (wrapped by outer error guard)."""
     # Fetch schema (protocol-specific) — with endpoint allowlist filtering
     config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRAPHQL)
     # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"

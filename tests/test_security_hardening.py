@@ -6,7 +6,6 @@ from api_agent.executor import _validate_sql_readonly, execute_sql
 from api_agent.recipe.store import render_text_template
 from api_agent.sanitize import sanitize_error, sanitize_schema_text
 
-
 # ---------------------------------------------------------------------------
 # Schema sanitization tests
 # ---------------------------------------------------------------------------
@@ -51,7 +50,7 @@ class TestSanitizeSchemaText:
     def test_truncation(self):
         text = "A" * 600
         result = sanitize_schema_text(text)
-        assert len(result) <= 504  # 500 + "..."
+        assert len(result) <= 500
         assert result.endswith("...")
 
     def test_disregard_previous(self):
