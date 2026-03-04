@@ -65,7 +65,7 @@ class ConnectionPool:
         key = (target, tls)
         if key in self._grpc_channels:
             channel = self._grpc_channels[key]
-            state = channel.get_state()  # type: ignore[union-attr]
+            state = channel.get_state()
             if state != grpc.ChannelConnectivity.SHUTDOWN:
                 return channel
 
@@ -73,7 +73,7 @@ class ConnectionPool:
             # Double-check after acquiring lock
             if key in self._grpc_channels:
                 channel = self._grpc_channels[key]
-                state = channel.get_state()  # type: ignore[union-attr]
+                state = channel.get_state()
                 if state != grpc.ChannelConnectivity.SHUTDOWN:
                     return channel
 

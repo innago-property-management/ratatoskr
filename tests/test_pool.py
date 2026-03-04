@@ -199,8 +199,8 @@ class TestPoolConfig:
             client = await pool.get_http_client("https://api.example.com/foo")
             # httpx stores pool config on the transport
             transport = client._transport
-            pool_impl = transport._pool
-            assert pool_impl._max_connections == 50
+            pool_impl = transport._pool  # type: ignore[union-attr]
+            assert pool_impl._max_connections == 50  # type: ignore[union-attr]
             assert pool_impl._max_keepalive_connections == 25
         finally:
             await pool.close_all()
