@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 from typing import Any
 
 import duckdb
@@ -22,28 +23,32 @@ _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_]")
 # ---------------------------------------------------------------------------
 
 _temp_files_registry: set[str] = set()
+_temp_files_lock = threading.Lock()  # Guards _temp_files_registry across threads
 
 # Lazily read from config to avoid circular imports
 _TEMP_FILE_MAX_BYTES: int = 50 * 1024 * 1024  # default 50 MB, overridden at init
 
 
 def _init_temp_file_limit() -> None:
-    """Initialize temp file limit from config (call once at startup)."""
-    global _TEMP_FILE_MAX_BYTES
+    """Initialize temp file limit and DuckDB semaphore from config (call once at startup)."""
+    global _TEMP_FILE_MAX_BYTES, _semaphore
     from .config import settings
 
     _TEMP_FILE_MAX_BYTES = settings.TEMP_FILE_MAX_BYTES
+    _semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_QUERIES)
 
 
 def _write_temp_json(data: Any) -> str:
     """Write data to a temp JSON file, register it for cleanup.
 
     Raises ValueError if serialized data exceeds the size limit.
+    Thread-safe: multiple asyncio.to_thread workers may call concurrently.
     """
     serialized = json.dumps(data)
-    if len(serialized.encode()) > _TEMP_FILE_MAX_BYTES:
+    byte_size = len(serialized.encode())
+    if byte_size > _TEMP_FILE_MAX_BYTES:
         raise ValueError(
-            f"Temp file data ({len(serialized.encode())} bytes) exceeds "
+            f"Temp file data ({byte_size} bytes) exceeds "
             f"limit ({_TEMP_FILE_MAX_BYTES} bytes)"
         )
 
@@ -51,27 +56,31 @@ def _write_temp_json(data: Any) -> str:
         f.write(serialized)
         path = f.name
 
-    _temp_files_registry.add(path)
+    with _temp_files_lock:
+        _temp_files_registry.add(path)
     return path
 
 
 def _unlink_temp(path: str) -> None:
-    """Remove a temp file and unregister it."""
+    """Remove a temp file and unregister it. Thread-safe."""
     try:
         os.unlink(path)
     except OSError:
         pass
-    _temp_files_registry.discard(path)
+    with _temp_files_lock:
+        _temp_files_registry.discard(path)
 
 
 def cleanup_temp_files() -> None:
-    """Remove all tracked temp files. Safe to call multiple times."""
-    for path in list(_temp_files_registry):
+    """Remove all tracked temp files. Safe to call multiple times. Thread-safe."""
+    with _temp_files_lock:
+        paths = list(_temp_files_registry)
+        _temp_files_registry.clear()
+    for path in paths:
         try:
             os.unlink(path)
         except OSError:
             pass
-    _temp_files_registry.clear()
 
 
 # Register atexit handler for crash cleanup
@@ -81,16 +90,13 @@ atexit.register(cleanup_temp_files)
 # DuckDB concurrency — semaphore to bound concurrent connections
 # ---------------------------------------------------------------------------
 
-_semaphore: asyncio.Semaphore | None = None
+_semaphore: asyncio.Semaphore | None = None  # Initialized eagerly by _init_temp_file_limit()
 
 
 def _duckdb_semaphore() -> asyncio.Semaphore:
-    """Get or create the DuckDB concurrency semaphore."""
-    global _semaphore
+    """Get the DuckDB concurrency semaphore (initialized at startup)."""
     if _semaphore is None:
-        from .config import settings
-
-        _semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_QUERIES)
+        raise RuntimeError("DuckDB semaphore not initialized — call _init_temp_file_limit() first")
     return _semaphore
 
 
@@ -172,6 +178,10 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
     """Extract DuckDB schema from data (internal helper).
 
     Creates one temp file to get schema info for wrapped dicts.
+
+    Note: This is synchronous and performs file I/O + DuckDB operations.
+    Currently called from other sync functions (extract_tables_from_response,
+    truncate_for_context). If called from async code, wrap in asyncio.to_thread.
     """
     if not data:
         return {"rows": 0, "schema": "", "hint": "Empty table"}

@@ -10,11 +10,16 @@ import pytest
 
 from api_agent.executor import (
     _TEMP_FILE_MAX_BYTES,
+    _init_temp_file_limit,
+    _temp_files_lock,
     _temp_files_registry,
     _write_temp_json,
     cleanup_temp_files,
     execute_sql_async,
 )
+
+# Ensure the semaphore is initialized for tests that use execute_sql_async
+_init_temp_file_limit()
 
 # ---------------------------------------------------------------------------
 # Async DuckDB wrapping
@@ -89,6 +94,8 @@ class TestDuckDBSemaphore:
                     current += 1
                     if current > peak:
                         peak = current
+                # Yield control so other coroutines can enter the semaphore
+                await asyncio.sleep(0)
                 async with lock:
                     current -= 1
                 return {"success": True, "result": []}
@@ -117,6 +124,14 @@ class TestDuckDBSemaphore:
         for _ in range(settings.MAX_CONCURRENT_QUERIES):
             sem.release()
 
+    def test_semaphore_initialized_eagerly(self):
+        """Semaphore should be non-None after _init_temp_file_limit."""
+        from api_agent.executor import _semaphore
+
+        # _init_temp_file_limit is called at module import (__main__.py top-level)
+        # so _semaphore should already be set
+        assert _semaphore is not None
+
 
 # ---------------------------------------------------------------------------
 # Temp file management
@@ -134,10 +149,12 @@ class TestTempFileManagement:
             assert os.path.exists(path)
             with open(path) as f:
                 assert json.load(f) == data
-            assert path in _temp_files_registry
+            with _temp_files_lock:
+                assert path in _temp_files_registry
         finally:
             os.unlink(path)
-            _temp_files_registry.discard(path)
+            with _temp_files_lock:
+                _temp_files_registry.discard(path)
 
     def test_write_temp_json_rejects_oversized_data(self):
         """_write_temp_json raises ValueError for data exceeding size limit."""
@@ -161,7 +178,8 @@ class TestTempFileManagement:
 
         for p in paths:
             assert not os.path.exists(p)
-        assert len(_temp_files_registry) == 0
+        with _temp_files_lock:
+            assert len(_temp_files_registry) == 0
 
     def test_cleanup_handles_missing_files(self):
         """cleanup_temp_files doesn't crash if files already deleted."""
@@ -169,7 +187,14 @@ class TestTempFileManagement:
         os.unlink(path)  # Pre-delete
         # Should not raise
         cleanup_temp_files()
-        assert path not in _temp_files_registry
+        with _temp_files_lock:
+            assert path not in _temp_files_registry
+
+    def test_temp_files_lock_is_threading_lock(self):
+        """_temp_files_lock should be a threading.Lock for cross-thread safety."""
+        import threading
+
+        assert isinstance(_temp_files_lock, type(threading.Lock()))
 
 
 # ---------------------------------------------------------------------------
@@ -182,12 +207,11 @@ class TestGracefulShutdown:
 
     def test_create_app_registers_shutdown_handler(self):
         """create_app registers atexit and shutdown event handler."""
-        with patch("api_agent.__main__.atexit") as mock_atexit:
+        with patch("atexit.register") as mock_register:
             from api_agent.__main__ import create_app
 
             create_app()
-            # atexit.register should have been called
-            mock_atexit.register.assert_called()
+            mock_register.assert_called()
 
     def test_shutdown_closes_pool(self):
         """The shutdown handler calls pool.close_all."""
@@ -198,29 +222,49 @@ class TestGracefulShutdown:
         shutdown_handlers = [h for h in app.router.on_shutdown if callable(h)]
         assert len(shutdown_handlers) >= 1
 
+    def test_create_app_registers_startup_with_signal_handlers(self):
+        """create_app registers a startup event handler for signal installation."""
+        from api_agent.__main__ import create_app
+
+        app = create_app()
+        startup_handlers = [h for h in app.router.on_startup if callable(h)]
+        assert len(startup_handlers) >= 1
+
     @pytest.mark.asyncio
     async def test_install_signal_handlers(self):
         """install_shutdown_signals registers SIGTERM/SIGINT handlers."""
         from api_agent.shutdown import install_shutdown_signals
 
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         shutdown_event = asyncio.Event()
         cleanup = AsyncMock()
 
-        # Install handlers
-        install_shutdown_signals(loop, shutdown_event, cleanup)
+        # Save old handler so we can restore it
+        old_handler = signal.getsignal(signal.SIGTERM)
 
-        # Trigger SIGTERM programmatically
-        os.kill(os.getpid(), signal.SIGTERM)
-        # Give the handler time to fire
-        await asyncio.sleep(0.1)
+        try:
+            # Install handlers
+            install_shutdown_signals(loop, shutdown_event, cleanup)
 
-        assert shutdown_event.is_set()
-        cleanup.assert_awaited_once()
+            # Trigger SIGTERM programmatically
+            os.kill(os.getpid(), signal.SIGTERM)
+            # Give the handler time to fire
+            await asyncio.sleep(0.1)
+
+            assert shutdown_event.is_set()
+            cleanup.assert_awaited_once()
+        finally:
+            # Restore original handler so other tests aren't affected
+            signal.signal(signal.SIGTERM, old_handler)
 
     @pytest.mark.asyncio
     async def test_shutdown_cleanup_closes_resources(self):
         """shutdown_cleanup closes pool and cleans temp files."""
+        import api_agent.shutdown
+
+        # Reset the idempotency flag for this test
+        api_agent.shutdown._shutdown_done = False
+
         from api_agent.shutdown import shutdown_cleanup
 
         mock_pool = AsyncMock()
@@ -229,3 +273,26 @@ class TestGracefulShutdown:
 
         mock_pool.close_all.assert_awaited_once()
         mock_cleanup.assert_called_once()
+
+        # Reset for other tests
+        api_agent.shutdown._shutdown_done = False
+
+    @pytest.mark.asyncio
+    async def test_shutdown_cleanup_is_idempotent(self):
+        """shutdown_cleanup only runs once even if called multiple times."""
+        import api_agent.shutdown
+
+        api_agent.shutdown._shutdown_done = False
+
+        from api_agent.shutdown import shutdown_cleanup
+
+        mock_pool = AsyncMock()
+        with patch("api_agent.shutdown.cleanup_temp_files") as mock_cleanup:
+            await shutdown_cleanup(mock_pool)
+            await shutdown_cleanup(mock_pool)  # Second call should be a no-op
+
+        # close_all should only be called once
+        mock_pool.close_all.assert_awaited_once()
+        mock_cleanup.assert_called_once()
+
+        api_agent.shutdown._shutdown_done = False

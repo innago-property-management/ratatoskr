@@ -19,7 +19,7 @@ from .executor import _init_temp_file_limit
 from .logging import configure_logging
 from .middleware import DynamicToolNamingMiddleware
 from .pool import pool
-from .shutdown import shutdown_cleanup
+from .shutdown import install_shutdown_signals, shutdown_cleanup
 from .tools import register_all_tools
 
 _init_temp_file_limit()
@@ -141,9 +141,16 @@ def create_app():
 
     app.router.routes.append(Route("/health", health, methods=["GET"]))
 
+    _shutdown_event = asyncio.Event()
+
+    async def startup():
+        loop = asyncio.get_running_loop()
+        install_shutdown_signals(loop, _shutdown_event, lambda: shutdown_cleanup(pool))
+
     async def shutdown():
         await shutdown_cleanup(pool)
 
+    app.add_event_handler("startup", startup)
     app.add_event_handler("shutdown", shutdown)
 
     def _sync_cleanup():

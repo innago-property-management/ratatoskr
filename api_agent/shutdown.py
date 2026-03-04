@@ -10,9 +10,18 @@ from .executor import cleanup_temp_files
 
 logger = structlog.get_logger(__name__)
 
+_shutdown_done = False
+
 
 async def shutdown_cleanup(pool: Any) -> None:
-    """Close pool connections and clean up temp files."""
+    """Close pool connections and clean up temp files.
+
+    Idempotent: safe to call from both ASGI shutdown and atexit handlers.
+    """
+    global _shutdown_done
+    if _shutdown_done:
+        return
+    _shutdown_done = True
     logger.info("shutdown_cleanup_start")
     try:
         await pool.close_all()
