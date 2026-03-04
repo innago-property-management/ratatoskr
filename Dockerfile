@@ -1,13 +1,12 @@
-# Python with DuckDB for data processing
-FROM python:3.11-slim
+# ---------- builder ----------
+FROM python:3.11.15-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.9.30 /uv /usr/local/bin/uv
 
-# Install CA certificates for HTTPS
+# git needed only here for toon_format git dep
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
@@ -15,16 +14,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy project files
+# Install deps first (cache-friendly — only busts on lockfile change)
 COPY pyproject.toml uv.lock README.md ./
-COPY api_agent ./api_agent
-COPY start.sh ./
+RUN uv sync --frozen --no-dev --no-install-project
 
-# Install Python dependencies
+# Then copy source and install project
+COPY api_agent ./api_agent
 RUN uv sync --frozen --no-dev
 
-EXPOSE 3000
+# ---------- runtime ----------
+FROM python:3.11.15-slim
 
-RUN chmod +x ./start.sh
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_CACHE_DIR=/tmp/uv-cache \
+    PORT=3000
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN useradd --system --no-create-home appuser
+
+WORKDIR /app
+
+# Copy uv binary and installed venv from builder
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=builder /app /app
+
+COPY start.sh healthcheck.sh ./
+RUN chmod +x ./start.sh ./healthcheck.sh && chown -R appuser:appuser /app
+
+EXPOSE ${PORT}
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["./healthcheck.sh"]
+
+USER appuser
 ENTRYPOINT ["/app/start.sh"]
