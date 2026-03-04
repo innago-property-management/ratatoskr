@@ -10,7 +10,7 @@ import structlog
 
 from ..config import settings
 from ..context import RequestContext
-from ..executor import extract_tables_from_response, truncate_for_context
+from ..executor import extract_tables_from_response, truncate_for_context_async
 from ..filtering import filter_grpc_services, parse_config_allowlist
 from ..grpc.client import (
     execute_bidi_streaming_rpc,
@@ -378,7 +378,7 @@ def _create_grpc_call_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
         if return_directly and result.get("success"):
             _set_return_directly()
 
-        return format_tool_response(stored_data, schema_info, name, result)
+        return await format_tool_response(stored_data, schema_info, name, result)
 
     return tool(grpc_call)
 
@@ -509,7 +509,7 @@ def _create_grpc_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
                     {
                         "success": True,
                         "message_count": msg_count,
-                        **truncate_for_context(stored_data, name),
+                        **await truncate_for_context_async(stored_data, name),
                     },
                     indent=2,
                 )
@@ -635,7 +635,7 @@ def _create_grpc_client_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> 
         if return_directly and result.get("success"):
             _set_return_directly()
 
-        return format_tool_response(stored_data, schema_info, name, result)
+        return await format_tool_response(stored_data, schema_info, name, result)
 
     return tool(grpc_client_stream)
 
@@ -752,7 +752,7 @@ def _create_grpc_bidi_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> An
                     {
                         "success": True,
                         "message_count": msg_count,
-                        **truncate_for_context(stored_data, name),
+                        **await truncate_for_context_async(stored_data, name),
                     },
                     indent=2,
                 )

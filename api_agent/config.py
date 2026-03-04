@@ -95,6 +95,10 @@ class Settings(BaseSettings):
     ALLOW_ENDPOINTS_GRAPHQL: str = ""  # CSV: "Query.user*,Query.orders"
     ALLOW_ENDPOINTS_GRPC: str = ""  # CSV: "helloworld.Greeter/*"
 
+    # DuckDB resource limits
+    MAX_CONCURRENT_QUERIES: int = 10  # Semaphore bound for concurrent DuckDB ops
+    TEMP_FILE_MAX_BYTES: int = 50 * 1024 * 1024  # 50 MB per temp file
+
     # Connection pool
     HTTP_POOL_MAX_CONNECTIONS: int = 20
     HTTP_POOL_MAX_KEEPALIVE: int = 10

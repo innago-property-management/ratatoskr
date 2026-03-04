@@ -1,9 +1,12 @@
 """Executor for GraphQL queries and DuckDB SQL processing."""
 
+import asyncio
+import atexit
 import json
 import os
 import re
 import tempfile
+import threading
 from typing import Any
 
 import duckdb
@@ -14,6 +17,98 @@ from .graphql import execute_query as graphql_execute
 logger = structlog.get_logger(__name__)
 
 _SAFE_NAME_RE = re.compile(r"[^a-zA-Z0-9_]")
+
+# ---------------------------------------------------------------------------
+# Temp file management — track all temp files for crash cleanup
+# ---------------------------------------------------------------------------
+
+_temp_files_registry: set[str] = set()
+_temp_files_lock = threading.Lock()  # Guards _temp_files_registry across threads
+
+# Lazily read from config to avoid circular imports
+_TEMP_FILE_MAX_BYTES: int = 50 * 1024 * 1024  # default 50 MB, overridden at init
+
+
+def _init_temp_file_limit() -> None:
+    """Initialize temp file limit and DuckDB semaphore from config (call once at startup)."""
+    global _TEMP_FILE_MAX_BYTES, _semaphore
+    from .config import settings
+
+    _TEMP_FILE_MAX_BYTES = settings.TEMP_FILE_MAX_BYTES
+    _semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_QUERIES)
+
+
+def _write_temp_json(data: Any) -> str:
+    """Write data to a temp JSON file, register it for cleanup.
+
+    Raises ValueError if serialized data exceeds the size limit.
+    Thread-safe: multiple asyncio.to_thread workers may call concurrently.
+    """
+    serialized = json.dumps(data)
+    byte_size = len(serialized.encode())
+    if byte_size > _TEMP_FILE_MAX_BYTES:
+        raise ValueError(
+            f"Temp file data ({byte_size} bytes) exceeds "
+            f"limit ({_TEMP_FILE_MAX_BYTES} bytes)"
+        )
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(serialized)
+        path = f.name
+
+    with _temp_files_lock:
+        _temp_files_registry.add(path)
+    return path
+
+
+def _unlink_temp(path: str) -> None:
+    """Remove a temp file and unregister it. Thread-safe."""
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+    with _temp_files_lock:
+        _temp_files_registry.discard(path)
+
+
+def cleanup_temp_files() -> None:
+    """Remove all tracked temp files. Safe to call multiple times. Thread-safe."""
+    with _temp_files_lock:
+        paths = list(_temp_files_registry)
+        _temp_files_registry.clear()
+    for path in paths:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+
+
+# Register atexit handler for crash cleanup
+atexit.register(cleanup_temp_files)
+
+# ---------------------------------------------------------------------------
+# DuckDB concurrency — semaphore to bound concurrent connections
+# ---------------------------------------------------------------------------
+
+_semaphore: asyncio.Semaphore | None = None  # Initialized eagerly by _init_temp_file_limit()
+
+
+def _duckdb_semaphore() -> asyncio.Semaphore:
+    """Get the DuckDB concurrency semaphore (initialized at startup)."""
+    if _semaphore is None:
+        raise RuntimeError("DuckDB semaphore not initialized — call _init_temp_file_limit() first")
+    return _semaphore
+
+
+def set_duckdb_semaphore(limit: int) -> None:
+    """Set the DuckDB semaphore limit (for testing or reconfiguration)."""
+    global _semaphore
+    _semaphore = asyncio.Semaphore(limit)
+
+
+# ---------------------------------------------------------------------------
+# DuckDB helpers
+# ---------------------------------------------------------------------------
 
 
 def _connect_duckdb() -> duckdb.DuckDBPyConnection:
@@ -83,15 +178,17 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
     """Extract DuckDB schema from data (internal helper).
 
     Creates one temp file to get schema info for wrapped dicts.
+
+    Note: This is synchronous and performs file I/O + DuckDB operations.
+    Currently called from other sync functions (extract_tables_from_response,
+    truncate_for_context). If called from async code, wrap in asyncio.to_thread.
     """
     if not data:
         return {"rows": 0, "schema": "", "hint": "Empty table"}
 
     temp_file = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-            json.dump(data, f)
-            temp_file = f.name
+        temp_file = _write_temp_json(data)
 
         conn = _connect_duckdb()
         safe_name = _safe_table_name(table_name)
@@ -112,21 +209,56 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
             "schema": schema_str,
             "hint": f'Use sql_query() to access fields. Example: SELECT "{schema[0][0]}" FROM "{safe_name}"',
         }
+    except ValueError:
+        # Size limit exceeded — return basic info
+        return {
+            "rows": len(data),
+            "schema": "unknown",
+            "hint": "Data too large for schema extraction",
+        }
     except Exception as e:
         logger.exception("schema_extraction_error")
         return {"rows": len(data), "schema": "unknown", "hint": str(e)}
     finally:
         if temp_file:
-            try:
-                os.unlink(temp_file)
-            except OSError:
-                pass
+            _unlink_temp(temp_file)
+
+
+def _truncate_preview(
+    data: list[dict], table_name: str, max_chars: int
+) -> dict[str, Any] | None:
+    """Build truncated preview if data exceeds max_chars. Returns None if it fits."""
+    total_rows = len(data)
+    if len(json.dumps(data)) <= max_chars:
+        return None
+
+    preview: list[dict] = []
+    current_size = 2  # "[]"
+    for row in data:
+        row_json = json.dumps(row)
+        new_size = current_size + len(row_json) + (1 if preview else 0)
+        if new_size > max_chars:
+            break
+        preview.append(row)
+        current_size = new_size
+
+    return {
+        "table": table_name,
+        "rows": total_rows,
+        "showing": len(preview),
+        "data": preview,
+        "truncated": True,
+    }
 
 
 def truncate_for_context(
     data: list[dict], table_name: str, max_chars: int | None = None
 ) -> dict[str, Any]:
     """Truncate data for LLM context safety, include schema if truncated.
+
+    Note: This is synchronous and calls _extract_schema (file I/O + DuckDB).
+    From async contexts, prefer ``truncate_for_context_async`` to avoid
+    blocking the event loop.
 
     Args:
         data: List of records
@@ -139,33 +271,36 @@ def truncate_for_context(
     from .config import settings
 
     max_chars = max_chars or settings.MAX_TOOL_RESPONSE_CHARS
-    total_rows = len(data)
 
-    # Check if full data fits
-    if len(json.dumps(data)) <= max_chars:
-        return {"table": table_name, "rows": total_rows, "data": data, "truncated": False}
-
-    # Find how many complete rows fit
-    preview: list[dict] = []
-    current_size = 2  # "[]"
-    for row in data:
-        row_json = json.dumps(row)
-        new_size = current_size + len(row_json) + (1 if preview else 0)
-        if new_size > max_chars:
-            break
-        preview.append(row)
-        current_size = new_size
+    result = _truncate_preview(data, table_name, max_chars)
+    if result is None:
+        return {"table": table_name, "rows": len(data), "data": data, "truncated": False}
 
     schema = _extract_schema(data, table_name)
-    return {
-        "table": table_name,
-        "rows": total_rows,
-        "showing": len(preview),
-        "schema": schema.get("schema", ""),
-        "data": preview,
-        "truncated": True,
-        "hint": f"Showing {len(preview)}/{total_rows}. Use sql_query to filter.",
-    }
+    result["schema"] = schema.get("schema", "")
+    result["hint"] = f"Showing {result['showing']}/{result['rows']}. Use sql_query to filter."
+    return result
+
+
+async def truncate_for_context_async(
+    data: list[dict], table_name: str, max_chars: int | None = None
+) -> dict[str, Any]:
+    """Async variant of truncate_for_context — offloads _extract_schema to a thread.
+
+    Use this from async tool callbacks to avoid blocking the event loop.
+    """
+    from .config import settings
+
+    max_chars = max_chars or settings.MAX_TOOL_RESPONSE_CHARS
+
+    result = _truncate_preview(data, table_name, max_chars)
+    if result is None:
+        return {"table": table_name, "rows": len(data), "data": data, "truncated": False}
+
+    schema = await asyncio.to_thread(_extract_schema, data, table_name)
+    result["schema"] = schema.get("schema", "")
+    result["hint"] = f"Showing {result['showing']}/{result['rows']}. Use sql_query to filter."
+    return result
 
 
 # Keep for backwards compatibility
@@ -203,7 +338,7 @@ def _validate_sql_readonly(query: str) -> str | None:
 
 
 def execute_sql(data: Any, query: str) -> dict[str, Any]:
-    """Execute SQL query on JSON data using DuckDB.
+    """Execute SQL query on JSON data using DuckDB (synchronous).
 
     Args:
         data: JSON data (dict or list) to query
@@ -216,7 +351,7 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
     validation_error = _validate_sql_readonly(query)
     if validation_error:
         return {"success": False, "error": f"SQL blocked: {validation_error}"}
-    temp_files = []
+    temp_files: list[str] = []
     conn = None
     try:
         conn = _connect_duckdb()
@@ -226,20 +361,18 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
             for key, value in data.items():
                 if isinstance(value, list) and value:
                     safe_key = _safe_table_name(key)
-                    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                        json.dump(value, f)
-                        temp_files.append(f.name)
+                    path = _write_temp_json(value)
+                    temp_files.append(path)
                     conn.execute(
                         f'CREATE TABLE "{safe_key}" AS SELECT * FROM read_json_auto(?)',
-                        [f.name],
+                        [path],
                     )
         elif isinstance(data, list):
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-                json.dump(data, f)
-                temp_files.append(f.name)
+            path = _write_temp_json(data)
+            temp_files.append(path)
             conn.execute(
                 'CREATE TABLE "data" AS SELECT * FROM read_json_auto(?)',
-                [f.name],
+                [path],
             )
 
         # Sandbox: disable external access before running user-provided SQL
@@ -263,11 +396,19 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
         if conn:
             conn.close()
         # Cleanup temp files
-        for temp_file in temp_files:
-            try:
-                os.unlink(temp_file)
-            except OSError:
-                pass
+        for tf in temp_files:
+            _unlink_temp(tf)
+
+
+async def execute_sql_async(data: Any, query: str) -> dict[str, Any]:
+    """Execute SQL query on JSON data using DuckDB (async, thread-offloaded).
+
+    Wraps execute_sql in asyncio.to_thread to avoid blocking the event loop.
+    Bounded by a semaphore to limit concurrent DuckDB connections.
+    """
+    sem = _duckdb_semaphore()
+    async with sem:
+        return await asyncio.to_thread(execute_sql, data, query)
 
 
 async def execute_graphql(

@@ -11,7 +11,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from ..config import settings
-from ..executor import execute_sql, truncate_for_context
+from ..executor import execute_sql, truncate_for_context_async
 from .extractor import extract_recipe
 from .store import RECIPE_STORE, render_sql_safe, sha256_hex
 
@@ -294,7 +294,7 @@ def _execute_sql_steps(
     return True, executed_sql, ""
 
 
-def format_recipe_response(
+async def format_recipe_response(
     last_result_var: ContextVar[list[Any]],
     executed_items: list[Any],
     executed_sql: list[str],
@@ -308,7 +308,7 @@ def format_recipe_response(
 
     base = {"success": True, item_key: executed_items, "executed_sql": executed_sql}
     if isinstance(last_rows, list):
-        base.update(truncate_for_context(last_rows, "sql_result"))
+        base.update(await truncate_for_context_async(last_rows, "sql_result"))
     return json.dumps(base, indent=2)
 
 

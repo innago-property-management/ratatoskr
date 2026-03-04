@@ -10,7 +10,7 @@ import structlog
 
 from ..config import settings
 from ..context import RequestContext
-from ..executor import extract_tables_from_response, truncate_for_context
+from ..executor import extract_tables_from_response, truncate_for_context_async
 from ..filtering import filter_openapi_spec, parse_config_allowlist
 from ..llm.tools import tool
 from ..recipe import (
@@ -307,7 +307,7 @@ def _create_rest_call_tool(ctx: RequestContext, base_url: str) -> Any:
             if status >= 400:
                 result["hint"] = "Use search_schema to find valid enum values or field names"
 
-        return format_tool_response(stored_data, schema_info, name, result)
+        return await format_tool_response(stored_data, schema_info, name, result)
 
     return tool(rest_call)
 
@@ -421,7 +421,7 @@ def _create_poll_tool(ctx: RequestContext, base_url: str) -> Any:
                 return json.dumps(
                     {
                         "success": True,
-                        **truncate_for_context(data if isinstance(data, list) else [data], name),
+                        **await truncate_for_context_async(data if isinstance(data, list) else [data], name),
                         "attempts": attempt,
                     },
                     indent=2,

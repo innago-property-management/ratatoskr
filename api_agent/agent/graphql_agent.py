@@ -440,7 +440,7 @@ def _create_graphql_query_tool(ctx: RequestContext) -> Any:
         if return_directly and result.get("success"):
             _set_return_directly()
 
-        return format_tool_response(stored_data, schema_info, name, result)
+        return await format_tool_response(stored_data, schema_info, name, result)
 
     from ..llm.tools import tool
 
