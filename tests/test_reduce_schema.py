@@ -12,7 +12,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from api_agent.schema.reducer import ReductionResult, reduce_schema
+from api_agent.schema.reducer import ReductionResult, _get_haiku_layer, reduce_schema
+
+
+@pytest.fixture(autouse=True)
+def _clear_haiku_layer_cache():
+    """Clear the HaikuLayer lru_cache between tests to avoid cross-test leakage."""
+    _get_haiku_layer.cache_clear()
+    yield
+    _get_haiku_layer.cache_clear()
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -216,3 +225,39 @@ class TestReduceSchemaOrchestration:
         mock_mod.AsyncAnthropic.assert_called_once()
         call_kwargs = mock_mod.AsyncAnthropic.call_args
         assert call_kwargs[1]["api_key"] == "env-key"
+
+    def test_get_haiku_layer_caches_instances(self):
+        """_get_haiku_layer returns the same instance for identical args."""
+        _get_haiku_layer.cache_clear()
+        with patch("api_agent.schema.reducer.anthropic"):
+            layer1 = _get_haiku_layer("key1", "model", 30000, 8192)
+            layer2 = _get_haiku_layer("key1", "model", 30000, 8192)
+            layer3 = _get_haiku_layer("key2", "model", 30000, 8192)
+
+        assert layer1 is layer2  # Same args → cached
+        assert layer1 is not layer3  # Different key → new instance
+        _get_haiku_layer.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_max_output_tokens_threaded_to_haiku(self):
+        """max_output_tokens is passed through to HaikuLayer."""
+        reduced = "## GET /users\nRetrieve users.\n" + "x" * 150
+
+        _get_haiku_layer.cache_clear()
+        with patch("api_agent.schema.reducer.anthropic") as mock_mod:
+            mock_client = MagicMock()
+            mock_create = AsyncMock(return_value=_make_anthropic_response(reduced))
+            mock_client.messages.create = mock_create
+            mock_mod.AsyncAnthropic.return_value = mock_client
+
+            await reduce_schema(
+                schema_text=LARGE_DSL_SCHEMA,
+                question="list users",
+                threshold=500,
+                api_key="test-key",
+                max_output_tokens=16384,
+            )
+
+        call_kwargs = mock_create.call_args[1]
+        assert call_kwargs["max_tokens"] == 16384
+        _get_haiku_layer.cache_clear()

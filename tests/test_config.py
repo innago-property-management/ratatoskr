@@ -326,3 +326,10 @@ class TestSchemaReductionEnvOverrides:
     def test_max_input_chars_override(self, monkeypatch):
         monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_MAX_INPUT_CHARS", "50000")
         assert Settings().SCHEMA_REDUCTION_MAX_INPUT_CHARS == 50_000
+
+    def test_max_output_tokens_default(self):
+        assert Settings().SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS == 8192
+
+    def test_max_output_tokens_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS", "16384")
+        assert Settings().SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS == 16_384

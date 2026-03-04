@@ -324,3 +324,43 @@ class TestHaikuLayer:
 
         assert was_applied is True
         assert result_text == SAMPLE_REDUCED_SCHEMA
+
+    @pytest.mark.asyncio
+    async def test_haiku_question_containing_schema_text_placeholder(self):
+        """Question containing literal '{schema_text}' must not double-substitute."""
+        question = "Filter /users/{schema_text} endpoint"
+
+        with patch("api_agent.schema.reducer.anthropic") as mock_anthropic_mod:
+            mock_client = MagicMock()
+            mock_create = AsyncMock(
+                return_value=_make_anthropic_message_response(SAMPLE_REDUCED_SCHEMA)
+            )
+            mock_client.messages.create = mock_create
+            mock_anthropic_mod.AsyncAnthropic.return_value = mock_client
+
+            layer = HaikuLayer(api_key="test-key")
+            await layer.reduce(SAMPLE_LARGE_SCHEMA, question)
+
+        # The prompt should contain the question verbatim, not double-substituted
+        call_kwargs = mock_create.call_args[1]
+        prompt_content = call_kwargs["messages"][0]["content"]
+        assert question in prompt_content
+        # Schema text should appear exactly once (in the UNTRUSTED block)
+        assert prompt_content.count("[BEGIN UNTRUSTED SCHEMA") == 1
+
+    @pytest.mark.asyncio
+    async def test_haiku_max_output_tokens_passed_to_api(self):
+        """max_output_tokens is forwarded to the Anthropic API call."""
+        with patch("api_agent.schema.reducer.anthropic") as mock_anthropic_mod:
+            mock_client = MagicMock()
+            mock_create = AsyncMock(
+                return_value=_make_anthropic_message_response(SAMPLE_REDUCED_SCHEMA)
+            )
+            mock_client.messages.create = mock_create
+            mock_anthropic_mod.AsyncAnthropic.return_value = mock_client
+
+            layer = HaikuLayer(api_key="test-key", max_output_tokens=16384)
+            await layer.reduce(SAMPLE_LARGE_SCHEMA, "How do I get users?")
+
+        call_kwargs = mock_create.call_args[1]
+        assert call_kwargs["max_tokens"] == 16384

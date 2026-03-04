@@ -16,6 +16,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 
 import anthropic
 import httpx
@@ -45,6 +46,11 @@ class ToonLayer:
     Applies TOON encoding only to valid JSON text (e.g., GraphQL introspection).
     Non-JSON text (REST DSL, proto IDL) is skipped — TOON encodes Python objects,
     not arbitrary text.
+
+    Note: In the current agent integration, all three protocol agents pass DSL/SDL
+    text (not raw JSON) to reduce_schema(), so TOON encoding is effectively inert.
+    The layer is architecturally correct and tested — it will activate if a future
+    protocol agent passes raw JSON schemas (e.g., JSON Schema, raw introspection).
 
     If toon_format is not installed -> logs warning, returns original.
     If TOON output is larger -> returns original with was_applied=False.
@@ -139,8 +145,10 @@ class HaikuLayer:
         api_key: str,
         model: str = "claude-haiku-4-5-20251001",
         timeout_ms: int = 30_000,
+        max_output_tokens: int = 8192,
     ):
         self.model = model
+        self.max_output_tokens = max_output_tokens
         self.client = anthropic.AsyncAnthropic(
             api_key=api_key,
             timeout=httpx.Timeout(timeout_ms / 1000),
@@ -157,15 +165,15 @@ class HaikuLayer:
         Never raises — returns (schema_text, False) on ANY error.
         """
         try:
-            prompt = (
-                _HAIKU_PROMPT.replace("{question}", question).replace(
-                    "{schema_text}", schema_text
-                )
+            # Replace {schema_text} first: schema text won't contain "{question}",
+            # but a question could contain literal "{schema_text}" (e.g., URL paths).
+            prompt = _HAIKU_PROMPT.replace("{schema_text}", schema_text).replace(
+                "{question}", question
             )
 
             response = await self.client.messages.create(
                 model=self.model,
-                max_tokens=4096,
+                max_tokens=self.max_output_tokens,
                 messages=[{"role": "user", "content": prompt}],
             )
 
@@ -226,6 +234,12 @@ class HaikuLayer:
 # ---------------------------------------------------------------------------
 
 
+@lru_cache(maxsize=8)
+def _get_haiku_layer(api_key: str, model: str, timeout_ms: int, max_output_tokens: int) -> HaikuLayer:
+    """Return a cached HaikuLayer to reuse httpx connection pools."""
+    return HaikuLayer(api_key, model, timeout_ms, max_output_tokens)
+
+
 def _get_api_key(explicit_key: str = "") -> str:
     """Resolve the API key for schema reduction.
 
@@ -248,6 +262,7 @@ async def reduce_schema(
     timeout_ms: int = 30_000,
     enabled: bool = True,
     max_input_chars: int = 100_000,
+    max_output_tokens: int = 8192,
 ) -> ReductionResult:
     """Reduce schema_text to fit within threshold, guided by question.
 
@@ -256,6 +271,11 @@ async def reduce_schema(
       2. If still over threshold AND API key available -> Haiku reduction
       3. If Haiku unavailable or fails -> return TOON (or original if TOON larger)
       4. Never raises — always returns a valid schema_text
+
+    Note: Currently all protocol agents pass DSL/SDL text, not raw JSON, so
+    ToonLayer is inert (skips non-JSON input by design). The pipeline still
+    applies Haiku reduction and hard-truncation fallback. ToonLayer will
+    activate automatically if a future caller passes raw JSON schemas.
 
     Args:
         schema_text:  Serialized DSL text from protocol-specific builder.
@@ -266,6 +286,7 @@ async def reduce_schema(
         timeout_ms:   Timeout for the Haiku API call.
         enabled:      Master switch. If False, returns original text unchanged.
         max_input_chars: Skip Haiku above this size (safety limit).
+        max_output_tokens: Max tokens for Haiku response (default 8192).
 
     Returns:
         ReductionResult with the best schema_text that fits (or best effort if not).
@@ -306,7 +327,7 @@ async def reduce_schema(
     ai_applied = False
     resolved_key = _get_api_key(api_key)
     if resolved_key and question and len(current_text) <= max_input_chars:
-        haiku_layer = HaikuLayer(resolved_key, model, timeout_ms)
+        haiku_layer = _get_haiku_layer(resolved_key, model, timeout_ms, max_output_tokens)
         reduced_text, ai_applied = await haiku_layer.reduce(current_text, question)
         if ai_applied:
             current_text = reduced_text

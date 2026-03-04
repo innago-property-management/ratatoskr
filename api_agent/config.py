@@ -100,6 +100,7 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("API_AGENT_SCHEMA_REDUCTION_API_KEY", "ANTHROPIC_API_KEY"),
     )
     SCHEMA_REDUCTION_MAX_INPUT_CHARS: int = 100_000
+    SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS: int = 8192
 
 
 settings = Settings()

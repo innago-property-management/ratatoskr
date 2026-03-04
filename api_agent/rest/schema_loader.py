@@ -387,6 +387,7 @@ async def fetch_schema_context(
         timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
         enabled=settings.SCHEMA_REDUCTION_ENABLED,
         max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
+        max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,
     )
     context = result.schema_text
 
