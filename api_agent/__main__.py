@@ -167,7 +167,7 @@ def main():
     host = reloaded.HOST
     port = reloaded.PORT
 
-    if reloaded.DEBUG or reloaded.LOG_FORMAT != settings.LOG_FORMAT:
+    if reloaded.DEBUG:
         configure_logging(log_format=reloaded.LOG_FORMAT, debug=reloaded.DEBUG)
 
     logger.info("server_starting", host=host, port=port)

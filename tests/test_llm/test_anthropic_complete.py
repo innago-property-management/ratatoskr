@@ -11,6 +11,7 @@ from api_agent.llm.types import LLMResponse, ToolCall
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_anthropic_response(content_blocks, usage=None, stop_reason="end_turn"):
     """Build a mock Anthropic Messages API response."""
     response = MagicMock()
@@ -40,6 +41,7 @@ def _make_anthropic_response(content_blocks, usage=None, stop_reason="end_turn")
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestAnthropicProviderComplete:
     """Tests for AnthropicProvider.complete()."""

@@ -18,6 +18,7 @@ class TestProcessRestQuerySuccess:
     @pytest.mark.asyncio
     async def test_success_path(self, rest_ctx, fake_provider_factory, monkeypatch):
         """Full success flow: fetch schema, call rest_call tool, LLM summarizes."""
+
         # Mock fetch_schema_context to return a minimal schema
         async def mock_fetch_schema(*args, **kwargs):
             return (
@@ -26,9 +27,7 @@ class TestProcessRestQuerySuccess:
                 '{"paths": {"/users": {"get": {}}}}',
             )
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         # Mock execute_request to return user data
         async def mock_execute_request(*args, **kwargs):
@@ -37,14 +36,10 @@ class TestProcessRestQuerySuccess:
                 "data": {"users": [{"id": 1, "name": "Alice"}, {"id": 2, "name": "Bob"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.execute_request", mock_execute_request
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.execute_request", mock_execute_request)
 
         # Disable recipe extraction to avoid LLM calls there
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         # FakeLLMProvider: first call = tool call to rest_call, second = text summary
         fake_provider_factory(
@@ -71,6 +66,7 @@ class TestProcessRestQuerySuccess:
     @pytest.mark.asyncio
     async def test_success_with_sql_query(self, rest_ctx, fake_provider_factory, monkeypatch):
         """Agent calls rest_call then sql_query for post-processing."""
+
         async def mock_fetch_schema(*args, **kwargs):
             return (
                 "<endpoints>\nGET /users() -> User[]",
@@ -78,9 +74,7 @@ class TestProcessRestQuerySuccess:
                 '{"paths": {}}',
             )
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         async def mock_execute_request(*args, **kwargs):
             return {
@@ -92,12 +86,8 @@ class TestProcessRestQuerySuccess:
                 ],
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.execute_request", mock_execute_request
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.execute_request", mock_execute_request)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         fake_provider_factory(
             monkeypatch,
@@ -125,12 +115,11 @@ class TestProcessRestQuerySuccess:
     @pytest.mark.asyncio
     async def test_result_contains_last_data(self, rest_ctx, fake_provider_factory, monkeypatch):
         """The result dict should contain the actual data from the last operation."""
-        async def mock_fetch_schema(*args, **kwargs):
-            return ("endpoints text", "https://api.example.com", '{}')
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        async def mock_fetch_schema(*args, **kwargs):
+            return ("endpoints text", "https://api.example.com", "{}")
+
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         async def mock_execute_request(*args, **kwargs):
             return {
@@ -138,12 +127,8 @@ class TestProcessRestQuerySuccess:
                 "data": [{"id": 1, "name": "Alice"}],
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.execute_request", mock_execute_request
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.execute_request", mock_execute_request)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         fake_provider_factory(
             monkeypatch,
@@ -172,15 +157,12 @@ class TestProcessRestQueryPolling:
         self, rest_ctx_with_polling, fake_provider_factory, monkeypatch
     ):
         """When poll_paths is set, process_rest_query creates poll_until_done tool."""
-        async def mock_fetch_schema(*args, **kwargs):
-            return ("endpoints text", "https://api.example.com", '{}')
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        async def mock_fetch_schema(*args, **kwargs):
+            return ("endpoints text", "https://api.example.com", "{}")
+
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         # LLM just returns text — poll tool created but not used
         fake_provider_factory(
@@ -188,9 +170,7 @@ class TestProcessRestQueryPolling:
             [make_text_response("No data needed for this query.")],
         )
 
-        result = await process_rest_query(
-            "What flights are available?", rest_ctx_with_polling
-        )
+        result = await process_rest_query("What flights are available?", rest_ctx_with_polling)
 
         # Should complete without error even though poll tool was not invoked
         assert result["ok"] is True or result["error"] is None or result["data"] is not None
@@ -200,22 +180,17 @@ class TestProcessRestQueryPolling:
         self, rest_ctx_with_polling, fake_provider_factory, monkeypatch
     ):
         """Polling context works alongside normal rest_call tool."""
-        async def mock_fetch_schema(*args, **kwargs):
-            return ("endpoints text", "https://api.example.com", '{}')
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        async def mock_fetch_schema(*args, **kwargs):
+            return ("endpoints text", "https://api.example.com", "{}")
+
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         async def mock_execute_request(*args, **kwargs):
             return {"success": True, "data": [{"flight": "AA100", "price": 299}]}
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.execute_request", mock_execute_request
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.execute_request", mock_execute_request)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         fake_provider_factory(
             monkeypatch,
@@ -240,9 +215,7 @@ class TestProcessRestQueryErrors:
     """T008-rest: Error paths — schema fetch failures, missing base URL."""
 
     @pytest.mark.asyncio
-    async def test_schema_fetch_returns_empty(
-        self, fake_provider_factory, monkeypatch
-    ):
+    async def test_schema_fetch_returns_empty(self, fake_provider_factory, monkeypatch):
         """When fetch_schema_context returns empty strings and ctx has no base_url, error."""
         # Use a context WITHOUT base_url so the empty schema causes failure
         ctx_no_base = RequestContext(
@@ -258,12 +231,8 @@ class TestProcessRestQueryErrors:
         async def mock_fetch_schema(*args, **kwargs):
             return ("", "", "")
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         # LLM should not be called because base URL is missing
         fake_provider_factory(
@@ -282,15 +251,12 @@ class TestProcessRestQueryErrors:
         self, rest_ctx, fake_provider_factory, monkeypatch
     ):
         """When fetch_schema_context raises, the error is caught and returned."""
+
         async def mock_fetch_schema(*args, **kwargs):
             raise ConnectionError("Failed to reach spec server")
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         fake_provider_factory(
             monkeypatch,
@@ -304,9 +270,7 @@ class TestProcessRestQueryErrors:
         assert result["api_calls"] == []
 
     @pytest.mark.asyncio
-    async def test_no_base_url_from_schema_or_header(
-        self, fake_provider_factory, monkeypatch
-    ):
+    async def test_no_base_url_from_schema_or_header(self, fake_provider_factory, monkeypatch):
         """When neither schema nor header provides a base URL, return error."""
         # Context with no base_url override
         ctx = pytest.importorskip("api_agent.context").RequestContext(
@@ -323,12 +287,8 @@ class TestProcessRestQueryErrors:
         async def mock_fetch_schema(*args, **kwargs):
             return ("<endpoints>\nGET /users() -> any", "", '{"paths": {}}')
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         fake_provider_factory(
             monkeypatch,
@@ -341,9 +301,7 @@ class TestProcessRestQueryErrors:
         assert "base url" in result["error"].lower() or "base_url" in result["error"].lower()
 
     @pytest.mark.asyncio
-    async def test_base_url_from_header_override(
-        self, fake_provider_factory, monkeypatch
-    ):
+    async def test_base_url_from_header_override(self, fake_provider_factory, monkeypatch):
         """When ctx.base_url is set, it overrides the spec-derived base URL."""
         from api_agent.context import RequestContext
 
@@ -359,11 +317,9 @@ class TestProcessRestQueryErrors:
 
         # Schema returns empty base_url, but ctx.base_url is set
         async def mock_fetch_schema(*args, **kwargs):
-            return ("endpoints text", "", '{}')
+            return ("endpoints text", "", "{}")
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         captured_kwargs = {}
 
@@ -371,12 +327,8 @@ class TestProcessRestQueryErrors:
             captured_kwargs.update(kwargs)
             return {"success": True, "data": [{"id": 1}]}
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.execute_request", mock_execute_request
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.execute_request", mock_execute_request)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         fake_provider_factory(
             monkeypatch,
@@ -400,22 +352,17 @@ class TestProcessRestQueryErrors:
         self, rest_ctx, fake_provider_factory, monkeypatch
     ):
         """When execute_request returns failure, api_calls track it and agent can recover."""
-        async def mock_fetch_schema(*args, **kwargs):
-            return ("endpoints text", "https://api.example.com", '{}')
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema
-        )
+        async def mock_fetch_schema(*args, **kwargs):
+            return ("endpoints text", "https://api.example.com", "{}")
+
+        monkeypatch.setattr("api_agent.agent.rest_agent.fetch_schema_context", mock_fetch_schema)
 
         async def mock_execute_request(*args, **kwargs):
             return {"success": False, "error": "404 Not Found", "status_code": 404}
 
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.execute_request", mock_execute_request
-        )
-        monkeypatch.setattr(
-            "api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False
-        )
+        monkeypatch.setattr("api_agent.agent.rest_agent.execute_request", mock_execute_request)
+        monkeypatch.setattr("api_agent.agent.rest_agent.settings.ENABLE_RECIPES", False)
 
         fake_provider_factory(
             monkeypatch,

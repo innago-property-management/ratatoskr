@@ -120,17 +120,13 @@ class TestProcessGrpcQuery:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         # Mock execute_unary_rpc to return data
         async def mock_execute_rpc(*args, **kwargs):
             return {"success": True, "data": {"message": "Hello, world!"}}
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         # FakeLLMProvider: tool call then summary
         fake_provider_factory(
@@ -158,12 +154,11 @@ class TestProcessGrpcQuery:
     @pytest.mark.asyncio
     async def test_reflection_failure(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """When reflection fails, return error without running agent."""
+
         async def mock_fetch_schema(*args, **kwargs):
             raise Exception("UNIMPLEMENTED: reflection not enabled")
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         # No need for FakeLLMProvider — agent shouldn't run
         fake_provider_factory(monkeypatch, [])
@@ -183,9 +178,7 @@ class TestProcessGrpcQuery:
         async def mock_fetch_schema(*args, **kwargs):
             return empty_schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(monkeypatch, [])
 
@@ -202,9 +195,7 @@ class TestProcessGrpcQuery:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         # LLM tries to call a streaming method, gets error, then gives up
         fake_provider_factory(
@@ -235,16 +226,12 @@ class TestProcessGrpcQuery:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_execute_rpc(*args, **kwargs):
             return {"success": False, "error": "gRPC error [UNAVAILABLE]: Connection refused"}
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         fake_provider_factory(
             monkeypatch,
@@ -269,12 +256,11 @@ class TestProcessGrpcQuery:
     @pytest.mark.asyncio
     async def test_connection_failure(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """Non-reflection connection failure returns generic error."""
+
         async def mock_fetch_schema(*args, **kwargs):
             raise ConnectionError("Connection refused to grpc://localhost:50051")
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(monkeypatch, [])
 
@@ -306,9 +292,7 @@ class TestGrpcCallToolErrors:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         # execute_unary_rpc should NOT be called — guard with side_effect
         monkeypatch.setattr(
@@ -348,9 +332,7 @@ class TestGrpcCallToolErrors:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -386,9 +368,7 @@ class TestGrpcCallToolErrors:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         captured_kwargs = {}
 
@@ -396,9 +376,7 @@ class TestGrpcCallToolErrors:
             captured_kwargs.update(kwargs)
             return {"success": True, "data": {"message": "ok"}}
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         fake_provider_factory(
             monkeypatch,
@@ -419,9 +397,7 @@ class TestGrpcCallToolErrors:
 
         assert result["ok"] is True
         # grpc_ctx has target_headers={"authorization": "Bearer test-token"}
-        assert captured_kwargs.get("metadata") == [
-            ("authorization", "Bearer test-token")
-        ]
+        assert captured_kwargs.get("metadata") == [("authorization", "Bearer test-token")]
 
     @pytest.mark.asyncio
     async def test_return_directly_skips_llm_output(
@@ -437,9 +413,7 @@ class TestGrpcCallToolErrors:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_execute_rpc(*args, **kwargs):
             return {
@@ -447,9 +421,7 @@ class TestGrpcCallToolErrors:
                 "data": {"users": [{"id": 1, "name": "Alice"}]},
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         fake_provider_factory(
             monkeypatch,
@@ -484,9 +456,7 @@ class TestGrpcSqlPipeline:
     """Tests for gRPC → SQL post-processing pipeline."""
 
     @pytest.mark.asyncio
-    async def test_grpc_call_then_sql_query(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_grpc_call_then_sql_query(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """Three-step: grpc_call stores data, sql_query filters, LLM summarizes.
 
         Protects grpc_agent.py:206-219 (result storage for SQL) and
@@ -497,9 +467,7 @@ class TestGrpcSqlPipeline:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_execute_rpc(*args, **kwargs):
             return {
@@ -511,9 +479,7 @@ class TestGrpcSqlPipeline:
                 ],
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         fake_provider_factory(
             monkeypatch,
@@ -555,9 +521,7 @@ class TestGrpcSqlPipeline:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -578,9 +542,7 @@ class TestGrpcSqlPipeline:
         assert result["data"] is not None
 
     @pytest.mark.asyncio
-    async def test_sql_query_return_directly(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_sql_query_return_directly(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """sql_query with return_directly=True returns raw SQL result.
 
         Protects grpc_agent.py:269-273 — return_directly flag in _sql_query.
@@ -590,9 +552,7 @@ class TestGrpcSqlPipeline:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_execute_rpc(*args, **kwargs):
             return {
@@ -603,9 +563,7 @@ class TestGrpcSqlPipeline:
                 ],
             }
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         fake_provider_factory(
             monkeypatch,
@@ -644,9 +602,7 @@ class TestGrpcOrchestratorEdgeCases:
     """Tests for process_grpc_query edge cases: MaxTurns, empty output, etc."""
 
     @pytest.mark.asyncio
-    async def test_max_turns_exceeded_with_data(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_max_turns_exceeded_with_data(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """MaxTurnsExceeded with partial data returns ok=True with partial result.
 
         Protects grpc_agent.py:390-394 — MaxTurnsExceeded handler.
@@ -656,16 +612,12 @@ class TestGrpcOrchestratorEdgeCases:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_execute_rpc(*args, **kwargs):
             return {"success": True, "data": {"message": "Hello!"}}
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         monkeypatch.setattr(settings, "MAX_AGENT_TURNS", 2)
 
@@ -692,9 +644,7 @@ class TestGrpcOrchestratorEdgeCases:
         assert result["rpc_calls"]  # At least one call was made
 
     @pytest.mark.asyncio
-    async def test_max_turns_exceeded_no_data(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_max_turns_exceeded_no_data(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """MaxTurnsExceeded with no data returns ok=False.
 
         Protects grpc_agent.py:390-394 — MaxTurnsExceeded no-data branch.
@@ -704,17 +654,13 @@ class TestGrpcOrchestratorEdgeCases:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         # All RPCs fail — no data stored
         async def mock_execute_rpc(*args, **kwargs):
             return {"success": False, "error": "Unavailable"}
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         monkeypatch.setattr(settings, "MAX_AGENT_TURNS", 2)
 
@@ -751,16 +697,12 @@ class TestGrpcOrchestratorEdgeCases:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_execute_rpc(*args, **kwargs):
             return {"success": True, "data": {"message": "Hello!"}}
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         fake_provider_factory(
             monkeypatch,
@@ -796,9 +738,7 @@ class TestGrpcOrchestratorEdgeCases:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -811,9 +751,7 @@ class TestGrpcOrchestratorEdgeCases:
         assert "No output" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_outer_exception_handler(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_outer_exception_handler(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """Unexpected exception in agent loop is caught by outer handler.
 
         Protects grpc_agent.py:436-443 — outermost except Exception.
@@ -823,9 +761,7 @@ class TestGrpcOrchestratorEdgeCases:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         # Make _build_system_prompt raise to trigger the outer catch-all
         monkeypatch.setattr(
@@ -855,16 +791,12 @@ class TestGrpcOrchestratorEdgeCases:
             captured_kwargs.update(kwargs)
             return _make_test_schema()
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_execute_rpc(*args, **kwargs):
             return {"success": True, "data": {"message": "ok"}}
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.execute_unary_rpc", mock_execute_rpc)
 
         fake_provider_factory(
             monkeypatch,
@@ -884,9 +816,7 @@ class TestGrpcOrchestratorEdgeCases:
         await process_grpc_query("Say hello", grpc_ctx)
 
         # grpc_ctx.target_headers = {"authorization": "Bearer test-token"}
-        assert captured_kwargs.get("metadata") == [
-            ("authorization", "Bearer test-token")
-        ]
+        assert captured_kwargs.get("metadata") == [("authorization", "Bearer test-token")]
 
     @pytest.mark.asyncio
     async def test_reflection_error_lowercase_keyword(
@@ -896,12 +826,11 @@ class TestGrpcOrchestratorEdgeCases:
 
         Protects grpc_agent.py:320 — the 'or "reflection" in error_msg.lower()' branch.
         """
+
         async def mock_fetch_schema(*args, **kwargs):
             raise Exception("Server Reflection is not supported")
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(monkeypatch, [])
 
@@ -939,9 +868,7 @@ class TestGrpcMediumPriority:
                 ],
             )
         ]
-        schema = GrpcSchema(
-            services=services, pool=MagicMock(), raw_schema_text=""
-        )
+        schema = GrpcSchema(services=services, pool=MagicMock(), raw_schema_text="")
 
         # This won't match full_method_path (myapp.v2.UserService/GetUser)
         # but WILL match svc.full_name/m.name (myapp.UserService/GetUser)
@@ -950,9 +877,7 @@ class TestGrpcMediumPriority:
         assert m.name == "GetUser"
 
     @pytest.mark.asyncio
-    async def test_large_schema_truncated(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_large_schema_truncated(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """Schema larger than MAX_TOOL_RESPONSE_CHARS is truncated.
 
         Protects grpc_agent.py:349-355 — schema truncation with marker.
@@ -979,9 +904,7 @@ class TestGrpcMediumPriority:
         async def mock_fetch_schema(*args, **kwargs):
             return big_schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         prov = fake_provider_factory(
             monkeypatch,
@@ -1014,9 +937,7 @@ class TestGrpcStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_stream_rpc(*args, **kwargs):
             return {
@@ -1064,9 +985,7 @@ class TestGrpcStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -1089,18 +1008,14 @@ class TestGrpcStreamTool:
         assert result["data"] is not None
 
     @pytest.mark.asyncio
-    async def test_stream_stores_data_for_sql(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_stream_stores_data_for_sql(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """grpc_stream results are stored for sql_query post-processing."""
         schema = _make_test_schema()
 
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_stream_rpc(*args, **kwargs):
             return {
@@ -1152,9 +1067,7 @@ class TestGrpcStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_stream_rpc(*args, **kwargs):
             return {
@@ -1198,9 +1111,7 @@ class TestGrpcStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -1251,18 +1162,14 @@ class TestGrpcClientStreamTool:
     """Tests for grpc_client_stream tool."""
 
     @pytest.mark.asyncio
-    async def test_client_stream_success(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_client_stream_success(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """grpc_client_stream sends batch of requests and gets single response."""
         schema = _make_test_schema()
 
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_client_stream_rpc(*args, **kwargs):
             return {
@@ -1306,9 +1213,7 @@ class TestGrpcClientStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -1340,9 +1245,7 @@ class TestGrpcClientStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -1365,18 +1268,14 @@ class TestGrpcClientStreamTool:
         assert result["data"] is not None
 
     @pytest.mark.asyncio
-    async def test_client_stream_invalid_json(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_client_stream_invalid_json(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """grpc_client_stream returns error on invalid JSON."""
         schema = _make_test_schema()
 
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -1407,9 +1306,7 @@ class TestGrpcClientStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_client_stream_rpc(*args, **kwargs):
             return {
@@ -1457,18 +1354,14 @@ class TestGrpcBidiStreamTool:
     """Tests for grpc_bidi_stream tool."""
 
     @pytest.mark.asyncio
-    async def test_bidi_stream_success(
-        self, grpc_ctx, fake_provider_factory, monkeypatch
-    ):
+    async def test_bidi_stream_success(self, grpc_ctx, fake_provider_factory, monkeypatch):
         """grpc_bidi_stream sends requests and collects responses."""
         schema = _make_test_schema()
 
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_bidi_rpc(*args, **kwargs):
             return {
@@ -1516,9 +1409,7 @@ class TestGrpcBidiStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         fake_provider_factory(
             monkeypatch,
@@ -1550,9 +1441,7 @@ class TestGrpcBidiStreamTool:
         async def mock_fetch_schema(*args, **kwargs):
             return schema
 
-        monkeypatch.setattr(
-            "api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema
-        )
+        monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
         async def mock_bidi_rpc(*args, **kwargs):
             return {

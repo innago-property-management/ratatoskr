@@ -105,14 +105,14 @@ class TestConfigureLogging:
     def test_json_format_produces_valid_json(self, capsys):
         configure_logging(log_format="json", debug=False)
         test_logger = structlog.get_logger("test.json_output")
-        test_logger.info("test_event", key="value")
+        test_logger.info("test_event", color="blue")
 
         captured = capsys.readouterr()
         # structlog writes to stderr via our handler
         line = captured.err.strip().split("\n")[-1]
         parsed = json.loads(line)
         assert parsed["event"] == "test_event"
-        assert parsed["key"] == "value"
+        assert parsed["color"] == "blue"
         assert "timestamp" in parsed
         assert parsed["level"] == "info"
 

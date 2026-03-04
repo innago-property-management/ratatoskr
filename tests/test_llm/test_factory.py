@@ -27,7 +27,9 @@ class TestCreateProvider:
         assert provider.model == "claude-sonnet-4-20250514"
 
     def test_anthropic_custom_model(self):
-        provider = create_provider("anthropic", model="claude-opus-4-20250514", api_key="sk-ant-test")
+        provider = create_provider(
+            "anthropic", model="claude-opus-4-20250514", api_key="sk-ant-test"
+        )
         assert provider.model == "claude-opus-4-20250514"
 
     def test_openai_compat_requires_base_url(self):

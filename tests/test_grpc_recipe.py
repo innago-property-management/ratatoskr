@@ -114,12 +114,26 @@ class TestGrpcRecipesEquivalent:
     def test_equivalent_grpc_recipes(self):
         a = {
             "params": {"name": {"type": "str", "default": "world"}},
-            "steps": [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"name": "world"}'}],
+            "steps": [
+                {
+                    "kind": "grpc",
+                    "name": "data",
+                    "method": "/pkg.Svc/Do",
+                    "request": '{"name": "world"}',
+                }
+            ],
             "sql_steps": [],
         }
         b = {
             "params": {"name": {"type": "str", "default": "world"}},
-            "steps": [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"name": "world"}'}],
+            "steps": [
+                {
+                    "kind": "grpc",
+                    "name": "data",
+                    "method": "/pkg.Svc/Do",
+                    "request": '{"name": "world"}',
+                }
+            ],
             "sql_steps": [],
         }
         assert _recipes_equivalent(a, b, "grpc") is True
@@ -132,7 +146,9 @@ class TestGrpcRecipesEquivalent:
         }
         b = {
             "params": {},
-            "steps": [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Other", "request": "{}"}],
+            "steps": [
+                {"kind": "grpc", "name": "data", "method": "/pkg.Svc/Other", "request": "{}"}
+            ],
             "sql_steps": [],
         }
         assert _recipes_equivalent(a, b, "grpc") is False
@@ -140,12 +156,16 @@ class TestGrpcRecipesEquivalent:
     def test_different_request_not_equivalent(self):
         a = {
             "params": {},
-            "steps": [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"a": 1}'}],
+            "steps": [
+                {"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"a": 1}'}
+            ],
             "sql_steps": [],
         }
         b = {
             "params": {},
-            "steps": [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"a": 2}'}],
+            "steps": [
+                {"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"a": 2}'}
+            ],
             "sql_steps": [],
         }
         assert _recipes_equivalent(a, b, "grpc") is False
@@ -164,8 +184,18 @@ class TestGrpcDocstring:
 
 class TestValidateStepGrpc:
     def test_valid_unary_step(self):
-        orig = {"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"name": "world"}'}
-        recipe_step = {"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": {"name": {"$param": "name"}}}
+        orig = {
+            "kind": "grpc",
+            "name": "data",
+            "method": "/pkg.Svc/Do",
+            "request": '{"name": "world"}',
+        }
+        recipe_step = {
+            "kind": "grpc",
+            "name": "data",
+            "method": "/pkg.Svc/Do",
+            "request": {"name": {"$param": "name"}},
+        }
         params = {"name": "world"}
         assert _validate_step_grpc(orig, recipe_step, params) is True
 
@@ -180,32 +210,74 @@ class TestValidateStepGrpc:
         assert _validate_step_grpc(orig, recipe_step, {}) is False
 
     def test_request_render_mismatch(self):
-        orig = {"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"name": "alice"}'}
-        recipe_step = {"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": {"name": {"$param": "name"}}}
+        orig = {
+            "kind": "grpc",
+            "name": "data",
+            "method": "/pkg.Svc/Do",
+            "request": '{"name": "alice"}',
+        }
+        recipe_step = {
+            "kind": "grpc",
+            "name": "data",
+            "method": "/pkg.Svc/Do",
+            "request": {"name": {"$param": "name"}},
+        }
         params = {"name": "bob"}  # renders to {"name": "bob"} != {"name": "alice"}
         assert _validate_step_grpc(orig, recipe_step, params) is False
 
 
 class TestValidateEquivalenceGrpc:
     def test_valid_recipe_renders_back(self):
-        steps = [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": '{"name": "world"}'}]
+        steps = [
+            {
+                "kind": "grpc",
+                "name": "data",
+                "method": "/pkg.Svc/Do",
+                "request": '{"name": "world"}',
+            }
+        ]
         recipe = {
             "params": {"name": {"type": "str", "default": "world"}},
-            "steps": [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": {"name": {"$param": "name"}}}],
+            "steps": [
+                {
+                    "kind": "grpc",
+                    "name": "data",
+                    "method": "/pkg.Svc/Do",
+                    "request": {"name": {"$param": "name"}},
+                }
+            ],
             "sql_steps": [],
         }
-        assert _validate_equivalence(api_type="grpc", original_steps=steps, original_sql=[], recipe=recipe) is True
+        assert (
+            _validate_equivalence(
+                api_type="grpc", original_steps=steps, original_sql=[], recipe=recipe
+            )
+            is True
+        )
 
     def test_step_count_mismatch(self):
         steps = [{"kind": "grpc", "name": "data", "method": "/pkg.Svc/Do", "request": "{}"}]
         recipe = {"params": {}, "steps": [], "sql_steps": []}
-        assert _validate_equivalence(api_type="grpc", original_steps=steps, original_sql=[], recipe=recipe) is False
+        assert (
+            _validate_equivalence(
+                api_type="grpc", original_steps=steps, original_sql=[], recipe=recipe
+            )
+            is False
+        )
 
 
 class TestFindUsedParamsGrpc:
     def test_finds_param_refs_in_request(self):
         recipe = {
-            "steps": [{"kind": "grpc", "request": {"name": {"$param": "user_name"}, "limit": {"$param": "max_results"}}}],
+            "steps": [
+                {
+                    "kind": "grpc",
+                    "request": {
+                        "name": {"$param": "user_name"},
+                        "limit": {"$param": "max_results"},
+                    },
+                }
+            ],
             "sql_steps": [],
         }
         used = _find_used_params(recipe, "grpc")
@@ -261,7 +333,13 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="greet someone", recipe=recipe, tool_name="get_greeting")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="greet someone",
+            recipe=recipe,
+            tool_name="get_greeting",
+        )
 
         # Mock schema fetch
         mock_fetch = AsyncMock(return_value=schema)
@@ -272,7 +350,11 @@ class TestGrpcRecipeExecution:
         monkeypatch.setattr("api_agent.recipe.runner.execute_unary_rpc", mock_rpc)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {"name": "Alice"}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {"name": "Alice"},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -291,13 +373,23 @@ class TestGrpcRecipeExecution:
         api_id = build_api_id(ctx, "grpc")
 
         recipe = {"tool_name": "get_greeting", "params": {}, "steps": [], "sql_steps": []}
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash="old_hash", question="greet", recipe=recipe, tool_name="get_greeting")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash="old_hash",
+            question="greet",
+            recipe=recipe,
+            tool_name="get_greeting",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {}, return_directly=False, raw_schema=schema.raw_schema_text,
+            ctx,
+            recipe_id,
+            {},
+            return_directly=False,
+            raw_schema=schema.raw_schema_text,
         )
         result = json.loads(result_str)
 
@@ -326,19 +418,31 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": ["SELECT * FROM greetings WHERE message LIKE '%world%'"],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="filtered greet", recipe=recipe, tool_name="get_greeting_filtered")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="filtered greet",
+            recipe=recipe,
+            tool_name="get_greeting_filtered",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
 
-        mock_rpc = AsyncMock(return_value={
-            "success": True,
-            "data": {"message": "Hello, world!", "extra": "value"},
-        })
+        mock_rpc = AsyncMock(
+            return_value={
+                "success": True,
+                "data": {"message": "Hello, world!", "extra": "value"},
+            }
+        )
         monkeypatch.setattr("api_agent.recipe.runner.execute_unary_rpc", mock_rpc)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -368,7 +472,13 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="greet", recipe=recipe, tool_name="get_greeting")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="greet",
+            recipe=recipe,
+            tool_name="get_greeting",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
@@ -377,7 +487,11 @@ class TestGrpcRecipeExecution:
         monkeypatch.setattr("api_agent.recipe.runner.execute_unary_rpc", mock_rpc)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -406,13 +520,23 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="missing", recipe=recipe, tool_name="call_missing")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="missing",
+            recipe=recipe,
+            tool_name="call_missing",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -441,19 +565,31 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="stream greetings", recipe=recipe, tool_name="stream_greetings")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="stream greetings",
+            recipe=recipe,
+            tool_name="stream_greetings",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
 
-        mock_rpc = AsyncMock(return_value={
-            "success": True,
-            "data": [{"message": "Hello 1"}, {"message": "Hello 2"}],
-        })
+        mock_rpc = AsyncMock(
+            return_value={
+                "success": True,
+                "data": [{"message": "Hello 1"}, {"message": "Hello 2"}],
+            }
+        )
         monkeypatch.setattr("api_agent.recipe.runner.execute_server_streaming_rpc", mock_rpc)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {"name": "Alice"}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {"name": "Alice"},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -484,19 +620,31 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="record route", recipe=recipe, tool_name="record_route")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="record route",
+            recipe=recipe,
+            tool_name="record_route",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
 
-        mock_rpc = AsyncMock(return_value={
-            "success": True,
-            "data": {"point_count": 2, "distance": 100},
-        })
+        mock_rpc = AsyncMock(
+            return_value={
+                "success": True,
+                "data": {"point_count": 2, "distance": 100},
+            }
+        )
         monkeypatch.setattr("api_agent.recipe.runner.execute_client_streaming_rpc", mock_rpc)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -527,19 +675,31 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="chat", recipe=recipe, tool_name="chat_greetings")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="chat",
+            recipe=recipe,
+            tool_name="chat_greetings",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
 
-        mock_rpc = AsyncMock(return_value={
-            "success": True,
-            "data": [{"message": "reply1"}, {"message": "reply2"}],
-        })
+        mock_rpc = AsyncMock(
+            return_value={
+                "success": True,
+                "data": [{"message": "reply1"}, {"message": "reply2"}],
+            }
+        )
         monkeypatch.setattr("api_agent.recipe.runner.execute_bidi_streaming_rpc", mock_rpc)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -570,13 +730,23 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="bad", recipe=recipe, tool_name="bad_unary")
+        recipe_id = RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="bad",
+            recipe=recipe,
+            tool_name="bad_unary",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.recipe.runner.fetch_grpc_schema", mock_fetch)
 
         result_str = await execute_recipe_tool(
-            ctx, recipe_id, {}, return_directly=False, raw_schema=raw_schema,
+            ctx,
+            recipe_id,
+            {},
+            return_directly=False,
+            raw_schema=raw_schema,
         )
         result = json.loads(result_str)
 
@@ -629,7 +799,9 @@ class TestGrpcAgentRecipeIntegration:
 
         # Mock maybe_extract_and_save_recipe to track calls
         mock_extract = AsyncMock()
-        monkeypatch.setattr("api_agent.agent.grpc_agent.maybe_extract_and_save_recipe", mock_extract)
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.maybe_extract_and_save_recipe", mock_extract
+        )
 
         ctx = _grpc_ctx()
         result = await process_grpc_query("say hello", ctx)
@@ -655,10 +827,23 @@ class TestGrpcAgentRecipeIntegration:
         recipe = {
             "tool_name": "get_greeting",
             "params": {"name": {"type": "str", "default": "world"}},
-            "steps": [{"kind": "grpc", "name": "data", "method": "/helloworld.Greeter/SayHello", "request": {"name": {"$param": "name"}}}],
+            "steps": [
+                {
+                    "kind": "grpc",
+                    "name": "data",
+                    "method": "/helloworld.Greeter/SayHello",
+                    "request": {"name": {"$param": "name"}},
+                }
+            ],
             "sql_steps": [],
         }
-        RECIPE_STORE.save_recipe(api_id=api_id, schema_hash=schema_hash, question="greet someone", recipe=recipe, tool_name="get_greeting")
+        RECIPE_STORE.save_recipe(
+            api_id=api_id,
+            schema_hash=schema_hash,
+            question="greet someone",
+            recipe=recipe,
+            tool_name="get_greeting",
+        )
 
         mock_fetch = AsyncMock(return_value=schema)
         monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch)
@@ -676,7 +861,9 @@ class TestGrpcAgentRecipeIntegration:
         monkeypatch.setattr("api_agent.agent.grpc_agent.provider", mock_provider)
 
         mock_extract = AsyncMock()
-        monkeypatch.setattr("api_agent.agent.grpc_agent.maybe_extract_and_save_recipe", mock_extract)
+        monkeypatch.setattr(
+            "api_agent.agent.grpc_agent.maybe_extract_and_save_recipe", mock_extract
+        )
 
         ctx = _grpc_ctx()
         await process_grpc_query("greet someone", ctx)

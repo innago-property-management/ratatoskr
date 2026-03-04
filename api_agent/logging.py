@@ -32,7 +32,7 @@ _SENSITIVE_KEYS = frozenset(
     }
 )
 
-_SENSITIVE_SUBSTRINGS = ("token", "secret", "password", "auth", "credential", "bearer")
+_SENSITIVE_SUBSTRINGS = ("token", "secret", "password", "auth", "credential", "bearer", "key")
 
 
 def _is_sensitive_key(key: str) -> bool:

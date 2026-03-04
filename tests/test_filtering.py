@@ -1,6 +1,5 @@
 """Tests for endpoint allowlist filtering logic."""
 
-
 from api_agent.filtering import (
     _collect_referenced_types,
     _extract_type_name,
@@ -154,9 +153,7 @@ _SAMPLE_SPEC = {
             "get": {"summary": "List orders", "responses": {}},
         },
     },
-    "components": {
-        "schemas": {"User": {"type": "object"}, "Order": {"type": "object"}}
-    },
+    "components": {"schemas": {"User": {"type": "object"}, "Order": {"type": "object"}}},
 }
 
 
@@ -285,9 +282,7 @@ class TestFilterGrpcServices:
         assert len(result[0].methods) == 3
 
     def test_filter_by_exact_method(self):
-        result = filter_grpc_services(
-            _SAMPLE_GRPC_SERVICES, ("users.UserService/GetUser",), None
-        )
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, ("users.UserService/GetUser",), None)
         assert len(result) == 1
         assert result[0].full_name == "users.UserService"
         assert len(result[0].methods) == 1
@@ -295,9 +290,7 @@ class TestFilterGrpcServices:
 
     def test_filter_by_service_wildcard(self):
         """'service/*' matches all methods in a service."""
-        result = filter_grpc_services(
-            _SAMPLE_GRPC_SERVICES, ("orders.OrderService/*",), None
-        )
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, ("orders.OrderService/*",), None)
         assert len(result) == 1
         assert result[0].full_name == "orders.OrderService"
         assert len(result[0].methods) == 2
@@ -312,16 +305,12 @@ class TestFilterGrpcServices:
 
     def test_all_methods_filtered_removes_service(self):
         """Service with zero matching methods is excluded."""
-        result = filter_grpc_services(
-            _SAMPLE_GRPC_SERVICES, ("orders.OrderService/*",), None
-        )
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, ("orders.OrderService/*",), None)
         svc_names = [s.full_name for s in result]
         assert "users.UserService" not in svc_names
 
     def test_empty_result(self):
-        result = filter_grpc_services(
-            _SAMPLE_GRPC_SERVICES, ("nonexistent/*",), None
-        )
+        result = filter_grpc_services(_SAMPLE_GRPC_SERVICES, ("nonexistent/*",), None)
         assert result == []
 
     def test_intersection_narrows(self):
@@ -333,9 +322,7 @@ class TestFilterGrpcServices:
 
     def test_does_not_mutate_original(self):
         original_len = len(_SAMPLE_GRPC_SERVICES[0].methods)
-        filter_grpc_services(
-            _SAMPLE_GRPC_SERVICES, ("users.UserService/GetUser",), None
-        )
+        filter_grpc_services(_SAMPLE_GRPC_SERVICES, ("users.UserService/GetUser",), None)
         assert len(_SAMPLE_GRPC_SERVICES[0].methods) == original_len
 
     def test_multiple_patterns(self):
@@ -348,6 +335,7 @@ class TestFilterGrpcServices:
 # ---------------------------------------------------------------------------
 # GraphQL: type name extraction + transitive closure + schema filtering
 # ---------------------------------------------------------------------------
+
 
 # Helper to build type refs in introspection format
 def _scalar(name: str) -> dict:
@@ -381,60 +369,91 @@ def _input_field(name: str, type_ref: dict) -> dict:
 _GRAPHQL_SCHEMA = {
     "queryType": {
         "fields": [
-            _field("users", _non_null(_list_of(_object_ref("User"))), [
-                {"name": "limit", "type": _scalar("Int"), "defaultValue": None},
-            ]),
+            _field(
+                "users",
+                _non_null(_list_of(_object_ref("User"))),
+                [
+                    {"name": "limit", "type": _scalar("Int"), "defaultValue": None},
+                ],
+            ),
             _field("posts", _non_null(_list_of(_object_ref("Post")))),
             _field("internal", _object_ref("InternalData")),
         ]
     },
     "types": [
         {
-            "name": "User", "kind": "OBJECT",
+            "name": "User",
+            "kind": "OBJECT",
             "fields": [
                 _field("id", _non_null(_scalar("ID"))),
                 _field("name", _scalar("String")),
                 _field("address", _object_ref("Address")),
             ],
-            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+            "interfaces": [],
+            "enumValues": None,
+            "inputFields": None,
+            "possibleTypes": None,
         },
         {
-            "name": "Address", "kind": "OBJECT",
+            "name": "Address",
+            "kind": "OBJECT",
             "fields": [
                 _field("city", _scalar("String")),
                 _field("country", _object_ref("Country")),
             ],
-            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+            "interfaces": [],
+            "enumValues": None,
+            "inputFields": None,
+            "possibleTypes": None,
         },
         {
-            "name": "Country", "kind": "OBJECT",
+            "name": "Country",
+            "kind": "OBJECT",
             "fields": [_field("code", _scalar("String")), _field("name", _scalar("String"))],
-            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+            "interfaces": [],
+            "enumValues": None,
+            "inputFields": None,
+            "possibleTypes": None,
         },
         {
-            "name": "Post", "kind": "OBJECT",
+            "name": "Post",
+            "kind": "OBJECT",
             "fields": [
                 _field("id", _non_null(_scalar("ID"))),
                 _field("title", _scalar("String")),
                 _field("category", _object_ref("Category")),
             ],
-            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+            "interfaces": [],
+            "enumValues": None,
+            "inputFields": None,
+            "possibleTypes": None,
         },
         {
-            "name": "Category", "kind": "ENUM",
+            "name": "Category",
+            "kind": "ENUM",
             "fields": None,
             "enumValues": [{"name": "NEWS"}, {"name": "TECH"}],
-            "interfaces": None, "inputFields": None, "possibleTypes": None,
+            "interfaces": None,
+            "inputFields": None,
+            "possibleTypes": None,
         },
         {
-            "name": "InternalData", "kind": "OBJECT",
+            "name": "InternalData",
+            "kind": "OBJECT",
             "fields": [_field("secret", _scalar("String"))],
-            "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+            "interfaces": [],
+            "enumValues": None,
+            "inputFields": None,
+            "possibleTypes": None,
         },
         {
-            "name": "Query", "kind": "OBJECT",
-            "fields": [], "interfaces": [], "enumValues": None,
-            "inputFields": None, "possibleTypes": None,
+            "name": "Query",
+            "kind": "OBJECT",
+            "fields": [],
+            "interfaces": [],
+            "enumValues": None,
+            "inputFields": None,
+            "possibleTypes": None,
         },
     ],
 }
@@ -504,14 +523,22 @@ class TestCollectReferencedTypes:
         """Circular type refs don't cause infinite recursion."""
         circular_types = {
             "A": {
-                "name": "A", "kind": "OBJECT",
+                "name": "A",
+                "kind": "OBJECT",
                 "fields": [_field("b", _object_ref("B"))],
-                "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+                "interfaces": [],
+                "enumValues": None,
+                "inputFields": None,
+                "possibleTypes": None,
             },
             "B": {
-                "name": "B", "kind": "OBJECT",
+                "name": "B",
+                "kind": "OBJECT",
                 "fields": [_field("a", _object_ref("A"))],
-                "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+                "interfaces": [],
+                "enumValues": None,
+                "inputFields": None,
+                "possibleTypes": None,
             },
         }
         collected: set[str] = set()
@@ -548,9 +575,7 @@ class TestFilterGraphqlSchema:
         assert "posts" not in field_names
 
     def test_multiple_allowed_fields(self):
-        result = filter_graphql_schema(
-            _GRAPHQL_SCHEMA, ("Query.users", "Query.posts"), None
-        )
+        result = filter_graphql_schema(_GRAPHQL_SCHEMA, ("Query.users", "Query.posts"), None)
         field_names = {f["name"] for f in result["queryType"]["fields"]}
         assert field_names == {"users", "posts"}
         type_names = {t["name"] for t in result["types"]}
@@ -587,27 +612,46 @@ class TestFilterGraphqlSchema:
         schema = {
             "queryType": {
                 "fields": [
-                    _field("search", _object_ref("Result"), [
-                        {"name": "input", "type": _object_ref("SearchInput"), "defaultValue": None},
-                    ]),
+                    _field(
+                        "search",
+                        _object_ref("Result"),
+                        [
+                            {
+                                "name": "input",
+                                "type": _object_ref("SearchInput"),
+                                "defaultValue": None,
+                            },
+                        ],
+                    ),
                 ]
             },
             "types": [
                 {
-                    "name": "Result", "kind": "OBJECT",
+                    "name": "Result",
+                    "kind": "OBJECT",
                     "fields": [_field("id", _scalar("ID"))],
-                    "interfaces": [], "enumValues": None, "inputFields": None, "possibleTypes": None,
+                    "interfaces": [],
+                    "enumValues": None,
+                    "inputFields": None,
+                    "possibleTypes": None,
                 },
                 {
-                    "name": "SearchInput", "kind": "INPUT_OBJECT",
+                    "name": "SearchInput",
+                    "kind": "INPUT_OBJECT",
                     "fields": None,
                     "inputFields": [_input_field("query", _scalar("String"))],
-                    "interfaces": None, "enumValues": None, "possibleTypes": None,
+                    "interfaces": None,
+                    "enumValues": None,
+                    "possibleTypes": None,
                 },
                 {
-                    "name": "Query", "kind": "OBJECT",
-                    "fields": [], "interfaces": [], "enumValues": None,
-                    "inputFields": None, "possibleTypes": None,
+                    "name": "Query",
+                    "kind": "OBJECT",
+                    "fields": [],
+                    "interfaces": [],
+                    "enumValues": None,
+                    "inputFields": None,
+                    "possibleTypes": None,
                 },
             ],
         }

@@ -16,10 +16,16 @@ _UNSAFE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
 
 
 def _redact_url(url: str) -> str:
-    """Strip query parameter values from URL for safe logging."""
+    """Strip query parameter values from URL for safe logging.
+
+    Redact all query param values (not just sensitive ones) to avoid false
+    negatives — any param could carry credentials or PII depending on the API.
+    """
     parsed = urlparse(url)
     if parsed.query:
-        redacted_query = "&".join(f"{k}=[REDACTED]" for k in parse_qs(parsed.query))
+        redacted_query = "&".join(
+            f"{k}=[REDACTED]" for k in parse_qs(parsed.query, keep_blank_values=True)
+        )
         parsed = parsed._replace(query=redacted_query)
     return urlunparse(parsed)
 
