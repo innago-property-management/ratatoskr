@@ -1,13 +1,12 @@
-# Python with DuckDB for data processing
-FROM python:3.11-slim
+# ---------- builder ----------
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Install CA certificates for HTTPS
+# git needed only here for toon_format git dep
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
@@ -15,16 +14,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Copy project files
 COPY pyproject.toml uv.lock README.md ./
 COPY api_agent ./api_agent
-COPY start.sh ./
 
-# Install Python dependencies
 RUN uv sync --frozen --no-dev
 
-EXPOSE 3000
+# ---------- runtime ----------
+FROM python:3.11-slim
 
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Copy uv binary and installed venv from builder
+COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
+COPY --from=builder /app /app
+
+COPY start.sh ./
 RUN chmod +x ./start.sh
+
+EXPOSE 3000
 
 ENTRYPOINT ["/app/start.sh"]
