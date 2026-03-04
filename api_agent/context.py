@@ -12,6 +12,10 @@ from fastmcp.server.dependencies import get_http_headers
 from .config import settings
 from .logging import set_request_id
 
+_UUID4_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I
+)
+
 _PRIVATE_NETWORKS = [
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
@@ -132,8 +136,9 @@ def get_request_context() -> RequestContext:
     """
     headers = get_http_headers()
 
-    # Generate or accept request ID for correlation
-    request_id = headers.get("x-request-id") or str(uuid.uuid4())
+    # Generate or accept request ID for correlation (must be valid UUID4)
+    raw_id = headers.get("x-request-id", "")
+    request_id = raw_id if _UUID4_RE.match(raw_id) else str(uuid.uuid4())
     set_request_id(request_id)
 
     # Fall back to config defaults when headers are omitted (single-API mode)

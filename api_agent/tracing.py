@@ -57,7 +57,7 @@ def init_tracing() -> None:
         _tracer_ready = True
         logger.info("tracing_enabled", endpoint=otlp_endpoint)
     except Exception as e:
-        logger.warning("tracing_setup_failed", error=str(e))
+        logger.warning("tracing_setup_failed", error=str(e), exc_info=True)
 
 
 @contextmanager
@@ -100,5 +100,5 @@ def trace_span(name: str, attributes: dict[str, Any] | None = None) -> Generator
                     span.set_attribute(key, value)
             yield span
     except Exception as e:
-        logger.warning("span_creation_failed", error=str(e))
+        logger.warning("span_creation_failed", error=str(e), exc_info=True)
         yield None

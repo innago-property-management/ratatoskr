@@ -2,7 +2,7 @@
 
 import fnmatch
 from typing import Any
-from urllib.parse import urlencode, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import httpx
 import structlog
@@ -13,6 +13,15 @@ logger = structlog.get_logger(__name__)
 
 # Unsafe HTTP methods (blocked by default)
 _UNSAFE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+
+
+def _redact_url(url: str) -> str:
+    """Strip query parameter values from URL for safe logging."""
+    parsed = urlparse(url)
+    if parsed.query:
+        redacted_query = "&".join(f"{k}=[REDACTED]" for k in parse_qs(parsed.query))
+        parsed = parsed._replace(query=redacted_query)
+    return urlunparse(parsed)
 
 
 def _is_path_allowed(path: str, patterns: list[str]) -> bool:
@@ -115,13 +124,13 @@ async def execute_request(
     request_headers = {"Accept": "application/json"}
     if headers:
         request_headers.update(headers)
-    # Log request details without leaking header values (e.g., auth tokens).
+    # Log request details without leaking header values or query param values.
     logger.info(
         "rest_request",
         method=method,
         base_url=base_url,
         path=path,
-        url=url,
+        url=_redact_url(url),
         header_keys=sorted(request_headers.keys()),
     )
 

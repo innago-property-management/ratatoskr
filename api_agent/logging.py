@@ -32,14 +32,37 @@ _SENSITIVE_KEYS = frozenset(
     }
 )
 
+_SENSITIVE_SUBSTRINGS = ("token", "secret", "password", "auth", "credential", "bearer")
+
+
+def _is_sensitive_key(key: str) -> bool:
+    """Check if a key matches sensitive patterns (exact or substring)."""
+    lower = key.lower()
+    return lower in _SENSITIVE_KEYS or any(s in lower for s in _SENSITIVE_SUBSTRINGS)
+
+
+def _redact_dict(d: dict[str, Any]) -> dict[str, Any]:
+    """Recursively redact sensitive keys in a dict."""
+    result: dict[str, Any] = {}
+    for key, value in d.items():
+        if _is_sensitive_key(key):
+            result[key] = "[REDACTED]"
+        elif isinstance(value, dict):
+            result[key] = _redact_dict(value)
+        else:
+            result[key] = value
+    return result
+
 
 def _redact_sensitive_data(
     logger: Any, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
-    """Redact values for keys matching sensitive patterns."""
-    for key in event_dict:
-        if key.lower() in _SENSITIVE_KEYS:
+    """Redact values for keys matching sensitive patterns (exact + substring, recursive)."""
+    for key in list(event_dict.keys()):
+        if _is_sensitive_key(key):
             event_dict[key] = "[REDACTED]"
+        elif isinstance(event_dict[key], dict):
+            event_dict[key] = _redact_dict(event_dict[key])
     return event_dict
 
 
@@ -63,6 +86,15 @@ def get_request_id() -> str:
 
 def configure_logging(log_format: str = "json", debug: bool = False) -> None:
     """Configure structlog and stdlib logging integration.
+
+    Note: ``cache_logger_on_first_use=True`` means any logger obtained via
+    ``structlog.get_logger()`` before this function runs will keep its
+    cached configuration.  Module-level ``logger = structlog.get_logger()``
+    calls that happen at import time (before CLI overrides) will therefore
+    use the *first* configuration.  Re-calling this function updates the
+    stdlib handler/formatter but already-cached structlog loggers are not
+    refreshed.  This is acceptable because the stdlib formatter is shared
+    and controls actual output rendering.
 
     Args:
         log_format: 'json' for production JSON output, 'console' for colored dev output.
