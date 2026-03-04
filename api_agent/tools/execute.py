@@ -1,9 +1,9 @@
 """Unified MCP tool for direct API execution."""
 
 import json
-import logging
 from typing import Annotated, Any
 
+import structlog
 from fastmcp import FastMCP
 from pydantic import Field
 
@@ -21,7 +21,7 @@ from ..grpc.reflection import fetch_schema as fetch_grpc_schema
 from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _find_grpc_method(schema: GrpcSchema, method_path: str) -> MethodInfo | None:

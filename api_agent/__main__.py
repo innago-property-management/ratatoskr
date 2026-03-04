@@ -3,10 +3,10 @@
 import argparse
 import asyncio
 import atexit
-import logging
 import os
 from typing import Literal, cast
 
+import structlog
 import uvicorn
 from fastmcp import FastMCP
 from starlette.middleware import Middleware
@@ -15,15 +15,13 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from .config import settings
+from .logging import configure_logging
 from .middleware import DynamicToolNamingMiddleware
 from .pool import pool
 from .tools import register_all_tools
 
-logging.basicConfig(
-    level=logging.DEBUG if settings.DEBUG else logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+configure_logging(log_format=settings.LOG_FORMAT, debug=settings.DEBUG)
+logger = structlog.get_logger(__name__)
 
 SUPPORTED_PROVIDERS = ("openai", "anthropic", "openai-compat")
 
@@ -169,12 +167,16 @@ def main():
     host = reloaded.HOST
     port = reloaded.PORT
 
-    if reloaded.DEBUG:
-        logging.getLogger().setLevel(logging.DEBUG)
+    if reloaded.DEBUG or reloaded.LOG_FORMAT != settings.LOG_FORMAT:
+        configure_logging(log_format=reloaded.LOG_FORMAT, debug=reloaded.DEBUG)
 
-    logger.info(f"Starting API Agent on {host}:{port}")
-    logger.info(f"Provider: {reloaded.PROVIDER} | Model: {reloaded.MODEL_NAME or '(default)'}")
-    logger.info("Endpoint config via headers: X-Target-URL, X-API-Type, X-Target-Headers")
+    logger.info("server_starting", host=host, port=port)
+    logger.info(
+        "provider_config",
+        provider=reloaded.PROVIDER,
+        model=reloaded.MODEL_NAME or "(default)",
+    )
+    logger.info("header_config", headers="X-Target-URL, X-API-Type, X-Target-Headers")
     uvicorn.run(create_app(), host=host, port=port, log_level="info")
 
 

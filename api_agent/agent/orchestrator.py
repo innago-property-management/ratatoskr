@@ -7,10 +7,11 @@ tool loop invocation, and result building.
 """
 
 import json
-import logging
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable
+
+import structlog
 
 if TYPE_CHECKING:
     from ..llm.provider import LLMProvider
@@ -38,7 +39,7 @@ from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
 from .model import get_inject_instructions
 from .progress import get_turn_context, reset_progress
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -109,11 +110,11 @@ class OrchestrationResult:
 
 def make_logger(prefix: str) -> Callable[[str], None]:
     """Return a debug-only logger with the given prefix."""
-    _logger = logging.getLogger(f"api_agent.agent.{prefix.strip('[]').lower()}")
+    _logger = structlog.get_logger(f"api_agent.agent.{prefix.strip('[]').lower()}")
 
     def _log(msg: str) -> None:
         if settings.DEBUG:
-            _logger.info(f"{prefix} {msg}")
+            _logger.debug("agent_trace", prefix=prefix, detail=msg)
 
     return _log
 
@@ -490,7 +491,7 @@ async def run_agent_orchestration(
         )
 
     except Exception as e:
-        logger.exception(f"{config.log_prefix} Agent error")
+        logger.exception("agent_error", agent_type=config.agent_type)
         return OrchestrationResult(
             result_dict={
                 "ok": False,

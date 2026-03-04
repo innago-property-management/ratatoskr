@@ -3,15 +3,15 @@
 from __future__ import annotations
 
 import json
-import logging
 from typing import Any
 
+import structlog
 from openai import AsyncOpenAI
 
 from .provider import LLMProvider
 from .types import LLMResponse, ToolCall, ToolDefinition, ToolResult
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class OpenAICompatProvider(LLMProvider):
@@ -51,7 +51,7 @@ class OpenAICompatProvider(LLMProvider):
         except Exception as e:
             # If tool calling fails, retry without tools
             if tools and ("tool" in str(e).lower() or "function" in str(e).lower()):
-                logger.warning(f"Endpoint doesn't support tools, retrying without: {e}")
+                logger.warning("tools_unsupported_retrying", error=str(e))
                 kwargs.pop("tools", None)
                 response = await self.client.chat.completions.create(**kwargs)
             else:

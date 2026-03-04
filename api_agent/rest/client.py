@@ -1,15 +1,15 @@
 """REST API client with unsafe method blocking."""
 
 import fnmatch
-import logging
 from typing import Any
 from urllib.parse import urlencode, urlparse
 
 import httpx
+import structlog
 
 from ..pool import pool
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Unsafe HTTP methods (blocked by default)
 _UNSAFE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
@@ -117,12 +117,12 @@ async def execute_request(
         request_headers.update(headers)
     # Log request details without leaking header values (e.g., auth tokens).
     logger.info(
-        "REST request resolved: method=%s base_url=%s path=%s url=%s header_keys=%s",
-        method,
-        base_url,
-        path,
-        url,
-        sorted(request_headers.keys()),
+        "rest_request",
+        method=method,
+        base_url=base_url,
+        path=path,
+        url=url,
+        header_keys=sorted(request_headers.keys()),
     )
 
     client = await pool.get_http_client(base_url)
@@ -159,5 +159,5 @@ async def execute_request(
             "error": f"HTTP {e.response.status_code}: {error_body}",
         }
     except Exception as e:
-        logger.exception("REST API error")
+        logger.exception("rest_api_error")
         return {"success": False, "error": str(e)}

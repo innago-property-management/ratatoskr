@@ -1,11 +1,11 @@
 """gRPC client — execute unary, server-streaming, client-streaming, and bidi-streaming RPC calls."""
 
 import asyncio
-import logging
 from typing import Any
 
 import grpc
 import grpc.aio
+import structlog
 from google.protobuf import descriptor_pool as dp_module
 from google.protobuf.json_format import MessageToDict, ParseDict
 from google.protobuf.message_factory import GetMessageClass
@@ -13,7 +13,7 @@ from google.protobuf.message_factory import GetMessageClass
 from ..pool import pool as connection_pool
 from .reflection import parse_grpc_target
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 async def _get_channel(target: str, tls: bool) -> grpc.aio.Channel:

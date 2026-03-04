@@ -1,13 +1,14 @@
 """OpenTelemetry tracing setup."""
 
-import logging
 import os
 from contextlib import contextmanager
 from typing import Any, Generator
 
+import structlog
+
 from .config import settings
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _tracer_ready = False
 _using_metadata_fn = None
@@ -43,20 +44,20 @@ def init_tracing() -> None:
 
             OpenAIInstrumentor().instrument(tracer_provider=provider)
         except ImportError:
-            logger.debug("OpenAI instrumentation not available")
+            logger.debug("openai_instrumentation_unavailable")
 
         try:
             from openinference.instrumentation.anthropic import AnthropicInstrumentor  # noqa: I001  # type: ignore[unresolved-import]
 
             AnthropicInstrumentor().instrument(tracer_provider=provider)
         except ImportError:
-            logger.debug("Anthropic instrumentation not available")
+            logger.debug("anthropic_instrumentation_unavailable")
 
         _using_metadata_fn = using_metadata
         _tracer_ready = True
-        logger.info(f"Tracing enabled: {otlp_endpoint}")
+        logger.info("tracing_enabled", endpoint=otlp_endpoint)
     except Exception as e:
-        logger.warning(f"Failed to setup tracing: {e}")
+        logger.warning("tracing_setup_failed", error=str(e))
 
 
 @contextmanager
@@ -99,5 +100,5 @@ def trace_span(name: str, attributes: dict[str, Any] | None = None) -> Generator
                     span.set_attribute(key, value)
             yield span
     except Exception as e:
-        logger.warning(f"Failed to create span: {e}")
+        logger.warning("span_creation_failed", error=str(e))
         yield None

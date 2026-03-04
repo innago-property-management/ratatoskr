@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 from contextvars import ContextVar
 from typing import Any
 
+import structlog
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from ..config import settings
@@ -15,7 +15,7 @@ from ..executor import execute_sql, truncate_for_context
 from .extractor import extract_recipe
 from .store import RECIPE_STORE, render_sql_safe, sha256_hex
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Mapping from recipe param type names to JSON Schema type names
 _JSON_TYPE_NAMES = {"str": "string", "int": "integer", "float": "number", "bool": "boolean"}
@@ -120,7 +120,7 @@ async def maybe_extract_and_save_recipe(
     if not settings.ENABLE_RECIPES:
         return
     if skip_condition:
-        logger.info("Skipping recipe extraction (skip condition)")
+        logger.info("recipe_extraction_skipped", reason="skip_condition")
         return
     if not (steps and raw_schema):
         return
@@ -156,7 +156,7 @@ async def maybe_extract_and_save_recipe(
             )
             mark_recipe_changed(recipe_id)
     except Exception:
-        logger.exception("Recipe extraction failed")
+        logger.exception("recipe_extraction_failed")
 
 
 # Shared ContextVar for direct return signaling

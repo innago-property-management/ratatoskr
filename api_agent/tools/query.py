@@ -1,8 +1,8 @@
 """Unified MCP tool for natural language API queries."""
 
-import logging
 from typing import Annotated
 
+import structlog
 from fastmcp import FastMCP
 from fastmcp.server.context import Context
 from mcp.types import ToolListChangedNotification
@@ -15,7 +15,7 @@ from ..context import MissingHeaderError, get_request_context
 from ..recipe import consume_recipe_changes, reset_recipe_change_flag
 from ..utils.csv import to_csv
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _build_response(result: dict, calls_key: str, ctx) -> dict:
@@ -68,7 +68,7 @@ Returns answer and the queries/calls made (reusable with execute tool).""",
             try:
                 await ctx.send_notification(ToolListChangedNotification())
             except Exception:
-                logger.debug("Failed to send tool list changed notification", exc_info=True)
+                logger.debug("tool_list_notification_failed", exc_info=True)
 
         # Direct return: just CSV, no wrapper
         if result.get("result") is not None and result.get("data") is None:

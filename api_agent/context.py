@@ -3,12 +3,14 @@
 import ipaddress
 import json
 import re
+import uuid
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from fastmcp.server.dependencies import get_http_headers
 
 from .config import settings
+from .logging import set_request_id
 
 _PRIVATE_NETWORKS = [
     ipaddress.ip_network("10.0.0.0/8"),
@@ -102,6 +104,7 @@ class RequestContext:
     base_url: str | None  # X-Base-URL: override base URL (REST only)
     include_result: bool  # X-Include-Result: whether to include full result in output
     poll_paths: tuple[str, ...]  # X-Poll-Paths: paths that require polling (enables poll tool)
+    request_id: str = ""  # X-Request-ID or auto-generated UUID4
     grpc_allow_unsafe_rpcs: tuple[
         str, ...
     ] = ()  # X-Allow-Unsafe-RPCs: glob patterns for gRPC mutations
@@ -128,6 +131,10 @@ def get_request_context() -> RequestContext:
         MissingHeaderError: If required headers are missing or invalid
     """
     headers = get_http_headers()
+
+    # Generate or accept request ID for correlation
+    request_id = headers.get("x-request-id") or str(uuid.uuid4())
+    set_request_id(request_id)
 
     # Fall back to config defaults when headers are omitted (single-API mode)
     target_url = headers.get("x-target-url") or settings.DEFAULT_TARGET_URL or None
@@ -200,6 +207,7 @@ def get_request_context() -> RequestContext:
         base_url=base_url,
         include_result=include_result,
         poll_paths=poll_paths,
+        request_id=request_id,
         grpc_allow_unsafe_rpcs=grpc_allow_unsafe_rpcs,
         allow_endpoints=allow_endpoints,
     )

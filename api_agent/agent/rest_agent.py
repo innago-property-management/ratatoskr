@@ -2,10 +2,11 @@
 
 import asyncio
 import json
-import logging
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
+
+import structlog
 
 from ..config import settings
 from ..context import RequestContext
@@ -47,7 +48,7 @@ from .prompts import (
 )
 from .schema_search import create_search_schema_tool
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _log = make_logger("[REST]")
 
@@ -571,9 +572,10 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
         # Check if allowlist filtered out all endpoints (log stats + early return)
         if spec_filter is not None and _filter_stats:
             logger.info(
-                "Endpoint allowlist: %d/%d REST operations allowed",
-                _filter_stats.get("allowed", 0),
-                _filter_stats.get("total", 0),
+                "endpoint_allowlist_applied",
+                allowed=_filter_stats.get("allowed", 0),
+                total=_filter_stats.get("total", 0),
+                protocol="rest",
             )
             if _filter_stats.get("allowed", 0) == 0 and _filter_stats.get("total", 0) > 0:
                 return {
@@ -640,7 +642,7 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
         return result.result_dict
 
     except Exception as e:
-        logger.exception("REST Agent error")
+        logger.exception("rest_agent_error")
         return {
             "ok": False,
             "data": None,

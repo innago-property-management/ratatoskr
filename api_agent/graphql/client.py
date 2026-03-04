@@ -1,14 +1,14 @@
 """GraphQL client."""
 
-import logging
 import re
 from typing import Any
 
 import httpx
+import structlog
 
 from ..pool import pool
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 # Block mutations (read-only mode)
 _MUTATION_PATTERN = re.compile(r"^\s*mutation\b", re.IGNORECASE | re.MULTILINE)
@@ -72,5 +72,5 @@ async def execute_query(
     except httpx.HTTPStatusError as e:
         return {"success": False, "error": f"HTTP {e.response.status_code}"}
     except Exception as e:
-        logger.exception("GraphQL error")
+        logger.exception("graphql_error")
         return {"success": False, "error": str(e)}

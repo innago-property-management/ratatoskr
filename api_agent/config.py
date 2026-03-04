@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     MAX_POLLS: int = 20  # Max poll attempts
     DEFAULT_POLL_DELAY_MS: int = 3000  # Default delay if agent doesn't specify
 
+    # Logging
+    LOG_FORMAT: str = "json"  # "json" (production) or "console" (dev, colored)
+
     # Server
     DEBUG: bool = False
     HOST: str = "0.0.0.0"
