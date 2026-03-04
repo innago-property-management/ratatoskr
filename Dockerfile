@@ -26,7 +26,8 @@ RUN uv sync --frozen --no-dev
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    UV_CACHE_DIR=/tmp/uv-cache
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
@@ -41,7 +42,7 @@ COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /app /app
 
 COPY start.sh ./
-RUN chmod +x ./start.sh
+RUN chmod +x ./start.sh && chown -R appuser:appuser /app
 
 EXPOSE 3000
 
