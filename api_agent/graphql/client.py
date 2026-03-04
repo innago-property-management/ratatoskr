@@ -6,6 +6,8 @@ from typing import Any
 
 import httpx
 
+from ..pool import pool
+
 logger = logging.getLogger(__name__)
 
 # Block mutations (read-only mode)
@@ -51,24 +53,24 @@ async def execute_query(
     if variables:
         payload["variables"] = variables
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            resp = await client.post(
-                endpoint,
-                json=payload,
-                headers=request_headers,
-            )
-            resp.raise_for_status()
-            result = resp.json()
-            if "errors" in result:
-                data = result.get("data")
-                if data is not None:
-                    # Partial success: return both data and errors (per GraphQL spec)
-                    return {"success": True, "data": data, "errors": result["errors"]}
-                return {"success": False, "error": result["errors"]}
-            return {"success": True, "data": result.get("data", {})}
-        except httpx.HTTPStatusError as e:
-            return {"success": False, "error": f"HTTP {e.response.status_code}"}
-        except Exception as e:
-            logger.exception("GraphQL error")
-            return {"success": False, "error": str(e)}
+    client = await pool.get_http_client(endpoint)
+    try:
+        resp = await client.post(
+            endpoint,
+            json=payload,
+            headers=request_headers,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        if "errors" in result:
+            data = result.get("data")
+            if data is not None:
+                # Partial success: return both data and errors (per GraphQL spec)
+                return {"success": True, "data": data, "errors": result["errors"]}
+            return {"success": False, "error": result["errors"]}
+        return {"success": True, "data": result.get("data", {})}
+    except httpx.HTTPStatusError as e:
+        return {"success": False, "error": f"HTTP {e.response.status_code}"}
+    except Exception as e:
+        logger.exception("GraphQL error")
+        return {"success": False, "error": str(e)}

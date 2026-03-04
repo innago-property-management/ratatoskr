@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     ALLOW_ENDPOINTS_GRAPHQL: str = ""  # CSV: "Query.user*,Query.orders"
     ALLOW_ENDPOINTS_GRPC: str = ""  # CSV: "helloworld.Greeter/*"
 
+    # Connection pool
+    HTTP_POOL_MAX_CONNECTIONS: int = 20
+    HTTP_POOL_MAX_KEEPALIVE: int = 10
+    HTTP_POOL_TIMEOUT: float = 30.0
+
     # Schema reduction pipeline
     SCHEMA_REDUCTION_ENABLED: bool = True
     SCHEMA_REDUCTION_MODEL: str = "claude-haiku-4-5-20251001"

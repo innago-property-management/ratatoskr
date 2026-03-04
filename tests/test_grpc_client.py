@@ -52,12 +52,12 @@ class TestExecuteUnaryRpc:
     """Test execute_unary_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_successful_unary_call(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Successful unary RPC returns success=True with data."""
         pool = _make_mock_pool()
@@ -66,7 +66,7 @@ class TestExecuteUnaryRpc:
         mock_to_dict.return_value = {"greeting": "hello world"}
 
         mock_channel = _make_mock_channel()
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_unary_rpc(
             target_url="grpc://localhost:50051",
@@ -80,14 +80,14 @@ class TestExecuteUnaryRpc:
         assert result["success"] is True
         assert result["data"] == {"greeting": "hello world"}
         mock_channel.unary_unary.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_rpc_error_returns_failure(
-        self, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """gRPC error returns success=False with error details."""
         pool = _make_mock_pool()
@@ -102,7 +102,7 @@ class TestExecuteUnaryRpc:
         )
 
         mock_channel = _make_mock_channel(error=mock_error)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_unary_rpc(
             target_url="grpc://localhost:50051",
@@ -116,7 +116,7 @@ class TestExecuteUnaryRpc:
         assert result["success"] is False
         assert "NOT_FOUND" in result["error"]
         assert "Method not found" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
     async def test_unknown_input_type_returns_error(self):
@@ -170,12 +170,12 @@ class TestExecuteUnaryRpc:
         assert "unknown.Resp" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_method_path_normalized(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Method path without leading / gets normalized."""
         pool = _make_mock_pool()
@@ -184,7 +184,7 @@ class TestExecuteUnaryRpc:
         mock_to_dict.return_value = {}
 
         mock_channel = _make_mock_channel()
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         await execute_unary_rpc(
             target_url="grpc://localhost:50051",
@@ -199,12 +199,12 @@ class TestExecuteUnaryRpc:
         assert call_args[0][0] == "/test.Svc/Hello"
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_tls_channel_used_for_grpcs(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """grpcs:// URL passes tls=True to channel creation."""
         pool = _make_mock_pool()
@@ -213,7 +213,7 @@ class TestExecuteUnaryRpc:
         mock_to_dict.return_value = {}
 
         mock_channel = _make_mock_channel()
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         await execute_unary_rpc(
             target_url="grpcs://api.example.com:443",
@@ -224,7 +224,7 @@ class TestExecuteUnaryRpc:
             output_type_name="test.Resp",
         )
 
-        mock_create_channel.assert_called_once_with("api.example.com:443", True)
+        mock_get_channel.assert_awaited_once_with("api.example.com:443", True)
 
     @pytest.mark.asyncio
     @patch("api_agent.grpc.client.GetMessageClass")
@@ -248,12 +248,12 @@ class TestExecuteUnaryRpc:
         assert "Failed to build request" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_metadata_passed_to_stub(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Metadata is forwarded to the RPC call."""
         pool = _make_mock_pool()
@@ -262,7 +262,7 @@ class TestExecuteUnaryRpc:
         mock_to_dict.return_value = {}
 
         mock_channel = _make_mock_channel()
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         test_metadata = [("authorization", "Bearer tok123")]
 
@@ -281,11 +281,11 @@ class TestExecuteUnaryRpc:
         assert call_kwargs["metadata"] == test_metadata
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_generic_exception_returns_rpc_failed(
-        self, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Non-gRPC exception during RPC returns 'RPC call failed' error."""
         pool = _make_mock_pool()
@@ -294,7 +294,7 @@ class TestExecuteUnaryRpc:
 
         # Use ValueError (not grpc.RpcError) to hit the generic except
         mock_channel = _make_mock_channel(error=ValueError("unexpected serialization error"))
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_unary_rpc(
             target_url="grpc://localhost:50051",
@@ -308,14 +308,14 @@ class TestExecuteUnaryRpc:
         assert result["success"] is False
         assert "RPC call failed" in result["error"]
         assert "unexpected serialization error" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_rpc_error_empty_details_uses_code(
-        self, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """When RPC error details are empty, falls back to str(code)."""
         pool = _make_mock_pool()
@@ -330,7 +330,7 @@ class TestExecuteUnaryRpc:
         )
 
         mock_channel = _make_mock_channel(error=mock_error)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_unary_rpc(
             target_url="grpc://localhost:50051",
@@ -345,11 +345,11 @@ class TestExecuteUnaryRpc:
         assert "INTERNAL" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_rpc_error_includes_hint_text(
-        self, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Error message includes the hint text for known error codes."""
         pool = _make_mock_pool()
@@ -364,7 +364,7 @@ class TestExecuteUnaryRpc:
         )
 
         mock_channel = _make_mock_channel(error=mock_error)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_unary_rpc(
             target_url="grpc://localhost:50051",
@@ -380,12 +380,12 @@ class TestExecuteUnaryRpc:
         assert "not found on the server" in result["error"].lower()
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_timeout_passed_to_stub(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Custom timeout is forwarded to the RPC stub call."""
         pool = _make_mock_pool()
@@ -394,7 +394,7 @@ class TestExecuteUnaryRpc:
         mock_to_dict.return_value = {}
 
         mock_channel = _make_mock_channel()
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         await execute_unary_rpc(
             target_url="grpc://localhost:50051",
@@ -502,12 +502,12 @@ class TestExecuteServerStreamingRpc:
     """Test execute_server_streaming_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_happy_path_three_messages(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Stream returning 3 messages collects all into a list."""
         pool = _make_mock_pool()
@@ -523,7 +523,7 @@ class TestExecuteServerStreamingRpc:
 
         stream = MockAsyncStreamIterator([MagicMock(), MagicMock(), MagicMock()])
         mock_channel = _make_streaming_channel(stream_iterator=stream)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_server_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -541,15 +541,15 @@ class TestExecuteServerStreamingRpc:
         assert result["data"][1] == {"id": 2, "name": "beta"}
         assert result["data"][2] == {"id": 3, "name": "gamma"}
         mock_channel.unary_stream.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_empty_stream(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Empty stream returns success with empty list."""
         pool = _make_mock_pool()
@@ -558,7 +558,7 @@ class TestExecuteServerStreamingRpc:
 
         stream = MockAsyncStreamIterator([])
         mock_channel = _make_streaming_channel(stream_iterator=stream)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_server_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -572,15 +572,15 @@ class TestExecuteServerStreamingRpc:
         assert result["success"] is True
         assert result["message_count"] == 0
         assert result["data"] == []
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_max_messages_caps_collection(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Stream with 200 messages but max_messages=5 -- only 5 collected."""
         pool = _make_mock_pool()
@@ -593,7 +593,7 @@ class TestExecuteServerStreamingRpc:
 
         stream = MockAsyncStreamIterator(messages)
         mock_channel = _make_streaming_channel(stream_iterator=stream)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_server_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -611,15 +611,15 @@ class TestExecuteServerStreamingRpc:
         # First 5 messages should be collected
         for i in range(5):
             assert result["data"][i] == {"index": i}
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_rpc_error_during_stream_returns_partial(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """RPC error mid-stream returns partial results + error info."""
         pool = _make_mock_pool()
@@ -645,7 +645,7 @@ class TestExecuteServerStreamingRpc:
             error=rpc_error,
         )
         mock_channel = _make_streaming_channel(stream_iterator=stream)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_server_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -661,15 +661,15 @@ class TestExecuteServerStreamingRpc:
         assert "stream broken" in result["error"]
         assert len(result["partial_data"]) == 2
         assert result["partial_data"][0] == {"id": 1, "val": "first"}
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_timeout_handled_gracefully(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Timeout (asyncio.TimeoutError) during streaming returns partial data."""
         pool = _make_mock_pool()
@@ -700,7 +700,7 @@ class TestExecuteServerStreamingRpc:
 
         stream = TimeoutStream()
         mock_channel = _make_streaming_channel(stream_iterator=stream)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_server_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -715,15 +715,15 @@ class TestExecuteServerStreamingRpc:
         assert result["success"] is False
         assert "timeout" in result["error"].lower() or "timed out" in result["error"].lower()
         assert len(result["partial_data"]) == 1
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_channel_closed_after_error(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Channel is always closed, even when the stream raises a generic exception."""
         pool = _make_mock_pool()
@@ -746,7 +746,7 @@ class TestExecuteServerStreamingRpc:
 
         stream = ErrorStream()
         mock_channel = _make_streaming_channel(stream_iterator=stream)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_server_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -760,7 +760,7 @@ class TestExecuteServerStreamingRpc:
         assert result["success"] is False
         assert "unexpected stream error" in result["error"]
         # CRITICAL: channel must be closed even after errors
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
 
 # ---------------------------------------------------------------------------
@@ -795,6 +795,7 @@ class MockClientStreamCall:
     def __await__(self):
         async def _get_response():
             return self._response
+
         return _get_response().__await__()
 
 
@@ -818,12 +819,12 @@ class TestExecuteClientStreamingRpc:
     """Test execute_client_streaming_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_client_stream_happy_path(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Send 3 messages via client stream, receive single response."""
         pool = _make_mock_pool()
@@ -834,7 +835,7 @@ class TestExecuteClientStreamingRpc:
         response_msg = MagicMock()
         call = MockClientStreamCall(response=response_msg)
         mock_channel = _make_client_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_client_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -851,15 +852,15 @@ class TestExecuteClientStreamingRpc:
         assert len(call._written) == 3
         assert call._done_writing_called
         mock_channel.stream_unary.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_client_stream_empty_request_list(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Empty request array sends nothing but still gets a response."""
         pool = _make_mock_pool()
@@ -869,7 +870,7 @@ class TestExecuteClientStreamingRpc:
 
         call = MockClientStreamCall(response=MagicMock())
         mock_channel = _make_client_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_client_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -886,12 +887,10 @@ class TestExecuteClientStreamingRpc:
         assert call._done_writing_called
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
-    async def test_client_stream_rpc_error(
-        self, mock_parse_dict, mock_get_class, mock_create_channel
-    ):
+    async def test_client_stream_rpc_error(self, mock_parse_dict, mock_get_class, mock_get_channel):
         """RPC error after sending messages returns failure."""
         pool = _make_mock_pool()
         mock_get_class.return_value = MagicMock()
@@ -905,7 +904,7 @@ class TestExecuteClientStreamingRpc:
         )
 
         mock_channel = _make_client_streaming_channel(error=rpc_error)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_client_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -919,7 +918,7 @@ class TestExecuteClientStreamingRpc:
         assert result["success"] is False
         assert "RESOURCE_EXHAUSTED" in result["error"]
         assert "Too many items" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
     async def test_client_stream_unknown_input_type(self):
@@ -970,12 +969,12 @@ class TestExecuteClientStreamingRpc:
         assert "unknown.Resp" in result["error"]
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_client_stream_metadata_forwarded(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Metadata is forwarded to the RPC call."""
         pool = _make_mock_pool()
@@ -985,7 +984,7 @@ class TestExecuteClientStreamingRpc:
 
         call = MockClientStreamCall(response=MagicMock())
         mock_channel = _make_client_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         test_metadata = [("authorization", "Bearer tok456")]
 
@@ -1004,12 +1003,12 @@ class TestExecuteClientStreamingRpc:
         assert call_kwargs["metadata"] == test_metadata
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_client_stream_method_path_normalized(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Method path without leading / gets normalized."""
         pool = _make_mock_pool()
@@ -1019,7 +1018,7 @@ class TestExecuteClientStreamingRpc:
 
         call = MockClientStreamCall(response=MagicMock())
         mock_channel = _make_client_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         await execute_client_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1034,11 +1033,11 @@ class TestExecuteClientStreamingRpc:
         assert call_args[0][0] == "/test.Svc/Upload"
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_client_stream_generic_exception(
-        self, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Non-gRPC exception returns generic error and closes channel."""
         pool = _make_mock_pool()
@@ -1048,7 +1047,7 @@ class TestExecuteClientStreamingRpc:
         mock_channel = _make_client_streaming_channel(
             error=RuntimeError("unexpected serialization error")
         )
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_client_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1061,7 +1060,7 @@ class TestExecuteClientStreamingRpc:
 
         assert result["success"] is False
         assert "Client-streaming RPC failed" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
 
 # ---------------------------------------------------------------------------
@@ -1128,12 +1127,12 @@ class TestExecuteBidiStreamingRpc:
     """Test execute_bidi_streaming_rpc with mocked channels and protobuf."""
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_bidi_stream_happy_path(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Send 2 messages, receive 3 responses."""
         pool = _make_mock_pool()
@@ -1147,7 +1146,7 @@ class TestExecuteBidiStreamingRpc:
 
         call = MockBidiStreamCall(responses=[MagicMock(), MagicMock(), MagicMock()])
         mock_channel = _make_bidi_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_bidi_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1164,15 +1163,15 @@ class TestExecuteBidiStreamingRpc:
         assert len(result["data"]) == 3
         assert result["data"][0] == {"id": 1, "echo": "a"}
         mock_channel.stream_stream.assert_called_once()
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_bidi_stream_empty_requests(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Empty request array — server may still send responses."""
         pool = _make_mock_pool()
@@ -1182,7 +1181,7 @@ class TestExecuteBidiStreamingRpc:
 
         call = MockBidiStreamCall(responses=[MagicMock()])
         mock_channel = _make_bidi_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_bidi_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1198,12 +1197,12 @@ class TestExecuteBidiStreamingRpc:
         assert result["message_count"] == 1
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_bidi_stream_max_messages_caps(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Response capped at max_messages."""
         pool = _make_mock_pool()
@@ -1215,7 +1214,7 @@ class TestExecuteBidiStreamingRpc:
 
         call = MockBidiStreamCall(responses=responses)
         mock_channel = _make_bidi_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_bidi_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1232,12 +1231,12 @@ class TestExecuteBidiStreamingRpc:
         assert len(result["data"]) == 5
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_bidi_stream_rpc_error_returns_partial(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """RPC error mid-stream returns partial data."""
         pool = _make_mock_pool()
@@ -1258,7 +1257,7 @@ class TestExecuteBidiStreamingRpc:
             error=rpc_error,
         )
         mock_channel = _make_bidi_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_bidi_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1272,15 +1271,15 @@ class TestExecuteBidiStreamingRpc:
         assert result["success"] is False
         assert "INTERNAL" in result["error"]
         assert len(result["partial_data"]) == 2
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_bidi_stream_timeout_returns_partial(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Timeout during bidi collection returns partial data."""
         pool = _make_mock_pool()
@@ -1309,7 +1308,7 @@ class TestExecuteBidiStreamingRpc:
 
         call = TimeoutBidiStream()
         mock_channel = _make_bidi_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_bidi_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1323,15 +1322,15 @@ class TestExecuteBidiStreamingRpc:
         assert result["success"] is False
         assert "timed out" in result["error"].lower() or "timeout" in result["error"].lower()
         assert len(result["partial_data"]) == 1
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     @patch("api_agent.grpc.client.MessageToDict")
     async def test_bidi_stream_metadata_forwarded(
-        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_to_dict, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Metadata is forwarded to the bidi RPC call."""
         pool = _make_mock_pool()
@@ -1341,7 +1340,7 @@ class TestExecuteBidiStreamingRpc:
 
         call = MockBidiStreamCall(responses=[])
         mock_channel = _make_bidi_streaming_channel(call=call)
-        mock_create_channel.return_value = mock_channel
+        mock_get_channel.return_value = mock_channel
 
         test_metadata = [("x-api-key", "secret")]
 
@@ -1360,21 +1359,19 @@ class TestExecuteBidiStreamingRpc:
         assert call_kwargs["metadata"] == test_metadata
 
     @pytest.mark.asyncio
-    @patch("api_agent.grpc.client._create_channel")
+    @patch("api_agent.grpc.client._get_channel", new_callable=AsyncMock)
     @patch("api_agent.grpc.client.GetMessageClass")
     @patch("api_agent.grpc.client.ParseDict")
     async def test_bidi_stream_generic_exception(
-        self, mock_parse_dict, mock_get_class, mock_create_channel
+        self, mock_parse_dict, mock_get_class, mock_get_channel
     ):
         """Non-gRPC exception returns generic error and closes channel."""
         pool = _make_mock_pool()
         mock_get_class.return_value = MagicMock()
         mock_parse_dict.return_value = MagicMock()
 
-        mock_channel = _make_bidi_streaming_channel(
-            error=RuntimeError("unexpected bidi error")
-        )
-        mock_create_channel.return_value = mock_channel
+        mock_channel = _make_bidi_streaming_channel(error=RuntimeError("unexpected bidi error"))
+        mock_get_channel.return_value = mock_channel
 
         result = await execute_bidi_streaming_rpc(
             target_url="grpc://localhost:50051",
@@ -1387,7 +1384,7 @@ class TestExecuteBidiStreamingRpc:
 
         assert result["success"] is False
         assert "Bidi-streaming RPC failed" in result["error"]
-        mock_channel.close.assert_awaited_once()
+        # Channel lifecycle managed by pool — no close assertion
 
     @pytest.mark.asyncio
     async def test_bidi_stream_unknown_input_type(self):
