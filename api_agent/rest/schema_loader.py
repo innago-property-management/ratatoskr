@@ -9,6 +9,7 @@ import yaml
 
 from ..config import settings
 from ..pool import pool
+from ..sanitize import sanitize_schema_text
 from ..schema.reducer import reduce_schema
 
 logger = structlog.get_logger(__name__)
@@ -299,6 +300,7 @@ def build_schema_context(spec: dict[str, Any]) -> str:
             summary = op.get("description") or op.get("summary") or op.get("operationId", "")
             if not isinstance(summary, str):
                 summary = ""
+            summary = sanitize_schema_text(summary) if summary else ""
 
             desc = f"  # {summary}" if summary else ""
             lines.append(f"{method.upper()} {path}({param_str}) -> {response_type}{desc}")

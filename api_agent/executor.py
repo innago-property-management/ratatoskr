@@ -174,6 +174,34 @@ def get_table_schema_summary(data: list[dict], table_name: str) -> dict[str, Any
     return _extract_schema(data, table_name)
 
 
+_DDL_DML_RE = re.compile(
+    r"\b(?:CREATE|DROP|INSERT|UPDATE|DELETE|ALTER|TRUNCATE|ATTACH|DETACH|COPY|LOAD|INSTALL|EXPORT|IMPORT)\b",
+    re.I,
+)
+
+# Strip SQL comments before checking for DDL/DML
+_SQL_LINE_COMMENT = re.compile(r"--[^\n]*")
+_SQL_BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+
+
+def _validate_sql_readonly(query: str) -> str | None:
+    """Validate that SQL is read-only (SELECT/WITH only). Returns error message or None."""
+    stripped = _SQL_LINE_COMMENT.sub("", query)
+    stripped = _SQL_BLOCK_COMMENT.sub("", stripped)
+    stripped = stripped.strip()
+    if not stripped:
+        return "Empty SQL query"
+    # Block multi-statement queries (no legitimate need for semicolons)
+    if ";" in stripped:
+        return "Multi-statement queries are not allowed"
+    if _DDL_DML_RE.search(stripped):
+        return "Only SELECT and WITH (CTE) statements are allowed"
+    # Check that the top-level statement starts with SELECT or WITH
+    if not re.match(r"^\s*(?:SELECT|WITH)\b", stripped, re.I):
+        return "Only SELECT and WITH (CTE) statements are allowed"
+    return None
+
+
 def execute_sql(data: Any, query: str) -> dict[str, Any]:
     """Execute SQL query on JSON data using DuckDB.
 
@@ -184,6 +212,10 @@ def execute_sql(data: Any, query: str) -> dict[str, Any]:
     Returns:
         Dict with success/result or error
     """
+    # Defense-in-depth: block DDL/DML before execution
+    validation_error = _validate_sql_readonly(query)
+    if validation_error:
+        return {"success": False, "error": f"SQL blocked: {validation_error}"}
     temp_files = []
     conn = None
     try:
