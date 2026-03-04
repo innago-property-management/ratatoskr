@@ -27,7 +27,11 @@ from api_agent.recipe.store import RECIPE_STORE, sha256_hex
 
 @pytest.fixture(autouse=True)
 def clean_recipe_store():
-    """Ensure the global recipe store is empty before and after each test."""
+    """Ensure the global recipe store is empty before and after each test.
+
+    Direct _records/_by_key/_lru access bypasses asyncio.Lock, which is safe
+    here because pytest runs tests sequentially (no concurrent coroutines).
+    """
     RECIPE_STORE._records.clear()
     RECIPE_STORE._by_key.clear()
     RECIPE_STORE._lru.clear()
@@ -333,7 +337,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="greet someone",
@@ -373,7 +377,7 @@ class TestGrpcRecipeExecution:
         api_id = build_api_id(ctx, "grpc")
 
         recipe = {"tool_name": "get_greeting", "params": {}, "steps": [], "sql_steps": []}
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash="old_hash",
             question="greet",
@@ -418,7 +422,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": ["SELECT * FROM greetings WHERE message LIKE '%world%'"],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="filtered greet",
@@ -472,7 +476,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="greet",
@@ -520,7 +524,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="missing",
@@ -565,7 +569,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="stream greetings",
@@ -620,7 +624,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="record route",
@@ -675,7 +679,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="chat",
@@ -730,7 +734,7 @@ class TestGrpcRecipeExecution:
             ],
             "sql_steps": [],
         }
-        recipe_id = RECIPE_STORE.save_recipe(
+        recipe_id = await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="bad",
@@ -837,7 +841,7 @@ class TestGrpcAgentRecipeIntegration:
             ],
             "sql_steps": [],
         }
-        RECIPE_STORE.save_recipe(
+        await RECIPE_STORE.save_recipe(
             api_id=api_id,
             schema_hash=schema_hash,
             question="greet someone",

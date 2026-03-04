@@ -86,7 +86,7 @@ async def _list_recipe_tools(
 
     schema_hash = sha256_hex(raw_schema)
     api_id = build_api_id(req_ctx, req_ctx.api_type, base_url)
-    recipes = RECIPE_STORE.list_recipes(api_id=api_id, schema_hash=schema_hash)
+    recipes = await RECIPE_STORE.list_recipes(api_id=api_id, schema_hash=schema_hash)
     tools: list[FastMCPTool] = []
 
     # Group by tool slug (truncated to fit name) and pick most recent
@@ -209,7 +209,7 @@ class DynamicToolNamingMiddleware(Middleware):
 
             schema_hash = sha256_hex(raw_schema)
             api_id = build_api_id(req_ctx, req_ctx.api_type, base_url)
-            recipe_meta = RECIPE_STORE.find_recipe_by_tool_slug(
+            recipe_meta = await RECIPE_STORE.find_recipe_by_tool_slug(
                 api_id=api_id,
                 schema_hash=schema_hash,
                 tool_slug=recipe_slug,

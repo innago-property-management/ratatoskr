@@ -48,7 +48,8 @@ def test_get_example_values_none_value():
     assert params2 == {"id": 42, "limit": 10}
 
 
-def test_recipe_store_preserves_defaults():
+@pytest.mark.asyncio
+async def test_recipe_store_preserves_defaults():
     """Defaults are preserved as-is (no sensitivity filtering)."""
     store = RecipeStore(max_size=10)
     recipe = {
@@ -59,32 +60,33 @@ def test_recipe_store_preserves_defaults():
         "steps": [],
         "sql_steps": [],
     }
-    recipe_id = store.save_recipe(
+    recipe_id = await store.save_recipe(
         api_id="rest:https://spec|https://api",
         schema_hash="s",
         question="q",
         recipe=recipe,
         tool_name="test_recipe",
     )
-    saved = store.get_recipe(recipe_id)
+    saved = await store.get_recipe(recipe_id)
     assert saved is not None
     # Defaults preserved exactly as provided
     assert saved["params"]["user_id"]["default"] == "123e4567-e89b-12d3-a456-426614174000"
     assert saved["params"]["limit"]["default"] == 10
 
 
-def test_recipe_store_scoring_prefers_closer_match():
+@pytest.mark.asyncio
+async def test_recipe_store_scoring_prefers_closer_match():
     store = RecipeStore(max_size=10)
     r1 = {"params": {}, "steps": [], "sql_steps": []}
     r2 = {"params": {}, "steps": [], "sql_steps": []}
-    id1 = store.save_recipe(
+    id1 = await store.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="top hotels by rating",
         recipe=r1,
         tool_name="top_hotels",
     )
-    id2 = store.save_recipe(
+    id2 = await store.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="list users by age",
@@ -92,32 +94,33 @@ def test_recipe_store_scoring_prefers_closer_match():
         tool_name="list_users",
     )
     assert id1 and id2
-    suggestions = store.suggest_recipes(
+    suggestions = await store.suggest_recipes(
         api_id="rest:a|b", schema_hash="s", question="best hotels", k=2
     )
     assert suggestions
     assert suggestions[0]["recipe_id"] == id1
 
 
-def test_recipe_store_scoring_handles_token_order():
+@pytest.mark.asyncio
+async def test_recipe_store_scoring_handles_token_order():
     store = RecipeStore(max_size=10)
     r1 = {"params": {}, "steps": [], "sql_steps": []}
     r2 = {"params": {}, "steps": [], "sql_steps": []}
-    id1 = store.save_recipe(
+    id1 = await store.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="find hotels in nyc",
         recipe=r1,
         tool_name="find_hotels_in_nyc",
     )
-    _id2 = store.save_recipe(
+    _id2 = await store.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="find users in nyc",
         recipe=r2,
         tool_name="find_users_in_nyc",
     )
-    suggestions = store.suggest_recipes(
+    suggestions = await store.suggest_recipes(
         api_id="rest:a|b", schema_hash="s", question="nyc hotels find", k=2
     )
     assert suggestions
@@ -313,24 +316,26 @@ def test_validate_equivalence_length_mismatch():
     )
 
 
-def test_build_recipe_context_empty():
+@pytest.mark.asyncio
+async def test_build_recipe_context_empty():
     """Empty suggestions returns empty string."""
-    assert build_recipe_context([]) == ""
+    assert await build_recipe_context([]) == ""
 
 
-def test_build_recipe_context_with_suggestions():
+@pytest.mark.asyncio
+async def test_build_recipe_context_with_suggestions():
     """Suggestions are formatted correctly for prompt injection."""
     r1 = {"params": {"prefix": {"type": "str", "default": "A"}}, "steps": [], "sql_steps": []}
     r2 = {"params": {}, "steps": [], "sql_steps": []}
 
-    rid1 = RECIPE_STORE.save_recipe(
+    rid1 = await RECIPE_STORE.save_recipe(
         api_id="rest:test|test",
         schema_hash="s",
         question="get users starting with A",
         recipe=r1,
         tool_name="get_users_starting_with_a",
     )
-    rid2 = RECIPE_STORE.save_recipe(
+    rid2 = await RECIPE_STORE.save_recipe(
         api_id="rest:test|test",
         schema_hash="s",
         question="list all users",
@@ -354,7 +359,7 @@ def test_build_recipe_context_with_suggestions():
             "tool_name": "list_all_users",
         },
     ]
-    result = build_recipe_context(suggestions)
+    result = await build_recipe_context(suggestions)
 
     assert "<recipes>" in result
     assert "</recipes>" in result
@@ -365,10 +370,11 @@ def test_build_recipe_context_with_suggestions():
     assert "list all users" in result
 
 
-def test_build_recipe_context_no_params():
+@pytest.mark.asyncio
+async def test_build_recipe_context_no_params():
     """Recipes without params show empty param list."""
     r = {"params": {}, "steps": [], "sql_steps": []}
-    rid = RECIPE_STORE.save_recipe(
+    rid = await RECIPE_STORE.save_recipe(
         api_id="rest:test|test",
         schema_hash="s",
         question="simple query",
@@ -379,12 +385,13 @@ def test_build_recipe_context_no_params():
     suggestions = [
         {"recipe_id": rid, "score": 0.90, "question": "simple query", "params": {}},
     ]
-    result = build_recipe_context(suggestions)
+    result = await build_recipe_context(suggestions)
     # Tool name with no params should have empty signature
     assert "simple_query()" in result or "simple_query\n" in result
 
 
-def test_build_recipe_context_enhanced_format():
+@pytest.mark.asyncio
+async def test_build_recipe_context_enhanced_format():
     """Enhanced context shows tool names, score hints, step summaries."""
     # Create mock recipe in store
     # Using global RECIPE_STORE
@@ -393,7 +400,7 @@ def test_build_recipe_context_enhanced_format():
         "steps": [{"kind": "rest", "method": "GET", "path": "/users"}],
         "sql_steps": ["SELECT * FROM data WHERE active = true"],
     }
-    recipe_id = RECIPE_STORE.save_recipe(
+    recipe_id = await RECIPE_STORE.save_recipe(
         api_id="rest:test|test",
         schema_hash="test_hash",
         question="Get user's recent posts",
@@ -410,7 +417,7 @@ def test_build_recipe_context_enhanced_format():
         }
     ]
 
-    result = build_recipe_context(suggestions)
+    result = await build_recipe_context(suggestions)
 
     # Check new format elements
     assert "Available recipe tools" in result
@@ -421,13 +428,14 @@ def test_build_recipe_context_enhanced_format():
     assert "1 API call + 1 SQL step" in result  # Step summary
 
 
-def test_build_recipe_context_score_hints():
+@pytest.mark.asyncio
+async def test_build_recipe_context_score_hints():
     """Test different score interpretation hints."""
     # Using global RECIPE_STORE
     recipe = {"params": {}, "steps": [], "sql_steps": []}
 
     # High score
-    rid1 = RECIPE_STORE.save_recipe(
+    rid1 = await RECIPE_STORE.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="high score query",
@@ -435,7 +443,7 @@ def test_build_recipe_context_score_hints():
         tool_name="high_score_query",
     )
     # Medium score
-    rid2 = RECIPE_STORE.save_recipe(
+    rid2 = await RECIPE_STORE.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="medium score query",
@@ -443,7 +451,7 @@ def test_build_recipe_context_score_hints():
         tool_name="medium_score_query",
     )
     # Low score
-    rid3 = RECIPE_STORE.save_recipe(
+    rid3 = await RECIPE_STORE.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="low score query",
@@ -457,14 +465,15 @@ def test_build_recipe_context_score_hints():
         {"recipe_id": rid3, "score": 0.45, "question": "low score query", "params": {}},
     ]
 
-    result = build_recipe_context(suggestions)
+    result = await build_recipe_context(suggestions)
 
     assert "STRONG MATCH - highly recommended" in result
     assert "Good match - verify params" in result
     assert "Possible match - check alignment" in result
 
 
-def test_build_recipe_context_step_summaries():
+@pytest.mark.asyncio
+async def test_build_recipe_context_step_summaries():
     """Test step summary formatting."""
     # Using global RECIPE_STORE
 
@@ -481,28 +490,28 @@ def test_build_recipe_context_step_summaries():
     # Neither
     r4 = {"params": {}, "steps": [], "sql_steps": []}
 
-    rid1 = RECIPE_STORE.save_recipe(
+    rid1 = await RECIPE_STORE.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="api only",
         recipe=r1,
         tool_name="api_only",
     )
-    rid2 = RECIPE_STORE.save_recipe(
+    rid2 = await RECIPE_STORE.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="sql only",
         recipe=r2,
         tool_name="sql_only",
     )
-    rid3 = RECIPE_STORE.save_recipe(
+    rid3 = await RECIPE_STORE.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="both",
         recipe=r3,
         tool_name="both",
     )
-    rid4 = RECIPE_STORE.save_recipe(
+    rid4 = await RECIPE_STORE.save_recipe(
         api_id="rest:a|b",
         schema_hash="s",
         question="neither",
@@ -517,7 +526,7 @@ def test_build_recipe_context_step_summaries():
         {"recipe_id": rid4, "score": 0.7, "question": "neither", "params": {}},
     ]
 
-    result = build_recipe_context(suggestions)
+    result = await build_recipe_context(suggestions)
 
     assert "1 API call" in result
     assert "1 SQL step" in result
@@ -525,7 +534,8 @@ def test_build_recipe_context_step_summaries():
     assert "no steps" in result
 
 
-def test_validate_and_prepare_recipe_success():
+@pytest.mark.asyncio
+async def test_validate_and_prepare_recipe_success():
     """validate_and_prepare_recipe returns recipe and params."""
     from contextvars import ContextVar
 
@@ -539,7 +549,7 @@ def test_validate_and_prepare_recipe_success():
         "steps": [{"kind": "graphql", "query_template": "{ users }"}],
         "sql_steps": [],
     }
-    rid = RECIPE_STORE.save_recipe(
+    rid = await RECIPE_STORE.save_recipe(
         api_id="graphql:test",
         schema_hash="abc",
         question="get users",
@@ -547,13 +557,14 @@ def test_validate_and_prepare_recipe_success():
         tool_name="get_users",
     )
 
-    result, params, error = validate_and_prepare_recipe(rid, '{"limit": 5}', schema_var)
+    result, params, error = await validate_and_prepare_recipe(rid, '{"limit": 5}', schema_var)
     assert error == ""
     assert result is not None
     assert params == {"limit": 5}
 
 
-def test_validate_and_prepare_recipe_not_found():
+@pytest.mark.asyncio
+async def test_validate_and_prepare_recipe_not_found():
     """validate_and_prepare_recipe returns error for missing recipe."""
     from contextvars import ContextVar
 
@@ -562,13 +573,14 @@ def test_validate_and_prepare_recipe_not_found():
     schema_var: ContextVar[str] = ContextVar("schema")
     schema_var.set('{"type": "test"}')
 
-    result, params, error = validate_and_prepare_recipe("nonexistent", "{}", schema_var)
+    result, params, error = await validate_and_prepare_recipe("nonexistent", "{}", schema_var)
     assert result is None
     assert params is None
     assert "not found" in error
 
 
-def test_validate_and_prepare_recipe_no_schema():
+@pytest.mark.asyncio
+async def test_validate_and_prepare_recipe_no_schema():
     """validate_and_prepare_recipe returns error when schema not loaded."""
     from contextvars import ContextVar
 
@@ -576,7 +588,7 @@ def test_validate_and_prepare_recipe_no_schema():
 
     schema_var: ContextVar[str] = ContextVar("schema")  # Not set
 
-    result, params, error = validate_and_prepare_recipe("r_123", "{}", schema_var)
+    result, params, error = await validate_and_prepare_recipe("r_123", "{}", schema_var)
     assert result is None
     assert "schema not loaded" in error
 
