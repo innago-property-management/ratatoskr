@@ -271,15 +271,14 @@ def truncate_for_context(
     from .config import settings
 
     max_chars = max_chars or settings.MAX_TOOL_RESPONSE_CHARS
-    total_rows = len(data)
 
     result = _truncate_preview(data, table_name, max_chars)
     if result is None:
-        return {"table": table_name, "rows": total_rows, "data": data, "truncated": False}
+        return {"table": table_name, "rows": len(data), "data": data, "truncated": False}
 
     schema = _extract_schema(data, table_name)
     result["schema"] = schema.get("schema", "")
-    result["hint"] = f"Showing {result['showing']}/{total_rows}. Use sql_query to filter."
+    result["hint"] = f"Showing {result['showing']}/{result['rows']}. Use sql_query to filter."
     return result
 
 
@@ -293,15 +292,14 @@ async def truncate_for_context_async(
     from .config import settings
 
     max_chars = max_chars or settings.MAX_TOOL_RESPONSE_CHARS
-    total_rows = len(data)
 
     result = _truncate_preview(data, table_name, max_chars)
     if result is None:
-        return {"table": table_name, "rows": total_rows, "data": data, "truncated": False}
+        return {"table": table_name, "rows": len(data), "data": data, "truncated": False}
 
     schema = await asyncio.to_thread(_extract_schema, data, table_name)
     result["schema"] = schema.get("schema", "")
-    result["hint"] = f"Showing {result['showing']}/{total_rows}. Use sql_query to filter."
+    result["hint"] = f"Showing {result['showing']}/{result['rows']}. Use sql_query to filter."
     return result
 
 

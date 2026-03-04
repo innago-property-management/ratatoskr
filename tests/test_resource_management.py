@@ -241,9 +241,6 @@ class TestGracefulShutdown:
         shutdown_event = asyncio.Event()
         cleanup = AsyncMock()
 
-        # Save old handler so we can restore it
-        old_handler = signal.getsignal(signal.SIGTERM)
-
         try:
             # Install handlers
             install_shutdown_signals(loop, shutdown_event, cleanup)
@@ -256,8 +253,8 @@ class TestGracefulShutdown:
             assert shutdown_event.is_set()
             cleanup.assert_awaited_once()
         finally:
-            # Restore original handler so other tests aren't affected
-            signal.signal(signal.SIGTERM, old_handler)
+            # Remove asyncio signal handler so other tests aren't affected
+            loop.remove_signal_handler(signal.SIGTERM)
 
     @pytest.mark.asyncio
     async def test_shutdown_cleanup_closes_resources(self):
@@ -326,9 +323,10 @@ class TestTruncateForContextAsync:
         assert "schema" in result
         assert "hint" in result
 
-    def test_sync_variant_matches_async(self):
-        """Sync truncate_for_context returns same structure as async."""
+    @pytest.mark.asyncio
+    async def test_sync_variant_matches_async(self):
+        """Both variants return identical structure."""
         data = [{"id": 1}]
         sync_result = truncate_for_context(data, "t")
-        assert "truncated" in sync_result
-        assert "data" in sync_result
+        async_result = await truncate_for_context_async(data, "t")
+        assert sync_result == async_result

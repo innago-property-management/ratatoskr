@@ -19,7 +19,11 @@ if TYPE_CHECKING:
     from ..llm.provider import LLMProvider
 
 from ..config import settings
-from ..executor import execute_sql, extract_tables_from_response, truncate_for_context
+from ..executor import (
+    execute_sql,
+    extract_tables_from_response,
+    truncate_for_context_async,
+)
 from ..llm.provider import MaxTurnsExceeded
 from ..llm.tools import tool
 from ..recipe import (
@@ -191,7 +195,7 @@ def store_result(
         return None, None
 
 
-def format_tool_response(
+async def format_tool_response(
     stored_data: Any,
     schema_info: dict | None,
     name: str,
@@ -200,7 +204,7 @@ def format_tool_response(
     """Format API tool response with smart truncation.
 
     - Wrapped dict (single object) → schema summary
-    - List → char-based truncation
+    - List → char-based truncation (async, avoids blocking event loop)
     - Fallback → full result JSON
     """
     if result.get("success") and stored_data:
@@ -211,7 +215,7 @@ def format_tool_response(
             )
         if isinstance(stored_data, list):
             return json.dumps(
-                {"success": True, **truncate_for_context(stored_data, name)},
+                {"success": True, **await truncate_for_context_async(stored_data, name)},
                 indent=2,
             )
     return json.dumps(result, indent=2)
@@ -235,7 +239,7 @@ def create_sql_query_tool(
         no_data_hint: Error message when no data is loaded (e.g., "Call graphql_query first.")
     """
 
-    def sql_query(sql: str, return_directly: bool = False) -> str:
+    async def sql_query(sql: str, return_directly: bool = False) -> str:
         """Run DuckDB SQL on stored API results.
 
         Args:
@@ -271,7 +275,7 @@ def create_sql_query_tool(
 
             if isinstance(rows, list):
                 return json.dumps(
-                    {"success": True, **truncate_for_context(rows, "sql_result")},
+                    {"success": True, **await truncate_for_context_async(rows, "sql_result")},
                     indent=2,
                 )
 
@@ -364,7 +368,7 @@ async def create_recipe_tools(
                 if return_directly:
                     _set_return_directly()
 
-                return format_recipe_response(
+                return await format_recipe_response(
                     ctx_vars.last_result,
                     executed_items,
                     executed_sql,
