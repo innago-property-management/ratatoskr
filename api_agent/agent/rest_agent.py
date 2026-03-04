@@ -22,7 +22,7 @@ from ..recipe import (
 from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
 from ..sanitize import sanitize_error
-from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
+from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
 from .orchestrator import (
     AgentContextVars,
