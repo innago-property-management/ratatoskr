@@ -7,8 +7,6 @@ is a no-op when no OTLP endpoint is configured.
 
 from __future__ import annotations
 
-import os
-
 import structlog
 
 from .config import get_settings
@@ -38,7 +36,7 @@ def init_metrics() -> bool:
         return _prometheus_available
 
     settings = get_settings()
-    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "")
+    otlp_endpoint = settings.OTEL_EXPORTER_OTLP_ENDPOINT
 
     try:
         from opentelemetry import metrics as otel_metrics
@@ -63,7 +61,11 @@ def init_metrics() -> bool:
                     )
                 )
             except ImportError:
-                logger.debug("otlp_metric_exporter_unavailable")
+                logger.warning(
+                    "otlp_metric_exporter_unavailable",
+                    hint="OTEL_EXPORTER_OTLP_ENDPOINT is set but opentelemetry-exporter-otlp "
+                    "is not installed. Metrics will not be exported.",
+                )
 
         # Optional Prometheus reader
         try:
@@ -77,7 +79,9 @@ def init_metrics() -> bool:
             pass  # prometheus extras not installed
 
         if not readers and not otlp_endpoint:
-            # No exporters and no endpoint — use global no-op meter
+            # No exporters and no endpoint — use global no-op meter.
+            # Set _meter_provider to sentinel so repeated calls are idempotent.
+            _meter_provider = True
             _meter = otel_metrics.get_meter("api_agent")
             return False
 
@@ -221,17 +225,18 @@ def record_token_usage(prompt_tokens: int, completion_tokens: int, provider_name
     ctr = _token_ctr()
     if not ctr:
         return
+    # Skip zero: some providers (openai-compat) omit usage fields, yielding 0
     if prompt_tokens:
         ctr.add(prompt_tokens, {"provider": provider_name, "token_type": "prompt"})
     if completion_tokens:
         ctr.add(completion_tokens, {"provider": provider_name, "token_type": "completion"})
 
 
-def record_agent_turns(turns: int, protocol: str) -> None:
+def record_agent_turns(turns: int, agent_type: str) -> None:
     """Record how many LLM turns an agent run used."""
     hist = _turns_hist()
     if hist:
-        hist.record(turns, {"protocol": protocol})
+        hist.record(turns, {"agent_type": agent_type})
 
 
 def record_duckdb_duration(duration_ms: float, operation: str) -> None:

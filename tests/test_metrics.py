@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
 
 from api_agent import metrics
+from api_agent.config import Settings
 
 
 @pytest.fixture(autouse=True)
@@ -34,44 +33,57 @@ def _reset_metrics():
     metrics._schema_fetch_histogram = None
 
 
+def _no_endpoint_settings():
+    """Return a Settings object with empty OTLP endpoint."""
+    return Settings(OTEL_EXPORTER_OTLP_ENDPOINT="")
+
+
+def _with_endpoint_settings():
+    """Return a Settings object with an OTLP endpoint."""
+    return Settings(OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4318")
+
+
 class TestInitMetrics:
     """init_metrics() initialization and idempotency."""
 
-    def test_init_without_endpoint_returns_false(self):
+    def test_init_without_endpoint_returns_false(self, monkeypatch):
         """Without OTLP endpoint, init_metrics returns False (no-op meter)."""
-        with patch.dict("os.environ", {}, clear=False):
-            # Ensure no OTLP endpoint
-            import os
-
-            os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
-            result = metrics.init_metrics()
-
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
+        result = metrics.init_metrics()
         assert result is False
 
-    def test_init_idempotent_with_endpoint(self):
-        """With OTLP endpoint, calling init_metrics() twice returns same result."""
-        with patch.dict("os.environ", {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318"}):
-            first = metrics.init_metrics()
-            provider_after_first = metrics._meter_provider
+    def test_init_idempotent_without_endpoint(self, monkeypatch):
+        """No-op path is idempotent — second call returns immediately."""
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
+        first = metrics.init_metrics()
+        provider_after_first = metrics._meter_provider
 
-            second = metrics.init_metrics()
-            assert first == second
-            assert metrics._meter_provider is provider_after_first
+        second = metrics.init_metrics()
+        assert first == second
+        assert metrics._meter_provider is provider_after_first
+
+    def test_init_idempotent_with_endpoint(self, monkeypatch):
+        """With OTLP endpoint, calling init_metrics() twice returns same result."""
+        monkeypatch.setattr("api_agent.metrics.get_settings", _with_endpoint_settings)
+        first = metrics.init_metrics()
+        provider_after_first = metrics._meter_provider
+
+        second = metrics.init_metrics()
+        assert first == second
+        assert metrics._meter_provider is provider_after_first
 
         metrics.shutdown_metrics()
 
-    def test_init_with_endpoint(self):
+    def test_init_with_endpoint(self, monkeypatch):
         """With OTLP endpoint, init_metrics initializes a real MeterProvider."""
-        with patch.dict("os.environ", {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318"}):
-            result = metrics.init_metrics()
+        monkeypatch.setattr("api_agent.metrics.get_settings", _with_endpoint_settings)
+        result = metrics.init_metrics()
 
         # Should have initialized — meter_provider is set
         assert metrics._meter_provider is not None
         assert metrics._meter is not None
-        # Prometheus may or may not be available depending on installed packages
         assert isinstance(result, bool)
 
-        # Shutdown to avoid background threads
         metrics.shutdown_metrics()
 
 
@@ -82,10 +94,10 @@ class TestShutdownMetrics:
         """Calling shutdown_metrics() before init is a no-op."""
         metrics.shutdown_metrics()  # Should not raise
 
-    def test_shutdown_after_init(self):
+    def test_shutdown_after_init(self, monkeypatch):
         """Shutdown after init doesn't raise."""
-        with patch.dict("os.environ", {"OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:4318"}):
-            metrics.init_metrics()
+        monkeypatch.setattr("api_agent.metrics.get_settings", _with_endpoint_settings)
+        metrics.init_metrics()
         metrics.shutdown_metrics()  # Should not raise
 
 
@@ -96,11 +108,9 @@ class TestRecordRequest:
         """Recording before init is a no-op (no exception)."""
         metrics.record_request("graphql", "ok", 42.0)
 
-    def test_record_after_init(self):
+    def test_record_after_init(self, monkeypatch):
         """Recording after init writes to instruments without error."""
-        import os
-
-        os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
         metrics.init_metrics()
         metrics.record_request("graphql", "ok", 150.5)
         metrics.record_request("rest", "error", 3000.0)
@@ -113,19 +123,15 @@ class TestRecordTokenUsage:
     def test_record_without_init_is_safe(self):
         metrics.record_token_usage(100, 50, "openai")
 
-    def test_record_zero_tokens_skipped(self):
+    def test_record_zero_tokens_skipped(self, monkeypatch):
         """Zero-value tokens don't call counter.add()."""
-        import os
-
-        os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
         metrics.init_metrics()
         # Should not raise — 0 values are skipped
         metrics.record_token_usage(0, 0, "openai")
 
-    def test_record_with_values(self):
-        import os
-
-        os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    def test_record_with_values(self, monkeypatch):
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
         metrics.init_metrics()
         metrics.record_token_usage(500, 200, "anthropic")
 
@@ -136,10 +142,8 @@ class TestRecordAgentTurns:
     def test_record_without_init_is_safe(self):
         metrics.record_agent_turns(5, "graphql")
 
-    def test_record_after_init(self):
-        import os
-
-        os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    def test_record_after_init(self, monkeypatch):
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
         metrics.init_metrics()
         metrics.record_agent_turns(3, "graphql")
         metrics.record_agent_turns(12, "rest")
@@ -151,10 +155,8 @@ class TestRecordDuckdbDuration:
     def test_record_without_init_is_safe(self):
         metrics.record_duckdb_duration(15.0, "sql_query")
 
-    def test_record_after_init(self):
-        import os
-
-        os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    def test_record_after_init(self, monkeypatch):
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
         metrics.init_metrics()
         metrics.record_duckdb_duration(42.5, "sql_query")
 
@@ -165,10 +167,8 @@ class TestRecordSchemaFetch:
     def test_record_without_init_is_safe(self):
         metrics.record_schema_fetch(250.0, "graphql")
 
-    def test_record_after_init(self):
-        import os
-
-        os.environ.pop("OTEL_EXPORTER_OTLP_ENDPOINT", None)
+    def test_record_after_init(self, monkeypatch):
+        monkeypatch.setattr("api_agent.metrics.get_settings", _no_endpoint_settings)
         metrics.init_metrics()
         metrics.record_schema_fetch(1200.0, "grpc")
         metrics.record_schema_fetch(350.0, "rest")
@@ -206,7 +206,6 @@ class TestInMemoryMetricReader:
 
         # Manually set the module meter for test isolation
         metrics._meter = meter
-        # Reset lazy singletons so they use the new meter
         metrics._query_counter = None
         metrics._latency_histogram = None
 
