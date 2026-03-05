@@ -138,9 +138,29 @@ def create_app():
     app = mcp.http_app(middleware=middleware, transport=transport)
 
     async def health(request):
+        """Liveness probe — confirms process is alive and responding."""
         return JSONResponse({"status": "ok"})
 
+    async def ready(request):
+        """Readiness probe — confirms server is configured and can accept traffic."""
+        from .config import get_settings
+
+        checks = {"config": "ok"}
+        try:
+            s = get_settings()
+            if not s.PROVIDER:
+                checks["config"] = "no provider configured"
+        except Exception as exc:
+            checks["config"] = str(exc)
+
+        all_ok = all(v == "ok" for v in checks.values())
+        return JSONResponse(
+            {"status": "ready" if all_ok else "not_ready", "checks": checks},
+            status_code=200 if all_ok else 503,
+        )
+
     app.router.routes.append(Route("/health", health, methods=["GET"]))
+    app.router.routes.append(Route("/ready", ready, methods=["GET"]))
 
     # Optional Prometheus /metrics endpoint
     prometheus_ok = init_metrics()

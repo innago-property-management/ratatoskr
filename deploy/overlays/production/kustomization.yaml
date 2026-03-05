@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+# Override image tag for production releases
+images:
+  - name: ghcr.io/innago-property-management/ratatoskr
+    newTag: "0.1.0"  # Pin to release tag
+
+patches:
+  - target:
+      kind: Deployment
+      name: ratatoskr
+    patch: |-
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ratatoskr
+      spec:
+        replicas: 2
+        template:
+          spec:
+            containers:
+              - name: ratatoskr
+                resources:
+                  requests:
+                    cpu: 250m
+                    memory: 512Mi
+                  limits:
+                    cpu: "2"
+                    memory: 1Gi
+            topologySpreadConstraints:
+              - maxSkew: 1
+                topologyKey: kubernetes.io/hostname
+                whenUnsatisfiable: DoNotSchedule
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: ratatoskr

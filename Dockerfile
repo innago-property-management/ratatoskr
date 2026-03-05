@@ -25,6 +25,13 @@ RUN uv sync --frozen --no-dev --extra toon
 # ---------- runtime ----------
 FROM python:3.11.15-slim
 
+# OCI image metadata — https://github.com/opencontainers/image-spec/blob/main/annotations.md
+LABEL org.opencontainers.image.title="ratatoskr" \
+      org.opencontainers.image.description="Universal MCP server for querying GraphQL, REST, and gRPC APIs using natural language" \
+      org.opencontainers.image.source="https://github.com/innago-property-management/ratatoskr" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="Innago"
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_CACHE_DIR=/tmp/uv-cache \
@@ -44,6 +51,11 @@ COPY --from=builder /app /app
 
 COPY start.sh healthcheck.sh ./
 RUN chmod +x ./start.sh ./healthcheck.sh && chown -R appuser:appuser /app
+
+# /tmp must be writable for DuckDB temp files and uv cache.
+# When running with --read-only root filesystem (k8s securityContext),
+# mount a tmpfs or emptyDir at /tmp.
+RUN mkdir -p /tmp/uv-cache && chown appuser:appuser /tmp/uv-cache
 
 EXPOSE ${PORT}
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["./healthcheck.sh"]
