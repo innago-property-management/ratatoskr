@@ -338,5 +338,5 @@ class TestTruncateForContextAsync:
         data = [{"id": i, "name": f"user_{i}" * 100} for i in range(100)]
         sync_result = truncate_for_context(data, "users", max_chars=500)
         async_result = await truncate_for_context_async(data, "users", max_chars=500)
+        assert sync_result["truncated"] is True  # confirm truncation path fired
         assert sync_result == async_result
-        assert sync_result["truncated"] is True
