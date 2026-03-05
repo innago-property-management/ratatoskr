@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime
@@ -13,6 +14,7 @@ from ..config import settings
 from ..context import RequestContext
 from ..filtering import filter_graphql_schema, parse_config_allowlist
 from ..graphql import execute_query as graphql_fetch
+from ..metrics import record_request, record_schema_fetch
 from ..recipe import (
     _set_return_directly,
     build_api_id,
@@ -21,6 +23,7 @@ from ..recipe import (
 )
 from ..sanitize import sanitize_error, sanitize_schema_text
 from ..schema.reducer import reduce_schema
+from ..tracing import trace_span
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
 from .orchestrator import (
@@ -524,9 +527,12 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
         question: Natural language question
         ctx: Request context with target_url and target_headers
     """
+    t0 = time.monotonic()
+    status = "ok"
     try:
         return await _process_query_inner(question, ctx)
     except Exception as e:
+        status = "error"
         logger.exception("GraphQL Agent error")
         return {
             "ok": False,
@@ -534,6 +540,8 @@ async def process_query(question: str, ctx: RequestContext) -> dict[str, Any]:
             "queries": [],
             "error": sanitize_error(e),
         }
+    finally:
+        record_request("graphql", status, (time.monotonic() - t0) * 1000)
 
 
 async def _process_query_inner(question: str, ctx: RequestContext) -> dict[str, Any]:
@@ -542,9 +550,12 @@ async def _process_query_inner(question: str, ctx: RequestContext) -> dict[str, 
     config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_GRAPHQL)
     # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
     header_pats = ctx.allow_endpoints or None
-    schema_result = await _fetch_schema_context(
-        ctx.target_url, ctx.target_headers, config_pats, header_pats, question=question
-    )
+    t_schema = time.monotonic()
+    with trace_span("schema.fetch", {"protocol": "graphql"}):
+        schema_result = await _fetch_schema_context(
+            ctx.target_url, ctx.target_headers, config_pats, header_pats, question=question
+        )
+    record_schema_fetch((time.monotonic() - t_schema) * 1000, "graphql")
 
     # Check if allowlist filtered out all query fields (uses count from _fetch_schema_context)
     if schema_result.allowed_field_count is not None and schema_result.allowed_field_count == 0:

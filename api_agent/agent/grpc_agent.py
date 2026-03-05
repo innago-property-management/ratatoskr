@@ -2,6 +2,7 @@
 
 import fnmatch
 import json
+import time
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
@@ -20,6 +21,7 @@ from ..grpc.client import (
 )
 from ..grpc.reflection import GrpcSchema, MethodInfo, build_schema_text, fetch_schema
 from ..llm.tools import tool
+from ..metrics import record_request, record_schema_fetch
 from ..recipe import (
     _set_return_directly,
     build_api_id,
@@ -28,6 +30,7 @@ from ..recipe import (
 from ..recipe.store import render_text_template
 from ..sanitize import sanitize_error
 from ..schema.reducer import reduce_schema
+from ..tracing import trace_span
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
 from .orchestrator import (
@@ -891,15 +894,21 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
         question: Natural language question
         ctx: Request context with target_url (grpc:// or grpcs://) and target_headers
     """
+    t0 = time.monotonic()
+    status = "ok"
     try:
         # Fetch schema via reflection
+        t_schema = time.monotonic()
         try:
-            schema = await fetch_schema(
-                target_url=ctx.target_url,
-                metadata=(
-                    [(k, v) for k, v in ctx.target_headers.items()] if ctx.target_headers else None
-                ),
-            )
+            with trace_span("schema.fetch", {"protocol": "grpc"}):
+                schema = await fetch_schema(
+                    target_url=ctx.target_url,
+                    metadata=(
+                        [(k, v) for k, v in ctx.target_headers.items()]
+                        if ctx.target_headers
+                        else None
+                    ),
+                )
         except Exception as e:
             error_msg = str(e)
             if "UNIMPLEMENTED" in error_msg or "reflection" in error_msg.lower():
@@ -918,6 +927,7 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
                 "rpc_calls": [],
                 "error": f"Failed to connect to gRPC server: {sanitize_error(e)}",
             }
+        record_schema_fetch((time.monotonic() - t_schema) * 1000, "grpc")
 
         if not schema.services:
             return {
@@ -1021,6 +1031,7 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
         return result.result_dict
 
     except Exception as e:
+        status = "error"
         logger.exception("grpc_agent_error")
         return {
             "ok": False,
@@ -1028,3 +1039,5 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
             "rpc_calls": [],
             "error": sanitize_error(e),
         }
+    finally:
+        record_request("grpc", status, (time.monotonic() - t0) * 1000)

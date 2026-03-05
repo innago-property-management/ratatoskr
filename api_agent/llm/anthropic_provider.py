@@ -16,7 +16,7 @@ class AnthropicProvider(LLMProvider):
     DEFAULT_MODEL = "claude-sonnet-4-20250514"
 
     def __init__(self, model: str | None = None, api_key: str = "", base_url: str | None = None):
-        super().__init__(model or self.DEFAULT_MODEL, api_key, base_url)
+        super().__init__(model or self.DEFAULT_MODEL, api_key, base_url, provider_name="anthropic")
         kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             kwargs["base_url"] = base_url

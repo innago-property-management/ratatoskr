@@ -26,7 +26,7 @@ class OpenAICompatProvider(LLMProvider):
     def __init__(self, model: str, api_key: str = "not-needed", base_url: str | None = None):
         if not base_url:
             raise ValueError("base_url is required for openai-compat provider")
-        super().__init__(model, api_key or "not-needed", base_url)
+        super().__init__(model, api_key or "not-needed", base_url, provider_name="openai-compat")
         self.client = AsyncOpenAI(api_key=self.api_key, base_url=base_url)
 
     async def complete(

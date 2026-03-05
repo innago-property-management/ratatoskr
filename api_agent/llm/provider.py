@@ -27,6 +27,9 @@ class RunResult:
     final_output: str | object | None
     tool_results: list[ToolResult]
     turns_used: int
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    total_tokens: int = 0
 
 
 class MaxTurnsExceeded(APIAgentError):
@@ -41,10 +44,13 @@ class MaxTurnsExceeded(APIAgentError):
 class LLMProvider(ABC):
     """Abstract LLM provider. Subclasses implement complete(); the tool loop is shared."""
 
-    def __init__(self, model: str, api_key: str, base_url: str | None = None):
+    def __init__(
+        self, model: str, api_key: str, base_url: str | None = None, provider_name: str = "unknown"
+    ):
         self.model = model
         self.api_key = api_key
         self.base_url = base_url
+        self.provider_name = provider_name
 
     @abstractmethod
     async def complete(
@@ -118,6 +124,16 @@ class LLMProvider(ABC):
 
         all_tool_results: list[ToolResult] = []
         turns = 0
+        prompt_tokens_acc = 0
+        completion_tokens_acc = 0
+        total_tokens_acc = 0
+
+        def _accumulate_usage(resp: LLMResponse) -> None:
+            nonlocal prompt_tokens_acc, completion_tokens_acc, total_tokens_acc
+            if resp.usage:
+                prompt_tokens_acc += resp.usage.get("prompt_tokens", 0)
+                completion_tokens_acc += resp.usage.get("completion_tokens", 0)
+                total_tokens_acc += resp.usage.get("total_tokens", 0)
 
         while turns < max_turns:
             turns += 1
@@ -129,12 +145,16 @@ class LLMProvider(ABC):
             response = await self.complete(
                 messages, tools=formatted_tools, temperature=temperature, max_tokens=max_tokens
             )
+            _accumulate_usage(response)
 
             if not response.has_tool_calls:
                 return RunResult(
                     final_output=response.content,
                     tool_results=all_tool_results,
                     turns_used=turns,
+                    prompt_tokens=prompt_tokens_acc,
+                    completion_tokens=completion_tokens_acc,
+                    total_tokens=total_tokens_acc,
                 )
 
             # Append assistant message with tool calls
@@ -150,6 +170,9 @@ class LLMProvider(ABC):
                     final_output=DIRECT_RETURN,
                     tool_results=all_tool_results,
                     turns_used=turns,
+                    prompt_tokens=prompt_tokens_acc,
+                    completion_tokens=completion_tokens_acc,
+                    total_tokens=total_tokens_acc,
                 )
 
             # Append tool results
@@ -161,6 +184,9 @@ class LLMProvider(ABC):
                 final_output=None,
                 tool_results=all_tool_results,
                 turns_used=turns,
+                prompt_tokens=prompt_tokens_acc,
+                completion_tokens=completion_tokens_acc,
+                total_tokens=total_tokens_acc,
             ),
         )
 

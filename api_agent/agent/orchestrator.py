@@ -26,6 +26,7 @@ from ..executor import (
 )
 from ..llm.provider import DIRECT_RETURN, MaxTurnsExceeded
 from ..llm.tools import tool
+from ..metrics import record_agent_turns, record_token_usage
 from ..recipe import (
     RECIPE_STORE,
     _return_directly_flag,
@@ -41,7 +42,7 @@ from ..recipe import (
     validate_recipe_params,
 )
 from ..sanitize import sanitize_error
-from ..tracing import trace_metadata
+from ..tracing import trace_metadata, trace_span
 from .contextvar_utils import safe_append_contextvar_list, safe_get_contextvar
 from .model import get_inject_instructions
 from .progress import get_turn_context, reset_progress
@@ -484,20 +485,36 @@ async def _run_agent_orchestration_impl(
         turn_info = ""
         try:
             with trace_metadata({"mcp_name": settings.MCP_SLUG, "agent_type": config.agent_type}):
-                result = await config.provider.run_tool_loop(
-                    instructions=instructions,
-                    user_message=augmented_query,
-                    tool_defs=tools,
-                    max_turns=settings.MAX_AGENT_TURNS,
-                    should_stop=_should_stop,
-                    inject_instructions=get_inject_instructions(),
-                )
+                with trace_span("agent.tool_loop", {"agent_type": config.agent_type}):
+                    result = await config.provider.run_tool_loop(
+                        instructions=instructions,
+                        user_message=augmented_query,
+                        tool_defs=tools,
+                        max_turns=settings.MAX_AGENT_TURNS,
+                        should_stop=_should_stop,
+                        inject_instructions=get_inject_instructions(),
+                    )
+
+            # Record metrics from the completed tool loop
+            record_agent_turns(result.turns_used, config.agent_type)
+            record_token_usage(
+                result.prompt_tokens,
+                result.completion_tokens,
+                config.provider.provider_name,
+            )
 
             api_calls = ctx_vars.api_calls.get()
             last_data = ctx_vars.last_result.get()[0]
             turn_info = get_turn_context(settings.MAX_AGENT_TURNS)
 
-        except MaxTurnsExceeded:
+        except MaxTurnsExceeded as exc:
+            # Still record metrics from the partial run
+            record_agent_turns(exc.last_result.turns_used, config.agent_type)
+            record_token_usage(
+                exc.last_result.prompt_tokens,
+                exc.last_result.completion_tokens,
+                config.provider.provider_name,
+            )
             api_calls = ctx_vars.api_calls.get()
             last_data = ctx_vars.last_result.get()[0]
             turn_info = get_turn_context(settings.MAX_AGENT_TURNS)

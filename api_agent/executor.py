@@ -7,12 +7,15 @@ import os
 import re
 import tempfile
 import threading
+import time
 from typing import Any
 
 import duckdb
 import structlog
 
 from .graphql import execute_query as graphql_execute
+from .metrics import record_duckdb_duration
+from .tracing import trace_span
 
 logger = structlog.get_logger(__name__)
 
@@ -405,7 +408,11 @@ async def execute_sql_async(data: Any, query: str) -> dict[str, Any]:
     """
     sem = _duckdb_semaphore()
     async with sem:
-        return await asyncio.to_thread(execute_sql, data, query)
+        t0 = time.monotonic()
+        with trace_span("duckdb.execute_sql"):
+            result = await asyncio.to_thread(execute_sql, data, query)
+        record_duckdb_duration((time.monotonic() - t0) * 1000, "sql_query")
+    return result
 
 
 async def execute_graphql(

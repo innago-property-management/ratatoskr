@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 from .executor import cleanup_temp_files
+from .metrics import shutdown_metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +29,7 @@ async def shutdown_cleanup(pool: Any) -> None:
     except Exception:
         logger.exception("shutdown_pool_close_error")
     cleanup_temp_files()
+    shutdown_metrics()
     logger.info("shutdown_cleanup_complete")
 
 

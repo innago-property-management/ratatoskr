@@ -17,6 +17,7 @@ from starlette.routing import Route
 from .config import settings
 from .executor import _init_temp_file_limit
 from .logging import configure_logging
+from .metrics import init_metrics
 from .middleware import DynamicToolNamingMiddleware
 from .pool import pool
 from .shutdown import install_shutdown_signals, shutdown_cleanup
@@ -140,6 +141,24 @@ def create_app():
         return JSONResponse({"status": "ok"})
 
     app.router.routes.append(Route("/health", health, methods=["GET"]))
+
+    # Optional Prometheus /metrics endpoint
+    prometheus_ok = init_metrics()
+    if prometheus_ok:
+        try:
+            from prometheus_client import (  # type: ignore[unresolved-import]
+                CONTENT_TYPE_LATEST,
+                generate_latest,
+            )
+            from starlette.responses import Response
+
+            async def metrics_endpoint(request):
+                return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+            app.router.routes.append(Route("/metrics", metrics_endpoint, methods=["GET"]))
+            logger.info("prometheus_metrics_enabled", path="/metrics")
+        except ImportError:
+            pass
 
     _shutdown_event = asyncio.Event()
 
