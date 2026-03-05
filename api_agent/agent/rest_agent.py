@@ -421,7 +421,9 @@ def _create_poll_tool(ctx: RequestContext, base_url: str) -> Any:
                 return json.dumps(
                     {
                         "success": True,
-                        **await truncate_for_context_async(data if isinstance(data, list) else [data], name),
+                        **await truncate_for_context_async(
+                            data if isinstance(data, list) else [data], name
+                        ),
                         "attempts": attempt,
                     },
                     indent=2,

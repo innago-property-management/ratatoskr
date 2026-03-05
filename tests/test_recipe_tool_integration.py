@@ -52,11 +52,13 @@ async def test_graphql_create_tools_basic(ctx_vars, sample_recipe_suggestions):
     """Test that recipe tools are created successfully."""
 
     with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
-        mock_store.get_recipe = AsyncMock(return_value={
-            "params": sample_recipe_suggestions[0]["params"],
-            "steps": sample_recipe_suggestions[0]["steps"],
-            "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
-        })
+        mock_store.get_recipe = AsyncMock(
+            return_value={
+                "params": sample_recipe_suggestions[0]["params"],
+                "steps": sample_recipe_suggestions[0]["steps"],
+                "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
+            }
+        )
 
         tools = await create_recipe_tools(
             ctx_vars, sample_recipe_suggestions, "graphql", _dummy_step_executor_factory
@@ -109,7 +111,9 @@ async def test_create_multiple_recipe_tools(ctx_vars):
 
         mock_store.get_recipe = AsyncMock(side_effect=get_recipe)
 
-        tools = await create_recipe_tools(ctx_vars, suggestions, "graphql", _dummy_step_executor_factory)
+        tools = await create_recipe_tools(
+            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
+        )
 
         assert len(tools) == 2
 
@@ -124,11 +128,13 @@ async def test_recipe_tool_has_correct_signature(ctx_vars, sample_recipe_suggest
     """Test that recipe tool has correct parameter signature."""
 
     with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
-        mock_store.get_recipe = AsyncMock(return_value={
-            "params": sample_recipe_suggestions[0]["params"],
-            "steps": sample_recipe_suggestions[0]["steps"],
-            "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
-        })
+        mock_store.get_recipe = AsyncMock(
+            return_value={
+                "params": sample_recipe_suggestions[0]["params"],
+                "steps": sample_recipe_suggestions[0]["steps"],
+                "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
+            }
+        )
 
         tools = await create_recipe_tools(
             ctx_vars, sample_recipe_suggestions, "graphql", _dummy_step_executor_factory
@@ -157,13 +163,17 @@ async def test_recipe_tool_without_params(ctx_vars):
     ]
 
     with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
-        mock_store.get_recipe = AsyncMock(return_value={
-            "params": {},
-            "steps": suggestions[0]["steps"],
-            "sql_steps": suggestions[0]["sql_steps"],
-        })
+        mock_store.get_recipe = AsyncMock(
+            return_value={
+                "params": {},
+                "steps": suggestions[0]["steps"],
+                "sql_steps": suggestions[0]["sql_steps"],
+            }
+        )
 
-        tools = await create_recipe_tools(ctx_vars, suggestions, "graphql", _dummy_step_executor_factory)
+        tools = await create_recipe_tools(
+            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
+        )
         assert len(tools) == 1
         assert tools[0].name == "get_all_users"
 
@@ -205,7 +215,9 @@ async def test_recipe_tool_name_deduplication(ctx_vars):
 
         mock_store.get_recipe = AsyncMock(side_effect=get_recipe)
 
-        tools = await create_recipe_tools(ctx_vars, suggestions, "graphql", _dummy_step_executor_factory)
+        tools = await create_recipe_tools(
+            ctx_vars, suggestions, "graphql", _dummy_step_executor_factory
+        )
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
@@ -218,11 +230,13 @@ async def test_recipe_tool_return_directly_default(ctx_vars, sample_recipe_sugge
     """Test that recipe tools have return_directly=True by default."""
 
     with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
-        mock_store.get_recipe = AsyncMock(return_value={
-            "params": sample_recipe_suggestions[0]["params"],
-            "steps": sample_recipe_suggestions[0]["steps"],
-            "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
-        })
+        mock_store.get_recipe = AsyncMock(
+            return_value={
+                "params": sample_recipe_suggestions[0]["params"],
+                "steps": sample_recipe_suggestions[0]["steps"],
+                "sql_steps": sample_recipe_suggestions[0]["sql_steps"],
+            }
+        )
 
         tools = await create_recipe_tools(
             ctx_vars, sample_recipe_suggestions, "graphql", _dummy_step_executor_factory
@@ -260,11 +274,13 @@ def rest_recipe_suggestions():
 async def test_rest_create_tools_basic(ctx_vars, rest_recipe_suggestions):
     """Test REST recipe tools are created successfully."""
     with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
-        mock_store.get_recipe = AsyncMock(return_value={
-            "params": rest_recipe_suggestions[0]["params"],
-            "steps": rest_recipe_suggestions[0]["steps"],
-            "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
-        })
+        mock_store.get_recipe = AsyncMock(
+            return_value={
+                "params": rest_recipe_suggestions[0]["params"],
+                "steps": rest_recipe_suggestions[0]["steps"],
+                "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
+            }
+        )
 
         tools = await create_recipe_tools(
             ctx_vars, rest_recipe_suggestions, "rest", _dummy_step_executor_factory
@@ -315,7 +331,9 @@ async def test_rest_create_multiple_tools(ctx_vars):
 
         mock_store.get_recipe = AsyncMock(side_effect=get_recipe)
 
-        tools = await create_recipe_tools(ctx_vars, suggestions, "rest", _dummy_step_executor_factory)
+        tools = await create_recipe_tools(
+            ctx_vars, suggestions, "rest", _dummy_step_executor_factory
+        )
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
@@ -327,11 +345,13 @@ async def test_rest_create_multiple_tools(ctx_vars):
 async def test_rest_tool_strict_schema(ctx_vars, rest_recipe_suggestions):
     """Test REST recipe tools have strict JSON schema."""
     with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
-        mock_store.get_recipe = AsyncMock(return_value={
-            "params": rest_recipe_suggestions[0]["params"],
-            "steps": rest_recipe_suggestions[0]["steps"],
-            "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
-        })
+        mock_store.get_recipe = AsyncMock(
+            return_value={
+                "params": rest_recipe_suggestions[0]["params"],
+                "steps": rest_recipe_suggestions[0]["steps"],
+                "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
+            }
+        )
 
         tools = await create_recipe_tools(
             ctx_vars, rest_recipe_suggestions, "rest", _dummy_step_executor_factory
@@ -379,7 +399,9 @@ async def test_rest_tool_name_deduplication(ctx_vars):
 
         mock_store.get_recipe = AsyncMock(side_effect=get_recipe)
 
-        tools = await create_recipe_tools(ctx_vars, suggestions, "rest", _dummy_step_executor_factory)
+        tools = await create_recipe_tools(
+            ctx_vars, suggestions, "rest", _dummy_step_executor_factory
+        )
 
         assert len(tools) == 2
         tool_names = [t.name for t in tools]
@@ -391,11 +413,13 @@ async def test_rest_tool_name_deduplication(ctx_vars):
 async def test_rest_tool_return_directly_default(ctx_vars, rest_recipe_suggestions):
     """Test REST recipe tools have return_directly=True by default."""
     with patch("api_agent.agent.orchestrator.RECIPE_STORE") as mock_store:
-        mock_store.get_recipe = AsyncMock(return_value={
-            "params": rest_recipe_suggestions[0]["params"],
-            "steps": rest_recipe_suggestions[0]["steps"],
-            "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
-        })
+        mock_store.get_recipe = AsyncMock(
+            return_value={
+                "params": rest_recipe_suggestions[0]["params"],
+                "steps": rest_recipe_suggestions[0]["steps"],
+                "sql_steps": rest_recipe_suggestions[0]["sql_steps"],
+            }
+        )
 
         tools = await create_recipe_tools(
             ctx_vars, rest_recipe_suggestions, "rest", _dummy_step_executor_factory

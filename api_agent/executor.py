@@ -48,8 +48,7 @@ def _write_temp_json(data: Any) -> str:
     byte_size = len(serialized.encode())
     if byte_size > _TEMP_FILE_MAX_BYTES:
         raise ValueError(
-            f"Temp file data ({byte_size} bytes) exceeds "
-            f"limit ({_TEMP_FILE_MAX_BYTES} bytes)"
+            f"Temp file data ({byte_size} bytes) exceeds limit ({_TEMP_FILE_MAX_BYTES} bytes)"
         )
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -224,9 +223,7 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
             _unlink_temp(temp_file)
 
 
-def _truncate_preview(
-    data: list[dict], table_name: str, max_chars: int
-) -> dict[str, Any] | None:
+def _truncate_preview(data: list[dict], table_name: str, max_chars: int) -> dict[str, Any] | None:
     """Build truncated preview if data exceeds max_chars. Returns None if it fits."""
     total_rows = len(data)
     if len(json.dumps(data)) <= max_chars:
