@@ -452,7 +452,18 @@ async def build_recipe_context(suggestions: list[dict[str, Any]]) -> str:
 
 
 def error_json(msg: str) -> str:
-    """Build JSON error response."""
+    """Build JSON error response for tool-level results.
+
+    Convention — two error shapes coexist in the codebase:
+
+    * **Tool-level** (this function): ``{"success": bool, "error": str}``
+      Consumed by the LLM agent during its tool loop.  Used by graphql_query,
+      rest_call, sql_query, grpc_call, and recipe step executors.
+
+    * **Agent-level** (OrchestrationResult): ``{"ok": bool, "error": str, "data": ..., "result": ...}``
+      Consumed by the MCP client (end user / application).  Built in
+      ``orchestrator.py`` and returned from ``process_*_query`` functions.
+    """
     return json.dumps({"success": False, "error": msg}, indent=2)
 
 

@@ -117,3 +117,14 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def get_settings() -> Settings:
+    """Return the current Settings instance.
+
+    The module-level ``settings`` singleton is created at import time from
+    environment variables and ``.env``.  This function returns that same
+    instance and exists primarily as a seam for testing (monkeypatch the
+    return value) and for future refactoring of import sites.
+    """
+    return settings
