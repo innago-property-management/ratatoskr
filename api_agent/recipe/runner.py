@@ -251,7 +251,9 @@ async def execute_recipe_tool(
 
         if return_directly:
             return to_csv(last_data)
-        return await format_recipe_response(last_result_var, executed_rpcs, executed_sql, "executed_rpcs")
+        return await format_recipe_response(
+            last_result_var, executed_rpcs, executed_sql, "executed_rpcs"
+        )
 
     # REST execution
     if not base_url:
@@ -320,4 +322,6 @@ async def execute_recipe_tool(
 
     if return_directly:
         return to_csv(last_data)
-    return await format_recipe_response(last_result_var, executed_calls, executed_sql, "executed_calls")
+    return await format_recipe_response(
+        last_result_var, executed_calls, executed_sql, "executed_calls"
+    )

@@ -15,23 +15,8 @@ from api_agent.agent.grpc_agent import (
     process_grpc_query,
 )
 from api_agent.config import settings
-from api_agent.context import RequestContext
 from api_agent.grpc.reflection import GrpcSchema, MethodInfo, ServiceInfo
 from tests.conftest import make_text_response, make_tool_call_response
-
-
-@pytest.fixture
-def grpc_ctx() -> RequestContext:
-    """Standard gRPC request context for tests."""
-    return RequestContext(
-        target_url="grpc://localhost:50051",
-        target_headers={"authorization": "Bearer test-token"},
-        api_type="grpc",
-        base_url=None,
-        include_result=False,
-        allow_unsafe_paths=(),
-        poll_paths=(),
-    )
 
 
 def _make_test_schema():
