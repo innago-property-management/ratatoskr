@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --uid 65534 --system --no-create-home appuser
+RUN useradd --uid 10001 --system --no-create-home appuser
 
 WORKDIR /app
 

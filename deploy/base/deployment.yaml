@@ -61,7 +61,7 @@ spec:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
-            runAsUser: 65534
+            runAsUser: 10001
             capabilities:
               drop:
                 - ALL
@@ -73,6 +73,6 @@ spec:
           emptyDir:
             sizeLimit: 256Mi
       securityContext:
-        fsGroup: 65534
+        fsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
