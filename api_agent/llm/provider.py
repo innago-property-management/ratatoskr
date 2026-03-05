@@ -72,14 +72,24 @@ class LLMProvider(ABC):
     def format_tool_results(
         self, tool_results: list[ToolResult], messages: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Append tool results to message list in provider-specific format."""
+        """Append tool results to message list in provider-specific format.
+
+        Contract: implementations MUST return the ``messages`` list (mutated
+        in-place).  Callers MUST use the return value, not rely on mutation
+        alone, so that a future implementation may return a *new* list.
+        """
         ...
 
     @abstractmethod
     def format_assistant_tool_calls(
         self, response: LLMResponse, messages: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        """Append assistant's tool-call message to the message list."""
+        """Append assistant's tool-call message to the message list.
+
+        Contract: implementations MUST return the ``messages`` list (mutated
+        in-place).  Callers MUST use the return value, not rely on mutation
+        alone, so that a future implementation may return a *new* list.
+        """
         ...
 
     async def run_tool_loop(

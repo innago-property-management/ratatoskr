@@ -11,6 +11,7 @@ import pytest
 from api_agent.context import RequestContext
 from api_agent.llm.provider import LLMProvider
 from api_agent.llm.types import LLMResponse, ToolCall
+from api_agent.recipe.store import RECIPE_STORE
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -90,6 +91,20 @@ def graphql_ctx() -> RequestContext:
         target_url="https://example.com/graphql",
         target_headers={"Authorization": "Bearer test-token"},
         api_type="graphql",
+        base_url=None,
+        include_result=False,
+        allow_unsafe_paths=(),
+        poll_paths=(),
+    )
+
+
+@pytest.fixture
+def grpc_ctx() -> RequestContext:
+    """Standard gRPC request context for tests."""
+    return RequestContext(
+        target_url="grpc://localhost:50051",
+        target_headers={"authorization": "Bearer test-token"},
+        api_type="grpc",
         base_url=None,
         include_result=False,
         allow_unsafe_paths=(),
@@ -299,3 +314,19 @@ SAMPLE_INTROSPECTION_RESPONSE = {
         }
     }
 }
+
+
+@pytest.fixture(autouse=True)
+def clean_recipe_store():
+    """Ensure the global recipe store is empty before and after each test.
+
+    Direct _records/_by_key/_lru access bypasses asyncio.Lock, which is safe
+    here because pytest runs tests sequentially (no concurrent coroutines).
+    """
+    RECIPE_STORE._records.clear()
+    RECIPE_STORE._by_key.clear()
+    RECIPE_STORE._lru.clear()
+    yield
+    RECIPE_STORE._records.clear()
+    RECIPE_STORE._by_key.clear()
+    RECIPE_STORE._lru.clear()

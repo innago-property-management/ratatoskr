@@ -8,7 +8,7 @@ from fastmcp import FastMCP
 from pydantic import Field
 
 from ..config import settings
-from ..context import MissingHeaderError, get_request_context
+from ..context import MissingHeaderError, RequestContext, get_request_context
 from ..graphql import execute_query
 from ..grpc.client import (
     execute_bidi_streaming_rpc,
@@ -44,6 +44,189 @@ def _parse_single_request(grpc_request: str | None) -> dict[str, Any] | str:
         return json.loads(grpc_request)
     except json.JSONDecodeError as e:
         return f"Invalid JSON in grpc_request: {e}"
+
+
+def _truncate_if_needed(data: Any, truncation_hint: str) -> dict:
+    """Return ok-result, truncating serialized data if it exceeds MAX_RESPONSE_CHARS."""
+    data_str = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
+    if len(data_str) > settings.MAX_RESPONSE_CHARS:
+        return {
+            "ok": True,
+            "data": f"{data_str[: settings.MAX_RESPONSE_CHARS]}\n\n[TRUNCATED - {truncation_hint}]",
+        }
+    return {"ok": True, "data": data}
+
+
+async def _execute_graphql(
+    ctx: RequestContext,
+    query: str | None,
+    variables: dict[str, Any] | None,
+) -> dict:
+    """Execute a GraphQL query and return result dict."""
+    if not query:
+        return {"ok": False, "error": "query param required for GraphQL"}
+
+    result = await execute_query(query, variables, ctx.target_url, ctx.target_headers)
+
+    if not result.get("success"):
+        return {"ok": False, "error": result.get("error", "Query failed")}
+
+    return _truncate_if_needed(
+        result.get("data", {}),
+        "Use pagination to fetch smaller chunks.",
+    )
+
+
+async def _execute_grpc(
+    ctx: RequestContext,
+    grpc_method: str | None,
+    grpc_request: str | None,
+    grpc_requests: str | None,
+) -> dict:
+    """Execute a gRPC call (unary, server-streaming, client-streaming, or bidi)."""
+    if not grpc_method:
+        return {"ok": False, "error": "grpc_method param required for gRPC"}
+
+    # Build metadata from target headers
+    metadata: list[tuple[str, str]] | None = None
+    if ctx.target_headers:
+        metadata = [(k, v) for k, v in ctx.target_headers.items()]
+
+    # Fetch schema via reflection
+    try:
+        schema = await fetch_grpc_schema(ctx.target_url, metadata=metadata)
+    except Exception as e:
+        return {"ok": False, "error": f"Failed to fetch gRPC schema: {e}"}
+
+    # Find the method in the schema
+    method_info = _find_grpc_method(schema, grpc_method)
+    if method_info is None:
+        available = [m.full_method_path for svc in schema.services for m in svc.methods]
+        return {
+            "ok": False,
+            "error": f"Method '{grpc_method}' not found in schema. Available methods: {available}",
+        }
+
+    # Route by streaming type
+    is_client_stream = method_info.client_streaming and not method_info.server_streaming
+    is_bidi = method_info.client_streaming and method_info.server_streaming
+    is_server_stream = method_info.server_streaming and not method_info.client_streaming
+
+    if is_client_stream or is_bidi:
+        # Client-streaming or bidi: need grpc_requests (JSON array)
+        # or fall back to wrapping grpc_request as single-element array
+        if grpc_requests:
+            try:
+                requests_list: list[dict[str, Any]] = json.loads(grpc_requests)
+            except json.JSONDecodeError as e:
+                return {"ok": False, "error": f"Invalid JSON in grpc_requests: {e}"}
+            if not isinstance(requests_list, list):
+                return {
+                    "ok": False,
+                    "error": "grpc_requests must be a JSON array, "
+                    f"got {type(requests_list).__name__}",
+                }
+        elif grpc_request:
+            try:
+                requests_list = [json.loads(grpc_request)]
+            except json.JSONDecodeError as e:
+                return {"ok": False, "error": f"Invalid JSON in grpc_request: {e}"}
+        else:
+            stream_type = "bidi-streaming" if is_bidi else "client-streaming"
+            return {
+                "ok": False,
+                "error": f"Method '{grpc_method}' is {stream_type}. "
+                "Provide grpc_requests (JSON array) or grpc_request (single JSON object).",
+            }
+
+        rpc_fn = execute_bidi_streaming_rpc if is_bidi else execute_client_streaming_rpc
+        result = await rpc_fn(
+            target_url=ctx.target_url,
+            method_path=method_info.full_method_path,
+            requests_json=requests_list,
+            pool=schema.pool,
+            input_type_name=method_info.input_type,
+            output_type_name=method_info.output_type,
+            metadata=metadata,
+        )
+    elif is_server_stream:
+        parsed = _parse_single_request(grpc_request)
+        if isinstance(parsed, str):
+            return {"ok": False, "error": parsed}
+        request_json: dict[str, Any] = parsed
+
+        result = await execute_server_streaming_rpc(
+            target_url=ctx.target_url,
+            method_path=method_info.full_method_path,
+            request_json=request_json,
+            pool=schema.pool,
+            input_type_name=method_info.input_type,
+            output_type_name=method_info.output_type,
+            metadata=metadata,
+        )
+    else:
+        # Unary RPC
+        parsed = _parse_single_request(grpc_request)
+        if isinstance(parsed, str):
+            return {"ok": False, "error": parsed}
+        request_json = parsed
+
+        result = await execute_unary_rpc(
+            target_url=ctx.target_url,
+            method_path=method_info.full_method_path,
+            request_json=request_json,
+            pool=schema.pool,
+            input_type_name=method_info.input_type,
+            output_type_name=method_info.output_type,
+            metadata=metadata,
+        )
+
+    if not result.get("success"):
+        return {"ok": False, "error": result.get("error", "RPC call failed")}
+
+    return _truncate_if_needed(
+        result.get("data", {}),
+        "Use grpc_request to narrow results.",
+    )
+
+
+async def _execute_rest(
+    ctx: RequestContext,
+    method: str | None,
+    path: str | None,
+    path_params: dict[str, Any] | None,
+    query_params: dict[str, Any] | None,
+    body: dict[str, Any] | None,
+) -> dict:
+    """Execute a REST API call."""
+    if not method or not path:
+        return {"ok": False, "error": "method and path params required for REST"}
+
+    # Get base URL from header override or spec
+    base_url = ctx.base_url
+    if not base_url:
+        _, base_url, _ = await fetch_schema_context(ctx.target_url, ctx.target_headers)
+    if not base_url:
+        return {"ok": False, "error": "Could not extract base URL from OpenAPI spec"}
+
+    result = await execute_request(
+        method,
+        path,
+        path_params,
+        query_params,
+        body,
+        base_url=base_url,
+        headers=ctx.target_headers,
+        allow_unsafe_paths=list(ctx.allow_unsafe_paths),
+    )
+
+    if not result.get("success"):
+        return {"ok": False, "error": result.get("error", "Request failed")}
+
+    return _truncate_if_needed(
+        result.get("data", {}),
+        "Use query params to limit results.",
+    )
 
 
 def register_execute_tool(mcp: FastMCP) -> None:
@@ -100,186 +283,8 @@ Use this to re-run queries from the query tool or execute known operations.""",
             return {"ok": False, "error": str(e)}
 
         if ctx.api_type == "graphql":
-            # GraphQL execution
-            if not query:
-                return {"ok": False, "error": "query param required for GraphQL"}
-
-            result = await execute_query(query, variables, ctx.target_url, ctx.target_headers)
-
-            if not result.get("success"):
-                return {"ok": False, "error": result.get("error", "Query failed")}
-
-            data = result.get("data", {})
-            data_str = json.dumps(data, indent=2)
-
-            if len(data_str) > settings.MAX_RESPONSE_CHARS:
-                return {
-                    "ok": True,
-                    "data": f"{data_str[: settings.MAX_RESPONSE_CHARS]}\n\n[TRUNCATED - Use pagination to fetch smaller chunks.]",
-                }
-
-            return {"ok": True, "data": data}
-
+            return await _execute_graphql(ctx, query, variables)
         elif ctx.api_type == "grpc":
-            # gRPC execution
-            if not grpc_method:
-                return {
-                    "ok": False,
-                    "error": "grpc_method param required for gRPC",
-                }
-
-            # Build metadata from target headers
-            metadata: list[tuple[str, str]] | None = None
-            if ctx.target_headers:
-                metadata = [(k, v) for k, v in ctx.target_headers.items()]
-
-            # Fetch schema via reflection
-            try:
-                schema = await fetch_grpc_schema(ctx.target_url, metadata=metadata)
-            except Exception as e:
-                return {
-                    "ok": False,
-                    "error": f"Failed to fetch gRPC schema: {e}",
-                }
-
-            # Find the method in the schema
-            method_info = _find_grpc_method(schema, grpc_method)
-            if method_info is None:
-                available = [m.full_method_path for svc in schema.services for m in svc.methods]
-                return {
-                    "ok": False,
-                    "error": f"Method '{grpc_method}' not found in schema. "
-                    f"Available methods: {available}",
-                }
-
-            # Route by streaming type
-            is_client_stream = method_info.client_streaming and not method_info.server_streaming
-            is_bidi = method_info.client_streaming and method_info.server_streaming
-            is_server_stream = method_info.server_streaming and not method_info.client_streaming
-
-            if is_client_stream or is_bidi:
-                # Client-streaming or bidi: need grpc_requests (JSON array)
-                # or fall back to wrapping grpc_request as single-element array
-                if grpc_requests:
-                    try:
-                        requests_list: list[dict[str, Any]] = json.loads(grpc_requests)
-                    except json.JSONDecodeError as e:
-                        return {
-                            "ok": False,
-                            "error": f"Invalid JSON in grpc_requests: {e}",
-                        }
-                    if not isinstance(requests_list, list):
-                        return {
-                            "ok": False,
-                            "error": "grpc_requests must be a JSON array, "
-                            f"got {type(requests_list).__name__}",
-                        }
-                elif grpc_request:
-                    try:
-                        requests_list = [json.loads(grpc_request)]
-                    except json.JSONDecodeError as e:
-                        return {
-                            "ok": False,
-                            "error": f"Invalid JSON in grpc_request: {e}",
-                        }
-                else:
-                    stream_type = "bidi-streaming" if is_bidi else "client-streaming"
-                    return {
-                        "ok": False,
-                        "error": f"Method '{grpc_method}' is {stream_type}. "
-                        "Provide grpc_requests (JSON array) or grpc_request (single JSON object).",
-                    }
-
-                rpc_fn = execute_bidi_streaming_rpc if is_bidi else execute_client_streaming_rpc
-                result = await rpc_fn(
-                    target_url=ctx.target_url,
-                    method_path=method_info.full_method_path,
-                    requests_json=requests_list,
-                    pool=schema.pool,
-                    input_type_name=method_info.input_type,
-                    output_type_name=method_info.output_type,
-                    metadata=metadata,
-                )
-            elif is_server_stream:
-                # Server-streaming: single request, stream responses
-                parsed = _parse_single_request(grpc_request)
-                if isinstance(parsed, str):
-                    return {"ok": False, "error": parsed}
-                request_json: dict[str, Any] = parsed
-
-                result = await execute_server_streaming_rpc(
-                    target_url=ctx.target_url,
-                    method_path=method_info.full_method_path,
-                    request_json=request_json,
-                    pool=schema.pool,
-                    input_type_name=method_info.input_type,
-                    output_type_name=method_info.output_type,
-                    metadata=metadata,
-                )
-            else:
-                # Unary RPC
-                parsed = _parse_single_request(grpc_request)
-                if isinstance(parsed, str):
-                    return {"ok": False, "error": parsed}
-                request_json = parsed
-
-                result = await execute_unary_rpc(
-                    target_url=ctx.target_url,
-                    method_path=method_info.full_method_path,
-                    request_json=request_json,
-                    pool=schema.pool,
-                    input_type_name=method_info.input_type,
-                    output_type_name=method_info.output_type,
-                    metadata=metadata,
-                )
-
-            if not result.get("success"):
-                return {"ok": False, "error": result.get("error", "RPC call failed")}
-
-            data = result.get("data", {})
-            data_str = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
-
-            if len(data_str) > settings.MAX_RESPONSE_CHARS:
-                return {
-                    "ok": True,
-                    "data": f"{data_str[: settings.MAX_RESPONSE_CHARS]}\n\n[TRUNCATED - Use grpc_request to narrow results.]",
-                }
-
-            return {"ok": True, "data": data}
-
+            return await _execute_grpc(ctx, grpc_method, grpc_request, grpc_requests)
         else:
-            # REST execution
-            if not method or not path:
-                return {"ok": False, "error": "method and path params required for REST"}
-
-            # Get base URL from header override or spec
-            base_url = ctx.base_url
-            if not base_url:
-                _, base_url, _ = await fetch_schema_context(ctx.target_url, ctx.target_headers)
-            if not base_url:
-                return {"ok": False, "error": "Could not extract base URL from OpenAPI spec"}
-
-            result = await execute_request(
-                method,
-                path,
-                path_params,
-                query_params,
-                body,
-                base_url=base_url,
-                headers=ctx.target_headers,
-                allow_unsafe_paths=list(ctx.allow_unsafe_paths),
-            )
-
-            if not result.get("success"):
-                return {"ok": False, "error": result.get("error", "Request failed")}
-
-            data = result.get("data", {})
-            data_str = json.dumps(data, indent=2) if isinstance(data, (dict, list)) else str(data)
-
-            if len(data_str) > settings.MAX_RESPONSE_CHARS:
-                return {
-                    "ok": True,
-                    "data": f"{data_str[: settings.MAX_RESPONSE_CHARS]}\n\n[TRUNCATED - Use query params to limit results.]",
-                }
-
-            return {"ok": True, "data": data}
+            return await _execute_rest(ctx, method, path, path_params, query_params, body)
