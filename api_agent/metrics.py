@@ -67,6 +67,12 @@ def init_metrics() -> bool:
                     "is not installed. Metrics will not be exported.",
                 )
 
+        # OTLP endpoint set but exporter unavailable — drop to no-op
+        if otlp_endpoint and not readers:
+            _meter_provider = True
+            _meter = otel_metrics.get_meter("api_agent")
+            return False
+
         # Optional Prometheus reader
         try:
             from opentelemetry.exporter.prometheus import (  # type: ignore[unresolved-import]
@@ -106,7 +112,7 @@ def init_metrics() -> bool:
 
 def shutdown_metrics() -> None:
     """Flush and shut down the MeterProvider.  Safe to call if not initialized."""
-    if _meter_provider is not None:
+    if _meter_provider is not None and _meter_provider is not True:
         try:
             _meter_provider.shutdown()
         except Exception as e:
