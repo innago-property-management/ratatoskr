@@ -67,7 +67,9 @@ def init_metrics() -> bool:
 
         # Optional Prometheus reader
         try:
-            from opentelemetry.exporter.prometheus import PrometheusMetricReader
+            from opentelemetry.exporter.prometheus import (  # type: ignore[unresolved-import]
+                PrometheusMetricReader,
+            )
 
             readers.append(PrometheusMetricReader())
             _prometheus_available = True

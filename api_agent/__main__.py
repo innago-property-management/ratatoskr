@@ -146,7 +146,10 @@ def create_app():
     prometheus_ok = init_metrics()
     if prometheus_ok:
         try:
-            from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+            from prometheus_client import (  # type: ignore[unresolved-import]
+                CONTENT_TYPE_LATEST,
+                generate_latest,
+            )
             from starlette.responses import Response
 
             async def metrics_endpoint(request):

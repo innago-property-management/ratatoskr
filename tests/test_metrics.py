@@ -174,19 +174,37 @@ class TestRecordSchemaFetch:
         metrics.record_schema_fetch(350.0, "rest")
 
 
+def _collect_metric_names(reader) -> set[str]:
+    """Extract all metric names from an InMemoryMetricReader."""
+    data = reader.get_metrics_data()
+    assert data is not None, "InMemoryMetricReader returned None"
+    names: set[str] = set()
+    for resource_metric in data.resource_metrics:
+        for scope_metric in resource_metric.scope_metrics:
+            for metric in scope_metric.metrics:
+                names.add(metric.name)
+    return names
+
+
+def _make_test_meter():
+    """Create an InMemoryMetricReader + MeterProvider + meter for testing."""
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+
+    reader = InMemoryMetricReader()
+    provider = MeterProvider(metric_readers=[reader])
+    meter = provider.get_meter("api_agent.test")
+    return reader, provider, meter
+
+
 class TestInMemoryMetricReader:
     """Integration test using InMemoryMetricReader to verify actual metric data."""
 
     def test_request_counter_and_histogram_recorded(self):
         """Verify counter and histogram values via InMemoryMetricReader."""
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
+        reader, provider, meter = _make_test_meter()
 
-        reader = InMemoryMetricReader()
-        provider = MeterProvider(metric_readers=[reader])
-        meter = provider.get_meter("api_agent.test")
-
-        # Manually set the module meter
+        # Manually set the module meter for test isolation
         metrics._meter = meter
         # Reset lazy singletons so they use the new meter
         metrics._query_counter = None
@@ -196,13 +214,7 @@ class TestInMemoryMetricReader:
         metrics.record_request("graphql", "ok", 200.0)
         metrics.record_request("rest", "error", 500.0)
 
-        data = reader.get_metrics_data()
-        metric_names = set()
-        for resource_metric in data.resource_metrics:
-            for scope_metric in resource_metric.scope_metrics:
-                for metric in scope_metric.metrics:
-                    metric_names.add(metric.name)
-
+        metric_names = _collect_metric_names(reader)
         assert "api_agent.requests.total" in metric_names
         assert "api_agent.request.duration_ms" in metric_names
 
@@ -210,37 +222,21 @@ class TestInMemoryMetricReader:
 
     def test_token_counter_recorded(self):
         """Verify token counter records prompt and completion separately."""
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-
-        reader = InMemoryMetricReader()
-        provider = MeterProvider(metric_readers=[reader])
-        meter = provider.get_meter("api_agent.test")
+        reader, provider, meter = _make_test_meter()
 
         metrics._meter = meter
         metrics._token_counter = None
 
         metrics.record_token_usage(500, 200, "openai")
 
-        data = reader.get_metrics_data()
-        metric_names = set()
-        for resource_metric in data.resource_metrics:
-            for scope_metric in resource_metric.scope_metrics:
-                for metric in scope_metric.metrics:
-                    metric_names.add(metric.name)
-
+        metric_names = _collect_metric_names(reader)
         assert "api_agent.llm.tokens.total" in metric_names
 
         provider.shutdown()
 
     def test_all_histograms_recorded(self):
         """Verify all histogram instruments record data."""
-        from opentelemetry.sdk.metrics import MeterProvider
-        from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-
-        reader = InMemoryMetricReader()
-        provider = MeterProvider(metric_readers=[reader])
-        meter = provider.get_meter("api_agent.test")
+        reader, provider, meter = _make_test_meter()
 
         metrics._meter = meter
         metrics._turns_histogram = None
@@ -251,13 +247,7 @@ class TestInMemoryMetricReader:
         metrics.record_duckdb_duration(42.5, "sql_query")
         metrics.record_schema_fetch(1200.0, "grpc")
 
-        data = reader.get_metrics_data()
-        metric_names = set()
-        for resource_metric in data.resource_metrics:
-            for scope_metric in resource_metric.scope_metrics:
-                for metric in scope_metric.metrics:
-                    metric_names.add(metric.name)
-
+        metric_names = _collect_metric_names(reader)
         assert "api_agent.llm.turns" in metric_names
         assert "api_agent.duckdb.duration_ms" in metric_names
         assert "api_agent.schema.fetch_duration_ms" in metric_names
