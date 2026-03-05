@@ -104,6 +104,15 @@ class Settings(BaseSettings):
     HTTP_POOL_MAX_KEEPALIVE: int = 10
     HTTP_POOL_TIMEOUT: float = 30.0
 
+    # Observability
+    OTEL_EXPORTER_OTLP_ENDPOINT: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "API_AGENT_OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_ENDPOINT"
+        ),
+    )
+    METRICS_EXPORT_INTERVAL_MS: int = 30_000
+
     # Schema reduction pipeline
     SCHEMA_REDUCTION_ENABLED: bool = True
     SCHEMA_REDUCTION_MODEL: str = "claude-haiku-4-5-20251001"

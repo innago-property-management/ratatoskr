@@ -7,12 +7,15 @@ import os
 import re
 import tempfile
 import threading
+import time
 from typing import Any
 
 import duckdb
 import structlog
 
 from .graphql import execute_query as graphql_execute
+from .metrics import record_duckdb_duration
+from .tracing import trace_span
 
 logger = structlog.get_logger(__name__)
 
@@ -48,8 +51,7 @@ def _write_temp_json(data: Any) -> str:
     byte_size = len(serialized.encode())
     if byte_size > _TEMP_FILE_MAX_BYTES:
         raise ValueError(
-            f"Temp file data ({byte_size} bytes) exceeds "
-            f"limit ({_TEMP_FILE_MAX_BYTES} bytes)"
+            f"Temp file data ({byte_size} bytes) exceeds limit ({_TEMP_FILE_MAX_BYTES} bytes)"
         )
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
@@ -224,9 +226,7 @@ def _extract_schema(data: list[dict], table_name: str) -> dict[str, Any]:
             _unlink_temp(temp_file)
 
 
-def _truncate_preview(
-    data: list[dict], table_name: str, max_chars: int
-) -> dict[str, Any] | None:
+def _truncate_preview(data: list[dict], table_name: str, max_chars: int) -> dict[str, Any] | None:
     """Build truncated preview if data exceeds max_chars. Returns None if it fits."""
     total_rows = len(data)
     if len(json.dumps(data)) <= max_chars:
@@ -407,8 +407,12 @@ async def execute_sql_async(data: Any, query: str) -> dict[str, Any]:
     Bounded by a semaphore to limit concurrent DuckDB connections.
     """
     sem = _duckdb_semaphore()
+    t0 = time.monotonic()
     async with sem:
-        return await asyncio.to_thread(execute_sql, data, query)
+        with trace_span("duckdb.execute_sql"):
+            result = await asyncio.to_thread(execute_sql, data, query)
+    record_duckdb_duration((time.monotonic() - t0) * 1000, "sql_query")
+    return result
 
 
 async def execute_graphql(

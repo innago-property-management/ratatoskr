@@ -22,7 +22,7 @@ class FakeLLMProvider(LLMProvider):
     """
 
     def __init__(self, responses: list[LLMResponse]):
-        super().__init__(model="fake", api_key="fake-key")
+        super().__init__(model="fake", api_key="fake-key", provider_name="fake")
         self._responses = list(responses)
         self._call_index = 0
         self.call_log: list[dict] = []

@@ -39,6 +39,10 @@ dependencies = [
 toon = [
     "toon_format @ git+https://github.com/toon-format/toon-python.git@6b26984a01279defdcf40ab9d09bc418fe8133ac",
 ]
+prometheus = [
+    "opentelemetry-exporter-prometheus>=0.50b0",
+    "prometheus-client>=0.20.0",
+]
 
 [project.scripts]
 api-agent = "api_agent.__main__:main"

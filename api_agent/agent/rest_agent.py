@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
@@ -13,6 +14,7 @@ from ..context import RequestContext
 from ..executor import extract_tables_from_response, truncate_for_context_async
 from ..filtering import filter_openapi_spec, parse_config_allowlist
 from ..llm.tools import tool
+from ..metrics import record_request, record_schema_fetch
 from ..recipe import (
     _set_return_directly,
     build_api_id,
@@ -22,6 +24,7 @@ from ..recipe import (
 from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
 from ..sanitize import sanitize_error
+from ..tracing import trace_span
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
 from .orchestrator import (
@@ -421,7 +424,9 @@ def _create_poll_tool(ctx: RequestContext, base_url: str) -> Any:
                 return json.dumps(
                     {
                         "success": True,
-                        **await truncate_for_context_async(data if isinstance(data, list) else [data], name),
+                        **await truncate_for_context_async(
+                            data if isinstance(data, list) else [data], name
+                        ),
                         "attempts": attempt,
                     },
                     indent=2,
@@ -535,6 +540,8 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
         question: Natural language question
         ctx: Request context with target_url (OpenAPI spec) and target_headers
     """
+    t0 = time.monotonic()
+    status = "ok"
     try:
         # Fetch schema context (target_url = OpenAPI spec URL)
         # Build spec filter from config + header allowlist
@@ -566,9 +573,12 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
                 )
                 return filtered
 
-        schema_ctx, spec_base_url, raw_spec_json = await fetch_schema_context(
-            ctx.target_url, ctx.target_headers, spec_filter=spec_filter, question=question
-        )
+        t_schema = time.monotonic()
+        with trace_span("schema.fetch", {"protocol": "rest"}):
+            schema_ctx, spec_base_url, raw_spec_json = await fetch_schema_context(
+                ctx.target_url, ctx.target_headers, spec_filter=spec_filter, question=question
+            )
+        record_schema_fetch((time.monotonic() - t_schema) * 1000, "rest")
 
         # Check if allowlist filtered out all endpoints (log stats + early return)
         if spec_filter is not None and _filter_stats:
@@ -645,6 +655,7 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
         return result.result_dict
 
     except Exception as e:
+        status = "error"
         logger.exception("rest_agent_error")
         return {
             "ok": False,
@@ -652,3 +663,5 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
             "api_calls": [],
             "error": sanitize_error(e),
         }
+    finally:
+        record_request("rest", status, (time.monotonic() - t0) * 1000)

@@ -1,12 +1,11 @@
 """OpenTelemetry tracing setup."""
 
-import os
 from contextlib import contextmanager
 from typing import Any, Generator
 
 import structlog
 
-from .config import settings
+from .config import get_settings
 
 logger = structlog.get_logger(__name__)
 
@@ -18,7 +17,7 @@ def init_tracing() -> None:
     """Initialize tracing if OTLP endpoint available."""
     global _tracer_ready, _using_metadata_fn
 
-    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    otlp_endpoint = get_settings().OTEL_EXPORTER_OTLP_ENDPOINT
     if not otlp_endpoint:
         return
 
@@ -31,7 +30,7 @@ def init_tracing() -> None:
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
         otlp_endpoint = otlp_endpoint.rstrip("/")
-        resource = Resource.create({"service.name": settings.SERVICE_NAME})
+        resource = Resource.create({"service.name": get_settings().SERVICE_NAME})
         provider = TracerProvider(resource=resource)
         provider.add_span_processor(
             BatchSpanProcessor(OTLPSpanExporter(endpoint=f"{otlp_endpoint}/v1/traces"))
