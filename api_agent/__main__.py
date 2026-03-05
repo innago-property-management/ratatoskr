@@ -148,8 +148,8 @@ def create_app():
         checks = {"config": "ok"}
         try:
             s = get_settings()
-            if not s.PROVIDER:
-                checks["config"] = "no provider configured"
+            if not s.API_KEY:
+                checks["config"] = "no API key configured"
         except Exception as exc:
             checks["config"] = str(exc)
 

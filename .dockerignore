@@ -30,6 +30,7 @@ htmlcov/
 .specify/
 .reviews/
 .github/
+docs/
 CLAUDE.md
 CONTRIBUTING.md
 CODE_OF_CONDUCT.md

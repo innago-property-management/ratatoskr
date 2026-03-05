@@ -41,7 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --system --no-create-home appuser
+RUN useradd --uid 65534 --system --no-create-home appuser
 
 WORKDIR /app
 
@@ -53,8 +53,9 @@ COPY start.sh healthcheck.sh ./
 RUN chmod +x ./start.sh ./healthcheck.sh && chown -R appuser:appuser /app
 
 # /tmp must be writable for DuckDB temp files and uv cache.
-# When running with --read-only root filesystem (k8s securityContext),
-# mount a tmpfs or emptyDir at /tmp.
+# For plain Docker: this pre-creates the dir with correct ownership.
+# For k8s with readOnlyRootFilesystem: mount an emptyDir at /tmp
+# (the emptyDir replaces this layer; fsGroup grants write access).
 RUN mkdir -p /tmp/uv-cache && chown appuser:appuser /tmp/uv-cache
 
 EXPOSE ${PORT}
