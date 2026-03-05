@@ -24,7 +24,7 @@ from ..executor import (
     extract_tables_from_response,
     truncate_for_context_async,
 )
-from ..llm.provider import MaxTurnsExceeded
+from ..llm.provider import DIRECT_RETURN, MaxTurnsExceeded
 from ..llm.tools import tool
 from ..recipe import (
     RECIPE_STORE,
@@ -511,7 +511,7 @@ async def _run_agent_orchestration_impl(
         # Check if tool requested direct return
         is_direct_return = False
         try:
-            is_direct_return = result.final_output == "__DIRECT_RETURN__" or bool(
+            is_direct_return = result.final_output is DIRECT_RETURN or bool(
                 _return_directly_flag.get()
             )
         except LookupError:

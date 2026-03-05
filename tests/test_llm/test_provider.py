@@ -198,7 +198,7 @@ class TestRunToolLoop:
 
     @pytest.mark.asyncio
     async def test_should_stop_callback(self):
-        """should_stop callback triggers early return with __DIRECT_RETURN__."""
+        """should_stop callback triggers early return with DIRECT_RETURN sentinel."""
         provider = MockProvider(
             [
                 LLMResponse(tool_calls=[ToolCall(id="c1", name="fetch", arguments={})]),
@@ -213,7 +213,9 @@ class TestRunToolLoop:
             should_stop=lambda results: True,  # Always stop after first tool execution
         )
 
-        assert result.final_output == "__DIRECT_RETURN__"
+        from api_agent.llm.provider import DIRECT_RETURN
+
+        assert result.final_output is DIRECT_RETURN
         assert result.turns_used == 1
 
     @pytest.mark.asyncio

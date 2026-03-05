@@ -10,21 +10,26 @@ from typing import Any, Callable
 
 import structlog
 
+from ..exceptions import APIAgentError
 from .types import LLMResponse, ToolCall, ToolDefinition, ToolResult
 
 logger = structlog.get_logger(__name__)
+
+# Sentinel object for direct-return signaling.  Compared by identity (``is``),
+# not equality, so it can never collide with legitimate LLM output text.
+DIRECT_RETURN: object = object()
 
 
 @dataclass
 class RunResult:
     """Result of a tool-calling loop run."""
 
-    final_output: str | None
+    final_output: str | object | None
     tool_results: list[ToolResult]
     turns_used: int
 
 
-class MaxTurnsExceeded(Exception):
+class MaxTurnsExceeded(APIAgentError):
     """Raised when the tool-calling loop exceeds max_turns."""
 
     def __init__(self, turns: int, last_result: RunResult):
@@ -132,7 +137,7 @@ class LLMProvider(ABC):
             # Check early stop
             if should_stop and should_stop(turn_results):
                 return RunResult(
-                    final_output="__DIRECT_RETURN__",
+                    final_output=DIRECT_RETURN,
                     tool_results=all_tool_results,
                     turns_used=turns,
                 )

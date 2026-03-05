@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 from fastmcp.server.dependencies import get_http_headers
 
 from .config import settings
+from .exceptions import APIAgentError
 from .logging import set_request_id
 
 _UUID4_RE = re.compile(
@@ -28,7 +29,7 @@ _PRIVATE_NETWORKS = [
 ]
 
 
-class MissingHeaderError(Exception):
+class MissingHeaderError(APIAgentError):
     """Required header missing from request."""
 
     pass
