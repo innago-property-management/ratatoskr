@@ -1,6 +1,6 @@
 [project]
 name = "api-agent-ratatoskr"
-version = "1.0.0"
+version = "1.0.1"
 description = "Universal MCP server for querying GraphQL, REST, and gRPC APIs using natural language"
 readme = "README.md"
 license = { text = "MIT" }
@@ -36,9 +36,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-toon = [
-    "toon_format @ git+https://github.com/toon-format/toon-python.git@6b26984a01279defdcf40ab9d09bc418fe8133ac",
-]
 prometheus = [
     "opentelemetry-exporter-prometheus>=0.50b0",
     "prometheus-client>=0.20.0",
@@ -81,4 +78,7 @@ dev = [
     "ruff>=0.8.0",
     "ty>=0.0.15",
     "pip-audit>=2.7.0",
+]
+toon = [
+    "toon_format @ git+https://github.com/toon-format/toon-python.git@6b26984a01279defdcf40ab9d09bc418fe8133ac",
 ]

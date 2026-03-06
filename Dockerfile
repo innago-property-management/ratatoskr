@@ -6,7 +6,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.30 /uv /usr/local/bin/uv
 
-# git required for toon_format optional dependency (--extra toon)
+# git required for toon_format dependency group (--group toon)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
@@ -16,11 +16,11 @@ WORKDIR /app
 
 # Install deps first (cache-friendly — only busts on lockfile change)
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project --extra toon
+RUN uv sync --frozen --no-dev --no-install-project --group toon
 
 # Then copy source and install project
 COPY api_agent ./api_agent
-RUN uv sync --frozen --no-dev --extra toon
+RUN uv sync --frozen --no-dev --group toon
 
 # ---------- runtime ----------
 FROM python:3.11.15-slim

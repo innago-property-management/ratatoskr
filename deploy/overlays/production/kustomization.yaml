@@ -8,7 +8,7 @@ resources:
 # Override image tag for production releases
 images:
   - name: ghcr.io/innago-property-management/ratatoskr
-    newTag: "1.0.0"  # Pin to release tag
+    newTag: "1.0.1"  # Pin to release tag
 
 patches:
   - target:
