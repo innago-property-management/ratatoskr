@@ -30,7 +30,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --group dev --extra toon
+        run: uv sync --group dev --group toon
 
       - name: Run tests
         run: uv run pytest tests/ -v

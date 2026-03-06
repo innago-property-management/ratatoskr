@@ -87,9 +87,6 @@ prometheus = [
     { name = "opentelemetry-exporter-prometheus" },
     { name = "prometheus-client" },
 ]
-toon = [
-    { name = "toon-format" },
-]
 
 [package.dev-dependencies]
 dev = [
@@ -98,6 +95,9 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
     { name = "ty" },
+]
+toon = [
+    { name = "toon-format" },
 ]
 
 [package.metadata]
@@ -118,10 +118,9 @@ requires-dist = [
     { name = "rapidfuzz", specifier = ">=3.0.0" },
     { name = "starlette", specifier = ">=0.50.0" },
     { name = "structlog", specifier = ">=24.1.0" },
-    { name = "toon-format", marker = "extra == 'toon'", git = "https://github.com/toon-format/toon-python.git?rev=6b26984a01279defdcf40ab9d09bc418fe8133ac" },
     { name = "uvicorn", specifier = ">=0.38.0" },
 ]
-provides-extras = ["toon", "prometheus"]
+provides-extras = ["prometheus"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -131,6 +130,7 @@ dev = [
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "ty", specifier = ">=0.0.15" },
 ]
+toon = [{ name = "toon-format", git = "https://github.com/toon-format/toon-python.git?rev=6b26984a01279defdcf40ab9d09bc418fe8133ac" }]
 
 [[package]]
 name = "arize-otel"
