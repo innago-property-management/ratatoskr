@@ -198,3 +198,61 @@ async def test_session_cleanup_on_exception():
             raised = True
 
     assert raised, "RuntimeError should have propagated out of context manager"
+
+
+@pytest.mark.asyncio
+async def test_http_session_both_transports_fail():
+    """SSE exception propagates when both transports fail."""
+
+    @asynccontextmanager
+    async def failing_streamablehttp(url):
+        raise ConnectionError("no streamable-http")
+        yield  # pragma: no cover
+
+    @asynccontextmanager
+    async def failing_sse(url):
+        raise ConnectionError("no SSE either")
+        yield  # pragma: no cover
+
+    with (
+        patch("api_agent.mcp.client.streamablehttp_client", failing_streamablehttp),
+        patch("api_agent.mcp.client.sse_client", failing_sse),
+    ):
+        from api_agent.mcp.client import mcp_http_session
+
+        with pytest.raises(ConnectionError, match="no SSE either"):
+            async with mcp_http_session("http://localhost:3001/mcp"):
+                pass
+
+
+@pytest.mark.asyncio
+async def test_http_body_oserror_propagates_not_falls_back():
+    """OSError raised in session body must NOT trigger SSE fallback."""
+    fake_session = make_fake_session()
+    sse_called = []
+
+    @asynccontextmanager
+    async def fake_streamablehttp_client(url):
+        yield MagicMock(), MagicMock(), MagicMock()
+
+    @asynccontextmanager
+    async def fake_sse_client(url):
+        sse_called.append(True)
+        yield MagicMock(), MagicMock()
+
+    @asynccontextmanager
+    async def fake_client_session(read, write):
+        yield fake_session
+
+    with (
+        patch("api_agent.mcp.client.streamablehttp_client", fake_streamablehttp_client),
+        patch("api_agent.mcp.client.sse_client", fake_sse_client),
+        patch("api_agent.mcp.client.ClientSession", fake_client_session),
+    ):
+        from api_agent.mcp.client import mcp_http_session
+
+        with pytest.raises(OSError, match="dropped"):
+            async with mcp_http_session("http://localhost:3001/mcp"):
+                raise OSError("dropped")
+
+    assert not sse_called, "SSE fallback must not fire for body-originated errors"
