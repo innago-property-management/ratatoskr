@@ -52,7 +52,7 @@ logger = structlog.get_logger(__name__)
 _log = make_logger("[MCP]")
 
 # Context-local storage (isolated per async request)
-_mcp_calls: ContextVar[list[dict[str, Any]]] = ContextVar("mcp_mcp_calls")
+_mcp_calls: ContextVar[list[dict[str, Any]]] = ContextVar("mcp_calls")
 _recipe_steps: ContextVar[list[dict[str, Any]]] = ContextVar("mcp_recipe_steps")
 _query_results: ContextVar[dict[str, Any]] = ContextVar("mcp_query_results")
 _last_result: ContextVar[list] = ContextVar("mcp_last_result")

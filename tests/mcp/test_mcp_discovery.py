@@ -17,6 +17,19 @@ from api_agent.mcp.discovery import (
 )
 
 # ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _clear_discovery_cache():
+    """Ensure discovery cache is clean before and after every test."""
+    _DISCOVERY_CACHE.clear()
+    yield
+    _DISCOVERY_CACHE.clear()
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -94,7 +107,7 @@ def test_parse_discovery_invalid_json_raises():
 @pytest.mark.asyncio
 async def test_discover_stdio_server():
     """discover_servers normalizes stdio descriptor from subprocess output."""
-    _DISCOVERY_CACHE.clear()
+
     output = json.dumps(
         [
             {
@@ -120,13 +133,11 @@ async def test_discover_stdio_server():
     assert s.env == {"GITHUB_TOKEN": "tok"}
     assert s.url == ""
 
-    _DISCOVERY_CACHE.clear()
-
 
 @pytest.mark.asyncio
 async def test_discover_sse_server():
     """discover_servers normalizes SSE descriptor."""
-    _DISCOVERY_CACHE.clear()
+
     output = json.dumps([{"name": "remote", "type": "sse", "url": "http://localhost:3001/mcp"}])
 
     with patch("api_agent.mcp.discovery._run_command", AsyncMock(return_value=output)):
@@ -138,13 +149,11 @@ async def test_discover_sse_server():
     assert s.url == "http://localhost:3001/mcp"
     assert s.command == ""
 
-    _DISCOVERY_CACHE.clear()
-
 
 @pytest.mark.asyncio
 async def test_discovery_caching():
     """discover_servers caches results — command runs only once."""
-    _DISCOVERY_CACHE.clear()
+
     output = json.dumps([{"name": "x", "type": "stdio", "command": "cmd", "args": [], "env": {}}])
     mock_run = AsyncMock(return_value=output)
 
@@ -154,25 +163,19 @@ async def test_discovery_caching():
 
     assert mock_run.call_count == 1, "Command should only run once due to caching"
 
-    _DISCOVERY_CACHE.clear()
-
 
 @pytest.mark.asyncio
 async def test_discovery_invalid_json():
     """discover_servers raises ValueError on invalid JSON output."""
-    _DISCOVERY_CACHE.clear()
 
     with patch("api_agent.mcp.discovery._run_command", AsyncMock(return_value="garbage")):
         with pytest.raises(ValueError, match="[Ii]nvalid"):
             await discover_servers("mcp-proxy list")
 
-    _DISCOVERY_CACHE.clear()
-
 
 @pytest.mark.asyncio
 async def test_discovery_nonzero_exit():
     """discover_servers raises RuntimeError when command exits non-zero."""
-    _DISCOVERY_CACHE.clear()
 
     async def fail_run(command: str) -> str:
         raise RuntimeError(f"Command '{command}' exited with non-zero status")
@@ -180,8 +183,6 @@ async def test_discovery_nonzero_exit():
     with patch("api_agent.mcp.discovery._run_command", fail_run):
         with pytest.raises(RuntimeError):
             await discover_servers("mcp-proxy list")
-
-    _DISCOVERY_CACHE.clear()
 
 
 @pytest.mark.asyncio
@@ -213,7 +214,7 @@ async def test_run_command_timeout():
 @pytest.mark.asyncio
 async def test_resolve_named_target_stdio():
     """mcp://github resolves to a stdio MCPServerDescriptor via discovery."""
-    _DISCOVERY_CACHE.clear()
+
     descriptor = MCPServerDescriptor(
         name="github",
         transport="stdio",
@@ -235,13 +236,11 @@ async def test_resolve_named_target_stdio():
     assert result.name == "github"
     assert result.transport == "stdio"
 
-    _DISCOVERY_CACHE.clear()
-
 
 @pytest.mark.asyncio
 async def test_resolve_named_target_sse():
     """mcp://remote resolves to an SSE descriptor."""
-    _DISCOVERY_CACHE.clear()
+
     descriptor = MCPServerDescriptor(
         name="remote",
         transport="sse",
@@ -263,13 +262,10 @@ async def test_resolve_named_target_sse():
     assert result.transport == "sse"
     assert result.url == "http://localhost:3001/mcp"
 
-    _DISCOVERY_CACHE.clear()
-
 
 @pytest.mark.asyncio
 async def test_resolve_http_target_direct():
     """http:// URLs become SSE descriptors without discovery lookup."""
-    _DISCOVERY_CACHE.clear()
 
     class FakeSettings:
         MCP_DISCOVERY_COMMAND = ""
@@ -282,13 +278,11 @@ async def test_resolve_http_target_direct():
     assert result.transport == "sse"
     assert result.url == "http://localhost:3001/mcp"
 
-    _DISCOVERY_CACHE.clear()
-
 
 @pytest.mark.asyncio
 async def test_resolve_unknown_name():
     """mcp://unknown raises ValueError when name not found in discovery."""
-    _DISCOVERY_CACHE.clear()
+
     _DISCOVERY_CACHE["mcp-proxy list"] = []
 
     class FakeSettings:
@@ -300,5 +294,3 @@ async def test_resolve_unknown_name():
 
     with pytest.raises(ValueError, match="unknown"):
         await resolve_target("mcp://unknown", FakeSettings())
-
-    _DISCOVERY_CACHE.clear()

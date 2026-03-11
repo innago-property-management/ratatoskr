@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch, wraps
 
 import pytest
 
@@ -289,13 +289,20 @@ class TestProcessMcpQuerySuccess:
         ]
         _patch_provider(monkeypatch, responses)
 
-        ctx = _mcp_ctx()
-        result = await process_mcp_query("Read repo a/b", ctx)
+        from api_agent.agent.mcp_agent import _build_schema_text
 
-        # write_file should not have been callable (filtered out of schema_text)
-        assert result.get("ok") is True or "error" in result
-        # The LLM call log should not contain write_file in schema
-        calls = responses[0].tool_calls  # noqa — just checking it ran
+        ctx = _mcp_ctx()
+        with patch(
+            "api_agent.agent.mcp_agent._build_schema_text",
+            wraps=_build_schema_text,
+        ) as build_spy:
+            result = await process_mcp_query("Read repo a/b", ctx)
+
+        assert result["ok"] is True
+        # write_file must have been filtered out before reaching the LLM
+        tool_names = [td.name for td in build_spy.call_args[0][0]]
+        assert "write_file" not in tool_names
+        assert "read_repo" in tool_names
 
     @pytest.mark.asyncio
     async def test_process_mcp_query_zero_tools_after_filter(self, monkeypatch):
