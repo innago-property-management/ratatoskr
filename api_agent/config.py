@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     RECIPE_CACHE_SIZE: int = 64
 
     # Security — SSRF protection
-    ALLOWED_URL_SCHEMES: str = "http,https,grpc,grpcs"
+    ALLOWED_URL_SCHEMES: str = "http,https,grpc,grpcs,mcp"
     BLOCK_PRIVATE_IPS: bool = True
     BLOCKED_HOSTS: str = "169.254.169.254,metadata.google.internal"
     ALLOWED_TARGET_HOSTS: str = ""  # empty = allow all non-blocked; comma-separated allowlist
@@ -94,6 +94,14 @@ class Settings(BaseSettings):
     ALLOW_ENDPOINTS_REST: str = ""  # CSV: "GET /users/*,GET /orders/*"
     ALLOW_ENDPOINTS_GRAPHQL: str = ""  # CSV: "Query.user*,Query.orders"
     ALLOW_ENDPOINTS_GRPC: str = ""  # CSV: "helloworld.Greeter/*"
+    ALLOW_ENDPOINTS_MCP: str = ""  # CSV: "read_*,list_*"
+
+    # MCP facade
+    MCP_DISCOVERY_COMMAND: str = ""  # e.g. "mcp-proxy list"
+    MCP_TARGET_TRANSPORT: str = ""  # "stdio" or "http"
+    MCP_TARGET_COMMAND: str = ""  # command for stdio transport
+    MCP_TARGET_ARGS: str = ""  # shell-quoted args for stdio transport (parsed with shlex)
+    MCP_TARGET_ENV: str = "{}"  # JSON object of env vars for stdio transport
 
     # DuckDB resource limits
     MAX_CONCURRENT_QUERIES: int = 10  # Semaphore bound for concurrent DuckDB ops

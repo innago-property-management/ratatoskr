@@ -54,6 +54,16 @@ def validate_target_url(url: str, api_type: str) -> str:
             raise MissingHeaderError(
                 f"Invalid scheme '{parsed.scheme}' for gRPC. Allowed: {sorted(valid_schemes)}"
             )
+    elif api_type == "mcp":
+        # mcp:// targets are process-local (stdio) — bypass IP check entirely.
+        # http/https targets are direct SSE connections and undergo full SSRF validation below.
+        if parsed.scheme == "mcp":
+            return url  # no network reachability — stdio process target
+        mcp_valid_schemes = allowed_schemes & {"http", "https", "mcp"}
+        if parsed.scheme not in mcp_valid_schemes:
+            raise MissingHeaderError(
+                f"Invalid scheme '{parsed.scheme}' for MCP. Allowed: {sorted(mcp_valid_schemes)}"
+            )
     else:
         valid_schemes = allowed_schemes & {"http", "https"}
         if parsed.scheme not in valid_schemes:
@@ -164,9 +174,9 @@ def get_request_context() -> RequestContext:
     if not api_type:
         raise MissingHeaderError("X-API-Type header required (or set API_AGENT_DEFAULT_API_TYPE)")
 
-    if api_type not in ("graphql", "rest", "grpc"):
+    if api_type not in ("graphql", "rest", "grpc", "mcp"):
         raise MissingHeaderError(
-            f"X-API-Type must be 'graphql', 'rest', or 'grpc', got '{api_type}'"
+            f"X-API-Type must be 'graphql', 'rest', 'grpc', or 'mcp', got '{api_type}'"
         )
 
     # SSRF protection: validate URL before using it
