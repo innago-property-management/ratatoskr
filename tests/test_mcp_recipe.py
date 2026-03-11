@@ -232,6 +232,27 @@ class TestFindUsedParamsMcp:
         found = _find_used_params(recipe, "mcp")
         assert found == {"search_term"}
 
+    def test_finds_nested_param_refs_in_arguments_object(self):
+        """Nested $param refs inside lists/dicts are found recursively."""
+        recipe = {
+            "steps": [
+                {
+                    "kind": "mcp",
+                    "tool_name": "read_repo",
+                    "arguments": {
+                        "owner": {"$param": "owner"},
+                        "filters": [
+                            {"branch": {"$param": "branch"}},
+                            {"labels": [{"$param": "label"}]},
+                        ],
+                    },
+                }
+            ],
+            "sql_steps": [],
+        }
+        found = _find_used_params(recipe, "mcp")
+        assert found == {"owner", "branch", "label"}
+
     def test_finds_params_in_sql_steps(self):
         recipe = {
             "steps": [{"kind": "mcp", "tool_name": "t", "arguments": {}}],
