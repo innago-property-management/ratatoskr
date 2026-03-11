@@ -370,6 +370,32 @@ class TestMcpStepExecutor:
         session.call_tool.assert_awaited_once_with("search", {"query": "ratatoskr"})
 
     @pytest.mark.asyncio
+    async def test_dict_form_param_refs_resolved(self):
+        """Dict-form arguments with $param refs are resolved via render_param_refs."""
+        from api_agent.agent.mcp_agent import _make_mcp_step_executor_factory
+
+        session = AsyncMock()
+        session.call_tool = AsyncMock(return_value=_make_call_result({"ok": True}))
+
+        factory = _make_mcp_step_executor_factory(session)
+        executor = factory("recipe-123")
+
+        step = {
+            "kind": "mcp",
+            "tool_name": "read_repo",
+            "arguments": {"owner": {"$param": "owner"}, "repo": {"$param": "repo"}},
+            "name": "data",
+        }
+        params = {"owner": "innago", "repo": "ratatoskr"}
+
+        ok, table, err_msg, call_rec = await executor(0, step, params, {})
+
+        assert ok is True
+        session.call_tool.assert_awaited_once_with(
+            "read_repo", {"owner": "innago", "repo": "ratatoskr"}
+        )
+
+    @pytest.mark.asyncio
     async def test_invalid_json_after_rendering(self):
         """Bad JSON after template rendering returns failure."""
         from api_agent.agent.mcp_agent import _make_mcp_step_executor_factory

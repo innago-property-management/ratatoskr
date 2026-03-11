@@ -360,27 +360,29 @@ def _make_mcp_step_executor_factory(session: Any):
             tool_name = step.get("tool_name", "")
             name = str(step.get("name") or "data")
 
-            # Render arguments template
-            tmpl = step.get("arguments", "{}")
-            if not isinstance(tmpl, str):
-                tmpl = json.dumps(tmpl) if tmpl else "{}"
-            rendered_args = render_text_template(tmpl, params)
+            # Render arguments — dual dispatch matching _validate_step_mcp
+            args_raw = step.get("arguments", "{}")
+            if isinstance(args_raw, str):
+                rendered_args = render_text_template(args_raw, params)
+                try:
+                    args_dict = json.loads(rendered_args)
+                except json.JSONDecodeError:
+                    return (
+                        False,
+                        None,
+                        json.dumps(
+                            {
+                                "success": False,
+                                "error": f"Invalid arguments after template rendering: {rendered_args[:100]}",
+                            },
+                            indent=2,
+                        ),
+                        None,
+                    )
+            else:
+                from ..recipe.store import render_param_refs
 
-            try:
-                args_dict = json.loads(rendered_args)
-            except json.JSONDecodeError:
-                return (
-                    False,
-                    None,
-                    json.dumps(
-                        {
-                            "success": False,
-                            "error": f"Invalid arguments after template rendering: {rendered_args[:100]}",
-                        },
-                        indent=2,
-                    ),
-                    None,
-                )
+                args_dict = render_param_refs(args_raw or {}, params)
 
             result = await _invoke_mcp_tool(session, tool_name, args_dict)
             if not result["success"]:
@@ -400,7 +402,7 @@ def _make_mcp_step_executor_factory(session: Any):
 
             call_rec = {
                 "tool_name": tool_name,
-                "arguments": rendered_args,
+                "arguments": json.dumps(args_dict),
                 "name": name,
                 "success": True,
             }
