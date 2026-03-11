@@ -70,7 +70,7 @@ class TestGetRequestContext:
             "x-target-url": "https://api.example.com",
             "x-api-type": "invalid",
         }
-        with pytest.raises(MissingHeaderError, match="must be 'graphql', 'rest', or 'grpc'"):
+        with pytest.raises(MissingHeaderError, match="must be 'graphql', 'rest', 'grpc', or 'mcp'"):
             get_request_context()
 
     @patch("api_agent.context.get_http_headers")
