@@ -11,6 +11,7 @@ from api_agent.mcp.discovery import (
     _DISCOVERY_CACHE,
     MCPServerDescriptor,
     _parse_discovery_output,
+    _run_command,
     discover_servers,
     resolve_target,
 )
@@ -181,6 +182,27 @@ async def test_discovery_nonzero_exit():
             await discover_servers("mcp-proxy list")
 
     _DISCOVERY_CACHE.clear()
+
+
+@pytest.mark.asyncio
+async def test_run_command_timeout():
+    """_run_command raises RuntimeError when subprocess exceeds timeout."""
+    import asyncio
+
+    async def slow_communicate():
+        await asyncio.sleep(10)
+        return (b"", b"")
+
+    mock_proc = AsyncMock()
+    mock_proc.communicate = slow_communicate
+    mock_proc.kill = lambda: None
+    mock_proc.wait = AsyncMock()
+
+    with patch(
+        "api_agent.mcp.discovery.asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)
+    ):
+        with pytest.raises(RuntimeError, match="exceeded timeout"):
+            await _run_command("slow-cmd", timeout=0.1)
 
 
 # ---------------------------------------------------------------------------

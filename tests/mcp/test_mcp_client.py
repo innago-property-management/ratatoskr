@@ -139,6 +139,35 @@ async def test_http_session_falls_back_to_sse():
 
 
 @pytest.mark.asyncio
+async def test_http_session_does_not_catch_non_connectivity_errors():
+    """Non-connectivity errors (e.g. ValueError) propagate instead of falling back to SSE."""
+
+    @asynccontextmanager
+    async def bad_streamablehttp_client(url):
+        raise ValueError("protocol mismatch")
+        yield  # noqa: F541 — unreachable, needed to make this a generator
+
+    sse_called = []
+
+    @asynccontextmanager
+    async def fake_sse_client(url):
+        sse_called.append(True)
+        yield MagicMock(), MagicMock()
+
+    with (
+        patch("api_agent.mcp.client.streamablehttp_client", bad_streamablehttp_client),
+        patch("api_agent.mcp.client.sse_client", fake_sse_client),
+    ):
+        from api_agent.mcp.client import mcp_http_session
+
+        with pytest.raises(ValueError, match="protocol mismatch"):
+            async with mcp_http_session("http://localhost:3001/mcp"):
+                pass
+
+    assert not sse_called, "SSE fallback should NOT trigger for non-connectivity errors"
+
+
+@pytest.mark.asyncio
 async def test_session_cleanup_on_exception():
     """Context manager exits cleanly even when the body raises."""
     fake_session = make_fake_session()

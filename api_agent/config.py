@@ -100,7 +100,7 @@ class Settings(BaseSettings):
     MCP_DISCOVERY_COMMAND: str = ""  # e.g. "mcp-proxy list"
     MCP_TARGET_TRANSPORT: str = ""  # "stdio" or "http"
     MCP_TARGET_COMMAND: str = ""  # command for stdio transport
-    MCP_TARGET_ARGS: str = ""  # space-separated args for stdio transport
+    MCP_TARGET_ARGS: str = ""  # shell-quoted args for stdio transport (parsed with shlex)
     MCP_TARGET_ENV: str = "{}"  # JSON object of env vars for stdio transport
 
     # DuckDB resource limits

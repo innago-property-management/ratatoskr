@@ -163,6 +163,55 @@ With SQL: mcp_call("list_issues", '{{"repo": "api"}}', name="issues"); sql_query
 
 
 # ---------------------------------------------------------------------------
+# Shared MCP tool invocation helper
+# ---------------------------------------------------------------------------
+
+
+async def _invoke_mcp_tool(
+    session: Any, tool_name: str, args_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Call an MCP tool and normalize its output.
+
+    Returns a dict with keys: success, error, data, raw_text.
+    """
+    try:
+        with trace_span("mcp.call_tool", {"tool_name": tool_name}):
+            call_result = await session.call_tool(tool_name, args_dict)
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"MCP tool call failed: {sanitize_error(e)}",
+            "data": None,
+            "raw_text": "",
+        }
+
+    # Extract text content from MCP result
+    content_parts: list[str] = []
+    if hasattr(call_result, "content") and call_result.content:
+        for item in call_result.content:
+            if getattr(item, "type", None) == "text":
+                content_parts.append(getattr(item, "text", ""))
+            elif hasattr(item, "text"):
+                content_parts.append(item.text)
+
+    raw_text = "\n".join(content_parts) if content_parts else "{}"
+
+    # Normalize data
+    try:
+        data = json.loads(raw_text)
+    except (json.JSONDecodeError, ValueError):
+        data = {"text": raw_text}
+
+    is_error = bool(getattr(call_result, "isError", False))
+    return {
+        "success": not is_error,
+        "error": raw_text if is_error else None,
+        "data": data if not is_error else None,
+        "raw_text": raw_text,
+    }
+
+
+# ---------------------------------------------------------------------------
 # MCP call tool factory
 # ---------------------------------------------------------------------------
 
@@ -210,44 +259,7 @@ def _create_mcp_call_tool(
         except json.JSONDecodeError as e:
             return json.dumps({"success": False, "error": f"Invalid arguments JSON: {e.msg}"})
 
-        try:
-            with trace_span("mcp.call_tool", {"tool_name": tool_name}):
-                call_result = await session.call_tool(tool_name, args_dict)
-        except Exception as e:
-            safe_append_contextvar_list(
-                _mcp_calls,
-                {
-                    "tool_name": tool_name,
-                    "arguments": arguments,
-                    "name": name,
-                    "success": False,
-                },
-            )
-            return json.dumps(
-                {"success": False, "error": f"MCP tool call failed: {sanitize_error(e)}"}
-            )
-
-        # Extract text content from MCP result
-        content_parts: list[str] = []
-        if hasattr(call_result, "content") and call_result.content:
-            for item in call_result.content:
-                if getattr(item, "type", None) == "text":
-                    content_parts.append(getattr(item, "text", ""))
-                elif hasattr(item, "text"):
-                    content_parts.append(item.text)
-
-        raw_text = "\n".join(content_parts) if content_parts else "{}"
-
-        # Try to parse as JSON for DuckDB storage
-        try:
-            data = json.loads(raw_text)
-        except (json.JSONDecodeError, ValueError):
-            data = {"text": raw_text}
-
-        if getattr(call_result, "isError", False):
-            result: dict[str, Any] = {"success": False, "error": raw_text, "data": None}
-        else:
-            result = {"success": True, "data": data}
+        result = await _invoke_mcp_tool(session, tool_name, args_dict)
 
         # Track call
         safe_append_contextvar_list(
@@ -256,14 +268,14 @@ def _create_mcp_call_tool(
                 "tool_name": tool_name,
                 "arguments": arguments,
                 "name": name,
-                "success": bool(result.get("success")),
+                "success": bool(result["success"]),
             },
         )
 
         # Store result for sql_query
         stored_data, schema_info = None, None
-        if result.get("success"):
-            stored_data, schema_info = store_result(ctx_vars, data, name)
+        if result["success"]:
+            stored_data, schema_info = store_result(ctx_vars, result["data"], name)
 
             # Track for recipe extraction
             safe_append_contextvar_list(
@@ -278,7 +290,7 @@ def _create_mcp_call_tool(
 
         _log(f"CALL {tool_name} -> {json.dumps(result)[:200]}")
 
-        if return_directly and result.get("success"):
+        if return_directly and result["success"]:
             _set_return_directly()
 
         return await format_tool_response(stored_data, schema_info, name, result)
@@ -370,44 +382,19 @@ def _make_mcp_step_executor_factory(session: Any):
                     None,
                 )
 
-            try:
-                call_result = await session.call_tool(tool_name, args_dict)
-            except Exception as e:
+            result = await _invoke_mcp_tool(session, tool_name, args_dict)
+            if not result["success"]:
                 return (
                     False,
                     None,
                     json.dumps(
-                        {"success": False, "error": f"MCP tool call failed: {sanitize_error(e)}"},
+                        {"success": False, "error": result["error"] or result["raw_text"]},
                         indent=2,
                     ),
                     None,
                 )
 
-            # Extract content
-            content_parts: list[str] = []
-            if hasattr(call_result, "content") and call_result.content:
-                for item in call_result.content:
-                    if getattr(item, "type", None) == "text":
-                        content_parts.append(getattr(item, "text", ""))
-
-            raw_text = "\n".join(content_parts) if content_parts else "{}"
-            try:
-                data = json.loads(raw_text)
-            except (json.JSONDecodeError, ValueError):
-                data = {"text": raw_text}
-
-            if getattr(call_result, "isError", False):
-                return (
-                    False,
-                    None,
-                    json.dumps(
-                        {"success": False, "error": raw_text},
-                        indent=2,
-                    ),
-                    None,
-                )
-
-            tables, _ = extract_tables_from_response(data, name)
+            tables, _ = extract_tables_from_response(result["data"], name)
             results.update(tables)
             _query_results.set(results)
 

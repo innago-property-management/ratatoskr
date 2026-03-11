@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import shlex
 from dataclasses import dataclass, field
@@ -36,11 +37,15 @@ _DISCOVERY_CACHE: dict[str, list[MCPServerDescriptor]] = {}
 # ---------------------------------------------------------------------------
 
 
-async def _run_command(command: str) -> str:
+async def _run_command(command: str, timeout: float = 60.0) -> str:
     """Run *command* in a subprocess and return stdout as a string.
 
+    Args:
+        command: Shell command to execute.
+        timeout: Maximum seconds to wait (default 60).
+
     Raises:
-        RuntimeError: if the process exits with a non-zero return code.
+        RuntimeError: if the process exits non-zero or exceeds *timeout*.
     """
     parts = shlex.split(command)
     proc = await asyncio.create_subprocess_exec(
@@ -48,7 +53,15 @@ async def _run_command(command: str) -> str:
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await proc.communicate()
+    try:
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except asyncio.TimeoutError:
+        proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+        raise RuntimeError(
+            f"Command '{command}' exceeded timeout of {timeout}s and was terminated."
+        )
     if proc.returncode != 0:
         raise RuntimeError(
             f"Command '{command}' exited with non-zero status {proc.returncode}: "
@@ -185,7 +198,7 @@ async def resolve_target(target_url: str, settings: Any) -> MCPServerDescriptor:
         transport = settings.MCP_TARGET_TRANSPORT or "stdio"
         if transport == "stdio" and settings.MCP_TARGET_COMMAND:
             args_str = settings.MCP_TARGET_ARGS or ""
-            args = [a.strip() for a in args_str.split(",") if a.strip()]
+            args = shlex.split(args_str) if args_str else []
             env: dict[str, str] = {}
             try:
                 env = json.loads(settings.MCP_TARGET_ENV or "{}")
@@ -213,7 +226,7 @@ async def resolve_target(target_url: str, settings: Any) -> MCPServerDescriptor:
             "MCP_TARGET_COMMAND is not configured"
         )
     args_str = settings.MCP_TARGET_ARGS or ""
-    args = [a.strip() for a in args_str.split(",") if a.strip()]
+    args = shlex.split(args_str) if args_str else []
     env = {}
     try:
         env = json.loads(settings.MCP_TARGET_ENV or "{}")
