@@ -113,7 +113,7 @@ async def maybe_extract_and_save_recipe(
     """Extract and save recipe if conditions met.
 
     Args:
-        api_type: "graphql", "rest", or "grpc"
+        api_type: "graphql", "rest", "grpc", or "mcp"
         api_id: API identifier for recipe storage
         question: Original user question
         steps: API call steps from agent execution

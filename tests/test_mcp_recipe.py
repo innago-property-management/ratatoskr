@@ -192,6 +192,40 @@ class TestValidateStepMcp:
         recipe_step = {"kind": "mcp", "name": "data", "tool_name": "write_repo", "arguments": {}}
         assert _validate_step_mcp(orig, recipe_step, {}) is False
 
+    def test_string_template_arguments(self):
+        """String-form {{param}} arguments are rendered and validated."""
+        orig = {
+            "kind": "mcp",
+            "name": "data",
+            "tool_name": "search",
+            "arguments": '{"query": "ratatoskr"}',
+        }
+        recipe_step = {
+            "kind": "mcp",
+            "name": "data",
+            "tool_name": "search",
+            "arguments": '{"query": "{{term}}"}',
+        }
+        params = {"term": "ratatoskr"}
+        assert _validate_step_mcp(orig, recipe_step, params) is True
+
+    def test_string_template_mismatch(self):
+        """String-form arguments that render differently are rejected."""
+        orig = {
+            "kind": "mcp",
+            "name": "data",
+            "tool_name": "search",
+            "arguments": '{"query": "foo"}',
+        }
+        recipe_step = {
+            "kind": "mcp",
+            "name": "data",
+            "tool_name": "search",
+            "arguments": '{"query": "{{term}}"}',
+        }
+        params = {"term": "bar"}
+        assert _validate_step_mcp(orig, recipe_step, params) is False
+
     def test_wrong_kind_rejected(self):
         orig = {"kind": "mcp", "name": "data", "tool_name": "read_repo", "arguments": "{}"}
         recipe_step = {"kind": "rest", "name": "data", "tool_name": "read_repo", "arguments": {}}
@@ -372,4 +406,5 @@ class TestMcpStepExecutor:
         ok, table, err_msg, call_rec = await executor(0, step, {}, {})
 
         assert ok is False
-        assert "success" in err_msg and "false" in err_msg.lower()
+        payload = json.loads(err_msg)
+        assert payload["success"] is False

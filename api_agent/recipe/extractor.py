@@ -13,7 +13,7 @@ from .store import get_example_values, normalize_ws, render_param_refs, render_t
 _EXTRACTOR_INSTRUCTIONS = """You are a recipe extractor. Convert executed API calls into reusable templates.
 
 INPUT:
-- api_type: "graphql", "rest", or "grpc"
+- api_type: "graphql", "rest", "grpc", or "mcp"
 - question: user's question
 - steps: executed API calls (preserve order)
 - sql_steps: executed SQL queries (preserve order)
@@ -42,6 +42,8 @@ STEP FORMATS:
   Use {"$param": "paramName"} for parameterized values in REST objects.
 - gRPC: {"kind": "grpc", "name": "...", "method": "/pkg.Service/Method", "request": {...}}
   Use {"$param": "paramName"} for parameterized values in the request object.
+- MCP: {"kind": "mcp", "name": "...", "tool_name": "...", "arguments": {...}}
+  Use {"$param": "paramName"} for parameterized values in the arguments object.
 - SQL: Use {{param}} for parameterized values in sql_steps strings.
   Example: "WHERE name ILIKE '{{startsWith}}%'" with param startsWith default "A"
 
@@ -184,7 +186,17 @@ def _validate_step_mcp(orig: dict, recipe_step: dict, params: dict) -> bool:
         return False
     if recipe_step.get("tool_name") != orig.get("tool_name"):
         return False
-    rendered = render_param_refs(_canon_obj(recipe_step.get("arguments")), params)
+    args = recipe_step.get("arguments")
+    if isinstance(args, str):
+        # String-template form: render {{param}} placeholders, then parse
+        rendered_str = render_text_template(args, params)
+        try:
+            rendered = json.loads(rendered_str)
+        except (json.JSONDecodeError, TypeError):
+            return False
+    else:
+        # Dict form: render $param refs
+        rendered = render_param_refs(_canon_obj(args), params)
     orig_args = orig.get("arguments")
     if isinstance(orig_args, str):
         try:
