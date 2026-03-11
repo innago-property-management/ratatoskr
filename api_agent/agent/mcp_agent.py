@@ -345,7 +345,7 @@ def _make_mcp_step_executor_factory(session: Any):
 
     Returns a factory: (recipe_id) -> async step_executor
     """
-    from ..recipe.store import render_text_template
+    from ..recipe.store import render_param_refs, render_text_template
 
     def factory(recipe_id: str):
         async def mcp_step_executor(step_idx, step, params, results):
@@ -380,8 +380,6 @@ def _make_mcp_step_executor_factory(session: Any):
                         None,
                     )
             else:
-                from ..recipe.store import render_param_refs
-
                 args_dict = render_param_refs(args_raw or {}, params)
 
             result = await _invoke_mcp_tool(session, tool_name, args_dict)
