@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from contextlib import asynccontextmanager
 from typing import Any
-from unittest.mock import MagicMock, patch, wraps
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -87,7 +87,7 @@ def _patch_open_session(monkeypatch, session: MockMCPSession):
     """Monkeypatch _open_session to yield the provided MockMCPSession."""
 
     @asynccontextmanager
-    async def fake_open_session(descriptor):  # type: ignore[misc]
+    async def fake_open_session(descriptor):
         yield session
 
     monkeypatch.setattr("api_agent.agent.mcp_agent._open_session", fake_open_session)
@@ -235,17 +235,16 @@ class TestProcessMcpQuerySuccess:
         """Discovery failure returns ok=False with error."""
         from api_agent.agent.mcp_agent import process_mcp_query
 
-        async def failing_open_session(descriptor):  # type: ignore[misc]
+        async def failing_open_session(descriptor):
             raise ValueError("Discovery failed: unknown server 'bogus'")
             # unreachable but needed for generator protocol
-            yield  # type: ignore[misc]
+            yield
 
         # Wrap in asynccontextmanager-compatible mock
         @asynccontextmanager
-        async def fake_open(descriptor):  # type: ignore[misc]
+        async def fake_open(descriptor):
             raise ValueError("Discovery failed: unknown server 'bogus'")
-            yield  # type: ignore[misc]
-
+            yield
         monkeypatch.setattr("api_agent.agent.mcp_agent._open_session", fake_open)
         _patch_provider(monkeypatch, [make_text_response("irrelevant")])
 
@@ -277,7 +276,7 @@ class TestProcessMcpQuerySuccess:
         fake_settings.ENABLE_RECIPES = False
         fake_settings.MAX_SCHEMA_CHARS = 32000
         fake_settings.SCHEMA_REDUCTION_ENABLED = False
-        fake_settings.MCP_SLUG = "test"
+
         monkeypatch.setattr("api_agent.agent.mcp_agent.settings", fake_settings)
 
         responses = [
@@ -320,7 +319,7 @@ class TestProcessMcpQuerySuccess:
         fake_settings.ENABLE_RECIPES = False
         fake_settings.MAX_SCHEMA_CHARS = 32000
         fake_settings.SCHEMA_REDUCTION_ENABLED = False
-        fake_settings.MCP_SLUG = "test"
+
         monkeypatch.setattr("api_agent.agent.mcp_agent.settings", fake_settings)
 
         _patch_provider(monkeypatch, [make_text_response("irrelevant")])
@@ -463,7 +462,7 @@ class TestMaxTurns:
         fake_settings.ENABLE_RECIPES = False
         fake_settings.MAX_SCHEMA_CHARS = 32000
         fake_settings.SCHEMA_REDUCTION_ENABLED = False
-        fake_settings.MCP_SLUG = "test"
+
         monkeypatch.setattr("api_agent.agent.mcp_agent.settings", fake_settings)
 
         ctx = _mcp_ctx()

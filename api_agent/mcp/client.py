@@ -46,19 +46,27 @@ async def mcp_http_session(url: str) -> AsyncIterator[ClientSession]:
     Yields:
         An initialised :class:`mcp.ClientSession`.
     """
+    # Probe whether streamable-http transport works.  Only connectivity
+    # errors trigger fallback to SSE — all other exceptions propagate.
+    use_sse = False
     try:
-        async with streamablehttp_client(url) as (read, write, _get_session_id):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
+        async with streamablehttp_client(url) as (_r, _w, _sid):
+            pass  # transport opened successfully
     except (OSError, ConnectionError) as exc:
-        # Network/connectivity issue — fall back to legacy SSE transport
         logger.info(
             "streamablehttp_fallback_to_sse",
             url=url,
             error=str(exc),
         )
+        use_sse = True
+
+    if use_sse:
         async with sse_client(url) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                yield session
+    else:
+        async with streamablehttp_client(url) as (read, write, _get_session_id):
             async with ClientSession(read, write) as session:
                 await session.initialize()
                 yield session
