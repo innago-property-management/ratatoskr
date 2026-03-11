@@ -117,6 +117,13 @@ def _find_used_params(recipe: dict[str, Any], api_type: str) -> set[str]:
         # gRPC: check $param refs in request object
         elif api_type == "grpc":
             _find_param_refs(step.get("request"), used)
+        # MCP: check $param refs in arguments + {{param}} in arguments string
+        elif api_type == "mcp":
+            args = step.get("arguments")
+            if isinstance(args, str):
+                used.update(_PLACEHOLDER_RE.findall(args))
+            else:
+                _find_param_refs(args, used)
         # REST: check $param refs in path_params, query_params, body
         else:
             for key in ("path_params", "query_params", "body"):
@@ -169,6 +176,24 @@ def _validate_step_grpc(orig: dict, recipe_step: dict, params: dict) -> bool:
     return rendered == _canon_obj(orig_req)
 
 
+def _validate_step_mcp(orig: dict, recipe_step: dict, params: dict) -> bool:
+    """Validate MCP step renders to original."""
+    if recipe_step.get("kind") != "mcp":
+        return False
+    if recipe_step.get("name") != orig.get("name"):
+        return False
+    if recipe_step.get("tool_name") != orig.get("tool_name"):
+        return False
+    rendered = render_param_refs(_canon_obj(recipe_step.get("arguments")), params)
+    orig_args = orig.get("arguments")
+    if isinstance(orig_args, str):
+        try:
+            orig_args = json.loads(orig_args)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return rendered == _canon_obj(orig_args)
+
+
 def _validate_step_rest(orig: dict, recipe_step: dict, params: dict) -> bool:
     """Validate REST step renders to original."""
     if recipe_step.get("name") != orig.get("name"):
@@ -211,6 +236,8 @@ def _validate_equivalence(
             validator = _validate_step_graphql
         elif api_type == "grpc":
             validator = _validate_step_grpc
+        elif api_type == "mcp":
+            validator = _validate_step_mcp
         else:
             validator = _validate_step_rest
         if not validator(orig, rec, params):
