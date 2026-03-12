@@ -303,11 +303,6 @@ async def truncate_for_context_async(
     return result
 
 
-# Keep for backwards compatibility
-def get_table_schema_summary(data: list[dict], table_name: str) -> dict[str, Any]:
-    """Get DuckDB schema summary (deprecated, use extract_tables_from_response)."""
-    return _extract_schema(data, table_name)
-
 
 _DDL_DML_RE = re.compile(
     r"\b(?:CREATE|DROP|INSERT|UPDATE|DELETE|ALTER|TRUNCATE|ATTACH|DETACH|COPY|LOAD|INSTALL|EXPORT|IMPORT)\b",

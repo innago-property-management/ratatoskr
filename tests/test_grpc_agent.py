@@ -891,6 +891,26 @@ class TestGrpcMediumPriority:
 
         monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
+        # Bypass schema reducer so this test exercises the hard-truncation fallback
+        from api_agent.schema.reducer import ReductionResult
+
+        async def passthrough_reducer(schema_text, **kwargs):
+            threshold = kwargs.get("threshold", settings.MAX_TOOL_RESPONSE_CHARS)
+            if len(schema_text) > threshold:
+                schema_text = (
+                    schema_text[:threshold]
+                    + "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
+                )
+            return ReductionResult(
+                schema_text=schema_text,
+                was_toon_applied=False,
+                was_ai_applied=False,
+                original_chars=len(big_text),
+                final_chars=len(schema_text),
+            )
+
+        monkeypatch.setattr("api_agent.agent.grpc_agent.reduce_schema", passthrough_reducer)
+
         prov = fake_provider_factory(
             monkeypatch,
             [make_text_response("Schema is large.")],
