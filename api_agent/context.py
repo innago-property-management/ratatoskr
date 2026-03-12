@@ -204,16 +204,21 @@ def get_request_context() -> RequestContext:
     try:
         target_headers = json.loads(target_headers_raw)
     except json.JSONDecodeError:
+        logger.warning("malformed_header_json", header="X-Target-Headers", fallback="empty dict")
         target_headers = {}
 
     try:
         allow_unsafe_paths = tuple(json.loads(allow_unsafe_paths_raw))
     except json.JSONDecodeError:
+        logger.warning(
+            "malformed_header_json", header="X-Allow-Unsafe-Paths", fallback="empty tuple"
+        )
         allow_unsafe_paths = ()
 
     try:
         poll_paths = tuple(json.loads(poll_paths_raw))
     except json.JSONDecodeError:
+        logger.warning("malformed_header_json", header="X-Poll-Paths", fallback="empty tuple")
         poll_paths = ()
 
     try:
@@ -222,6 +227,9 @@ def get_request_context() -> RequestContext:
             tuple(v for v in parsed if isinstance(v, str)) if isinstance(parsed, list) else ()
         )
     except json.JSONDecodeError:
+        logger.warning(
+            "malformed_header_json", header="X-Allow-Unsafe-RPCs", fallback="empty tuple"
+        )
         grpc_allow_unsafe_rpcs = ()
 
     try:
@@ -232,6 +240,9 @@ def get_request_context() -> RequestContext:
             else ()
         )
     except json.JSONDecodeError:
+        logger.warning(
+            "malformed_header_json", header="X-Allow-Endpoints", fallback="empty tuple"
+        )
         allow_endpoints = ()
 
     return RequestContext(
