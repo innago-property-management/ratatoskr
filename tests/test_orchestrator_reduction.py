@@ -17,6 +17,7 @@ from api_agent.agent.orchestrator import (
     ProtocolConfig,
     run_agent_orchestration,
 )
+from api_agent.config import settings
 from api_agent.schema.reducer import ReductionResult
 from tests.conftest import FakeLLMProvider, make_text_response
 
@@ -41,20 +42,19 @@ def _make_ctx_vars() -> AgentContextVars:
 
 def _make_config(provider, **overrides) -> ProtocolConfig:
     """Build a minimal ProtocolConfig with sensible defaults."""
-    defaults = dict(
-        agent_type="test",
-        log_prefix="[TEST]",
-        call_key="test_calls",
-        ctx_vars=_make_ctx_vars(),
-        unreduced_schema_text=SAMPLE_SCHEMA,
-        raw_schema=SAMPLE_SCHEMA,
-        provider=provider,
-        tools=[],
-        instructions="You are a test agent.",
-        api_id="test-api",
+    return ProtocolConfig(
+        agent_type=overrides.get("agent_type", "test"),
+        log_prefix=overrides.get("log_prefix", "[TEST]"),
+        call_key=overrides.get("call_key", "test_calls"),
+        ctx_vars=overrides.get("ctx_vars", _make_ctx_vars()),
+        unreduced_schema_text=overrides.get("unreduced_schema_text", SAMPLE_SCHEMA),
+        raw_schema=overrides.get("raw_schema", SAMPLE_SCHEMA),
+        provider=overrides.get("provider", provider),
+        tools=overrides.get("tools", []),
+        instructions=overrides.get("instructions", "You are a test agent."),
+        api_id=overrides.get("api_id", "test-api"),
+        schema_pre_hook=overrides.get("schema_pre_hook"),
     )
-    defaults.update(overrides)
-    return ProtocolConfig(**defaults)
 
 
 def _make_reduction_result(schema_text: str = "REDUCED_SCHEMA") -> ReductionResult:
@@ -78,7 +78,7 @@ class TestOrchestratorReduction:
 
     @pytest.mark.asyncio
     async def test_orchestrator_calls_reduce_schema(self, monkeypatch):
-        """run_agent_orchestration calls reduce_schema() with threshold, question, and schema text."""
+        """run_agent_orchestration calls reduce_schema() with correct wiring."""
         provider = FakeLLMProvider([make_text_response("Done.")])
 
         mock_reduce = AsyncMock(return_value=_make_reduction_result(SAMPLE_SCHEMA))
@@ -86,17 +86,19 @@ class TestOrchestratorReduction:
         config = _make_config(provider)
 
         monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", mock_reduce)
-        # Disable recipes to simplify the test path
         monkeypatch.setattr("api_agent.agent.orchestrator.settings.ENABLE_RECIPES", False)
 
         question = "What fields does hello have?"
         await run_agent_orchestration(question, config)
 
         mock_reduce.assert_awaited_once()
-        call_kwargs = mock_reduce.call_args
-        # Positional or keyword — verify the schema text and question reach reduce_schema
-        assert SAMPLE_SCHEMA in str(call_kwargs)
-        assert question in str(call_kwargs)
+        _, kwargs = mock_reduce.call_args
+
+        # Assert concrete wiring into reduce_schema
+        assert kwargs["schema_text"] == SAMPLE_SCHEMA
+        assert kwargs["question"] == question
+        assert kwargs["threshold"] == settings.MAX_SCHEMA_CHARS
+        assert kwargs["enabled"] == settings.SCHEMA_REDUCTION_ENABLED
 
     @pytest.mark.asyncio
     async def test_orchestrator_applies_pre_hook_before_reduction(self, monkeypatch):
@@ -168,8 +170,7 @@ class TestOrchestratorReduction:
         assert len(user_messages) >= 1
         user_content = user_messages[0]["content"]
         assert reduced_text in user_content
-        # The original unreduced schema should NOT appear (unless it happens to
-        # be a substring of the reduced text, which it isn't in this test)
+        # The original unreduced schema should NOT appear
         assert SAMPLE_SCHEMA not in user_content
 
     @pytest.mark.asyncio
@@ -191,9 +192,7 @@ class TestOrchestratorReduction:
 
         monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", passthrough_reduce)
         monkeypatch.setattr("api_agent.agent.orchestrator.settings.ENABLE_RECIPES", False)
-        monkeypatch.setattr(
-            "api_agent.agent.orchestrator.settings.SCHEMA_REDUCTION_ENABLED", False
-        )
+        monkeypatch.setattr("api_agent.agent.orchestrator.settings.SCHEMA_REDUCTION_ENABLED", False)
 
         result = await run_agent_orchestration("What is hello?", config)
 
@@ -226,6 +225,29 @@ class TestOrchestratorReduction:
 
         # reduce_schema is still called (centralized) even for MCP
         mock_reduce.assert_awaited_once()
-        # The raw schema text should pass through without pre-hook transformation
-        call_kwargs = mock_reduce.call_args
-        assert SAMPLE_SCHEMA in str(call_kwargs)
+        _, kwargs = mock_reduce.call_args
+        assert kwargs["schema_text"] == SAMPLE_SCHEMA
+
+    @pytest.mark.asyncio
+    async def test_orchestrator_reduction_with_recipes_enabled(self, monkeypatch):
+        """Reduction happens exactly once even when recipes are enabled."""
+        reduced_text = "REDUCED_WITH_RECIPES"
+        provider = FakeLLMProvider([make_text_response("Done.")])
+        mock_reduce = AsyncMock(return_value=_make_reduction_result(reduced_text))
+
+        config = _make_config(provider)
+
+        monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", mock_reduce)
+        # Leave ENABLE_RECIPES at default (True)
+
+        question = "What fields does hello have?"
+        await run_agent_orchestration(question, config)
+
+        # Reduction should happen exactly once regardless of recipe path
+        mock_reduce.assert_awaited_once()
+
+        # The LLM prompt should contain the reduced schema
+        assert len(provider.call_log) >= 1
+        first_call_messages = provider.call_log[0]["messages"]
+        user_messages = [m for m in first_call_messages if m.get("role") == "user"]
+        assert any(reduced_text in m["content"] for m in user_messages)

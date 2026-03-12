@@ -863,9 +863,10 @@ class TestGrpcMediumPriority:
 
     @pytest.mark.asyncio
     async def test_large_schema_truncated(self, grpc_ctx, fake_provider_factory, monkeypatch):
-        """Schema larger than MAX_TOOL_RESPONSE_CHARS is truncated.
+        """gRPC wiring: oversized schema is reduced via orchestrator.reduce_schema.
 
-        Protects grpc_agent.py:349-355 — schema truncation with marker.
+        Verifies that the gRPC agent passes large schemas through to the
+        orchestrator's centralized reduce_schema, which handles truncation.
         """
         big_text = "x" * (settings.MAX_TOOL_RESPONSE_CHARS + 100)
         big_schema = GrpcSchema(

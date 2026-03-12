@@ -354,6 +354,7 @@ async def fetch_schema_context(
     Returns:
         Tuple of (unreduced_context, base_url, raw_spec_json)
     """
+    _ = question  # kept for backward compatibility; reduction now in orchestrator
     spec = await load_openapi_spec(spec_url, headers)
     if not spec:
         return "", "", ""
