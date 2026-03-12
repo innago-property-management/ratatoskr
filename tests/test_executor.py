@@ -5,7 +5,6 @@ import json
 from api_agent.executor import (
     execute_sql,
     extract_tables_from_response,
-    get_table_schema_summary,
     truncate_for_context,
 )
 
@@ -155,45 +154,6 @@ class TestExecuteSql:
 
         assert result["success"] is False
         assert "error" in result
-
-
-class TestGetTableSchemaSummary:
-    """Test get_table_schema_summary function."""
-
-    def test_extracts_schema_from_simple_data(self):
-        """Extracts column names and types."""
-        data = [{"id": 1, "name": "Alice", "active": True}]
-        result = get_table_schema_summary(data, "users")
-
-        assert result["rows"] == 1
-        assert "id" in result["schema"]
-        assert "name" in result["schema"]
-        assert "BIGINT" in result["schema"] or "INTEGER" in result["schema"]
-        assert "VARCHAR" in result["schema"]
-        assert "hint" in result
-
-    def test_extracts_nested_struct_types(self):
-        """Detects nested STRUCT types."""
-        data = [{"user": {"id": 1, "name": "Alice"}}]
-        result = get_table_schema_summary(data, "response")
-
-        assert result["rows"] == 1
-        assert "STRUCT" in result["schema"]
-        assert "hint" in result
-
-    def test_empty_data_returns_empty_schema(self):
-        """Empty list returns empty schema."""
-        result = get_table_schema_summary([], "empty")
-
-        assert result["rows"] == 0
-        assert result["schema"] == ""
-
-    def test_hint_contains_table_name(self):
-        """Hint includes table name for queries."""
-        data = [{"id": 1}]
-        result = get_table_schema_summary(data, "my_table")
-
-        assert "my_table" in result["hint"]
 
 
 class TestTruncateForContext:

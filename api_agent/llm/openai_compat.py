@@ -104,13 +104,11 @@ class OpenAICompatProvider(LLMProvider):
     def format_assistant_tool_calls(
         self, response: LLMResponse, messages: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        import json as _json
-
         tool_calls_data = [
             {
                 "id": tc.id,
                 "type": "function",
-                "function": {"name": tc.name, "arguments": _json.dumps(tc.arguments)},
+                "function": {"name": tc.name, "arguments": json.dumps(tc.arguments)},
             }
             for tc in response.tool_calls
         ]
