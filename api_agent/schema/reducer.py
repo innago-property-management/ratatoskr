@@ -1,7 +1,8 @@
-"""Smart schema reduction pipeline: TOON encoding + AI-powered filtering.
+"""Smart schema reduction pipeline: keyword ranking + TOON + AI-powered filtering.
 
 Reduces oversized API schemas to fit within LLM context limits through a
-two-layer pipeline:
+multi-layer pipeline:
+  0. KeywordRanking — question-aware block scoring and truncation (no AI call)
   1. ToonLayer — lossless structural compression (JSON schemas only)
   2. HaikuLayer — AI-powered relevance filtering (Claude Haiku)
 
@@ -33,6 +34,274 @@ class ReductionResult:
     was_ai_applied: bool  # True if Haiku reduction was invoked and succeeded
     original_chars: int
     final_chars: int
+
+
+# ---------------------------------------------------------------------------
+# Keyword-ranked truncation (Layer 0)
+# ---------------------------------------------------------------------------
+
+_STOPWORDS = frozenset(
+    "a an the is are was were be been being have has had do does did "
+    "will would shall should may might can could of in to for with on at "
+    "by from as into about between through after before during what which "
+    "how where when who all each every any some no not and or but if then "
+    "than that this these those it i me my we our get set list show find "
+    "give tell make create update delete use".split()
+)
+
+# Section header pattern: lines like <queries>, <types>, <auth>, <endpoints-v2>, etc.
+_SECTION_HEADER_RE = re.compile(r"^<[\w.\-]+>$")
+
+# Auth section header
+_AUTH_HEADER = "<auth>"
+
+# Sections that are always kept (headers + content)
+_ALWAYS_KEEP_SECTIONS = frozenset({"<auth>"})
+
+# Truncation marker for hard truncation (no keywords available)
+_HARD_TRUNCATION_MARKER = "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
+
+
+@dataclass
+class Block:
+    """A parsed schema block with scoring metadata."""
+
+    text: str
+    section: str | None
+    is_header: bool
+    original_index: int
+    score: int = 0
+
+
+def _extract_keywords(question: str) -> list[str]:
+    """Extract unique keywords from a question, removing stopwords."""
+    tokens = re.split(r"[\s\W]+", question.lower())
+    seen: set[str] = set()
+    result: list[str] = []
+    for tok in tokens:
+        if tok and tok not in _STOPWORDS and tok not in seen:
+            seen.add(tok)
+            result.append(tok)
+    return result
+
+
+def _parse_blocks(schema_text: str) -> list[Block]:
+    """Parse schema text into blocks with metadata."""
+    lines = schema_text.split("\n")
+    blocks: list[Block] = []
+    current_section: str | None = None
+    idx = 0
+    i = 0
+
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+
+        if not stripped:
+            i += 1
+            continue
+
+        # Section header
+        if _SECTION_HEADER_RE.match(stripped):
+            current_section = stripped
+            blocks.append(
+                Block(
+                    text=stripped,
+                    section=current_section,
+                    is_header=True,
+                    original_index=idx,
+                )
+            )
+            idx += 1
+            i += 1
+            continue
+
+        # Multi-line block: line contains '{' and doesn't close on same line,
+        # OR starts with 'service' (gRPC pattern)
+        if ("{" in stripped and "}" not in stripped) or (
+            stripped.startswith("service ") and "{" in stripped
+        ):
+            block_lines = [line]
+            i += 1
+            brace_depth = stripped.count("{") - stripped.count("}")
+            while i < len(lines) and brace_depth > 0:
+                block_lines.append(lines[i])
+                brace_depth += lines[i].count("{") - lines[i].count("}")
+                i += 1
+            blocks.append(
+                Block(
+                    text="\n".join(block_lines),
+                    section=current_section,
+                    is_header=False,
+                    original_index=idx,
+                )
+            )
+            idx += 1
+            continue
+
+        # Single-line block
+        blocks.append(
+            Block(
+                text=line,
+                section=current_section,
+                is_header=False,
+                original_index=idx,
+            )
+        )
+        idx += 1
+        i += 1
+
+    return blocks
+
+
+def _score_block(block_text: str, keywords: list[str]) -> int:
+    """Count how many distinct keywords appear in the block (case-insensitive)."""
+    lower = block_text.lower()
+    return sum(1 for kw in keywords if kw in lower)
+
+
+def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
+    """Rank schema blocks by keyword relevance and truncate to fit threshold.
+
+    Algorithm:
+      1. Extract keywords from question (lowercase, no stopwords)
+      2. Parse schema into blocks (endpoints, types, services, etc.)
+      3. Score each block by keyword overlap
+      4. Sort by score descending (stable — ties keep original order)
+      5. Assemble blocks within character budget
+      6. Append truncation marker if anything was cut
+
+    Returns the original schema unchanged if it fits within threshold.
+    Falls back to hard truncation if question is empty.
+
+    Note: The truncation marker is included within the threshold budget,
+    so callers can rely on threshold as a hard cap.
+    """
+    if not schema_text:
+        return schema_text
+
+    if len(schema_text) <= threshold:
+        return schema_text
+
+    # Empty question — can't rank, hard truncate within budget
+    if not question or not question.strip():
+        cut = max(0, threshold - len(_HARD_TRUNCATION_MARKER))
+        return schema_text[:cut] + _HARD_TRUNCATION_MARKER
+
+    keywords = _extract_keywords(question)
+    if not keywords:
+        cut = max(0, threshold - len(_HARD_TRUNCATION_MARKER))
+        return schema_text[:cut] + _HARD_TRUNCATION_MARKER
+
+    blocks = _parse_blocks(schema_text)
+
+    # Separate headers, always-keep blocks, and scorable blocks
+    headers: list[Block] = []
+    auth_blocks: list[Block] = []
+    scorable: list[Block] = []
+
+    for block in blocks:
+        if block.is_header:
+            headers.append(block)
+        elif block.section in _ALWAYS_KEEP_SECTIONS:
+            auth_blocks.append(block)
+        else:
+            block.score = _score_block(block.text, keywords)
+            scorable.append(block)
+
+    # Stable sort by (score desc, original_index asc)
+    scorable.sort(key=lambda b: (-b.score, b.original_index))
+
+    # Calculate budget: threshold minus always-kept content
+    always_kept_chars = sum(len(b.text) + 1 for b in auth_blocks)  # +1 for \n
+    for h in headers:
+        if h.text in _ALWAYS_KEEP_SECTIONS:
+            always_kept_chars += len(h.text) + 1
+
+    # Track which sections have at least one included block
+    sections_needed: set[str] = set()
+    for b in auth_blocks:
+        if b.section:
+            sections_needed.add(b.section)
+
+    # Select blocks within budget
+    selected: list[Block] = []
+    used_chars = always_kept_chars
+    dropped_count = 0
+
+    for block in scorable:
+        # Cost: block text + newline + possibly a section header
+        extra_header_cost = 0
+        if (
+            block.section
+            and block.section not in sections_needed
+            and block.section not in _ALWAYS_KEEP_SECTIONS
+        ):
+            for h in headers:
+                if h.text == block.section:
+                    extra_header_cost = len(h.text) + 1
+                    break
+
+        total_cost = len(block.text) + 1 + extra_header_cost
+        if used_chars + total_cost <= threshold:
+            selected.append(block)
+            used_chars += total_cost
+            if block.section:
+                sections_needed.add(block.section)
+        else:
+            dropped_count += 1
+
+    # Determine section ordering by the best score of any selected block
+    section_best_score: dict[str, tuple[int, int]] = {}
+    for b in selected:
+        if b.section:
+            best = section_best_score.get(b.section)
+            cur = (b.score, b.original_index)
+            if best is None or b.score > best[0]:
+                section_best_score[b.section] = cur
+
+    # Sections with no scorable selected blocks (auth-only)
+    for section in sections_needed:
+        if section not in section_best_score:
+            section_best_score[section] = (-1, 9999)
+
+    sorted_sections = sorted(
+        sections_needed,
+        key=lambda s: (
+            -section_best_score.get(s, (0, 0))[0],
+            section_best_score.get(s, (0, 9999))[1],
+        ),
+    )
+
+    # Blocks with no section (gRPC services etc.)
+    no_section_blocks = sorted(
+        [b for b in selected if not b.section],
+        key=lambda b: (-b.score, b.original_index),
+    )
+
+    output_parts: list[str] = []
+
+    for block in no_section_blocks:
+        output_parts.append(block.text)
+
+    for section in sorted_sections:
+        output_parts.append(section)
+        for b in auth_blocks:
+            if b.section == section:
+                output_parts.append(b.text)
+        section_blocks = sorted(
+            [b for b in selected if b.section == section],
+            key=lambda b: (-b.score, b.original_index),
+        )
+        for b in section_blocks:
+            output_parts.append(b.text)
+
+    result = "\n".join(output_parts)
+
+    if dropped_count > 0:
+        result += f"\n[SCHEMA RANKED AND TRUNCATED - use search_schema() to explore remaining {dropped_count} items]"
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -304,9 +573,22 @@ async def reduce_schema(
             final_chars=original_chars,
         )
 
+    # Layer 0: Keyword-ranked truncation (no AI call)
+    current_text = schema_text
+    if len(current_text) > threshold and question and question.strip():
+        current_text = rank_and_truncate(current_text, question, threshold)
+        if len(current_text) <= threshold:
+            return ReductionResult(
+                schema_text=current_text,
+                was_toon_applied=False,
+                was_ai_applied=False,
+                original_chars=original_chars,
+                final_chars=len(current_text),
+            )
+
     # Layer 1: TOON
     toon_layer = ToonLayer()
-    current_text, toon_applied = toon_layer.encode(schema_text)
+    current_text, toon_applied = toon_layer.encode(current_text)
 
     if len(current_text) <= threshold:
         result = ReductionResult(
