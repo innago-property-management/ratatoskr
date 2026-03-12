@@ -3,15 +3,19 @@
 import ipaddress
 import json
 import re
+import socket
 import uuid
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+import structlog
 from fastmcp.server.dependencies import get_http_headers
 
 from .config import settings
 from .exceptions import APIAgentError
 from .logging import set_request_id
+
+logger = structlog.get_logger(__name__)
 
 _UUID4_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", re.I
@@ -95,7 +99,22 @@ def validate_target_url(url: str, api_type: str) -> str:
                 except TypeError:
                     continue  # IPv4/IPv6 version mismatch — skip this network
         except ValueError:
-            pass  # DNS name, not an IP literal — acceptable
+            # DNS name, not an IP literal — resolve and check each address
+            try:
+                addrinfo = socket.getaddrinfo(hostname, None)
+                for _family, _type, _proto, _canonname, sockaddr in addrinfo:
+                    resolved_ip = ipaddress.ip_address(sockaddr[0])
+                    check_ip = getattr(resolved_ip, "ipv4_mapped", None) or resolved_ip
+                    for network in _PRIVATE_NETWORKS:
+                        try:
+                            if check_ip in network:
+                                raise MissingHeaderError(
+                                    f"Host '{hostname}' resolves to private/internal IP: {sockaddr[0]}"
+                                )
+                        except TypeError:
+                            continue
+            except socket.gaierror:
+                pass  # DNS resolution failed — connection will fail later
 
     # Host allowlist (if configured)
     if settings.ALLOWED_TARGET_HOSTS:
