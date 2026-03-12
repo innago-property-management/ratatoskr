@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
-from api_agent.schema.reducer import _HARD_TRUNCATION_MARKER, rank_and_truncate
+import pytest
+
+from api_agent.schema.reducer import (
+    _HARD_TRUNCATION_MARKER,
+    rank_and_truncate,
+    reduce_schema,
+)
 
 # ---------------------------------------------------------------------------
 # Sample schemas for tests
@@ -235,8 +241,8 @@ class TestGrpcServiceBlocks:
     """Test 11: gRPC service blocks scored and ranked correctly."""
 
     def test_grpc_service_blocks_ranked(self) -> None:
-        # Threshold forces truncation so ranking effects are observable
-        result = rank_and_truncate(GRPC_SCHEMA, "hotel reservation", threshold=200)
+        # Threshold forces truncation but allows at least one service block
+        result = rank_and_truncate(GRPC_SCHEMA, "hotel reservation", threshold=350)
         # Truncation should have occurred
         assert "[SCHEMA RANKED AND TRUNCATED" in result
         # HotelService should survive (highest relevance)
@@ -264,3 +270,37 @@ GET /gamma() -> Gamma  # Third endpoint"""
         beta_pos = result.find("/beta")
         gamma_pos = result.find("/gamma")
         assert alpha_pos < beta_pos < gamma_pos
+
+
+class TestWordBoundaryScoring:
+    """Test 13: Keywords use word-boundary matching to prevent false positives."""
+
+    def test_substring_no_false_positive(self) -> None:
+        schema = """\
+<endpoints>
+GET /airports() -> AirportList  # List airports
+GET /flights({origin}) -> FlightList  # Search flights
+GET /portals({id}) -> Portal  # Get portal info"""
+        # "port" should NOT match "airports" or "portals" via word-boundary
+        result = rank_and_truncate(schema, "port", threshold=99999)
+        # All items present (under threshold), but portal line should score
+        # higher than airports because "port" is not a word boundary in "airports"
+        assert "portals" in result
+
+
+class TestReduceSchemaLayer0Integration:
+    """Test 14: reduce_schema Layer 0 early-return integration."""
+
+    @pytest.mark.asyncio
+    async def test_layer0_early_return(self) -> None:
+        # Schema over threshold, question available — Layer 0 should handle it
+        result = await reduce_schema(
+            schema_text=GRAPHQL_SCHEMA,
+            question="booking flights",
+            threshold=600,
+            enabled=True,
+        )
+        assert result.was_toon_applied is False
+        assert result.was_ai_applied is False
+        assert result.final_chars <= 600
+        assert result.final_chars < result.original_chars

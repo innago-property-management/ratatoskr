@@ -115,4 +115,4 @@ jobs:
                  actionable instruction
 
           claude_args: |
-            --allowedTools "Bash(gh api repos/*:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+            --allowedTools "Bash(gh pr:*),Bash(gh api:*)"

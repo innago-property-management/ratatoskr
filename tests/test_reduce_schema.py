@@ -16,6 +16,16 @@ from api_agent.schema.reducer import ReductionResult, _get_haiku_layer, reduce_s
 
 
 @pytest.fixture(autouse=True)
+def _bypass_keyword_ranking():
+    """Bypass Layer 0 keyword ranking — these tests focus on TOON/Haiku layers."""
+    with patch(
+        "api_agent.schema.reducer.rank_and_truncate",
+        side_effect=lambda text, q, t: text,
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _clear_haiku_layer_cache():
     """Clear the HaikuLayer lru_cache between tests to avoid cross-test leakage."""
     _get_haiku_layer.cache_clear()
@@ -133,7 +143,7 @@ class TestReduceSchemaOrchestration:
 
         assert result.was_ai_applied is False
         # Final text should be truncated with marker
-        assert "[SCHEMA TRUNCATED" in result.schema_text
+        assert "[SCHEMA" in result.schema_text and "TRUNCATED" in result.schema_text
 
     @pytest.mark.asyncio
     async def test_over_threshold_haiku_invoked(self):
@@ -174,7 +184,7 @@ class TestReduceSchemaOrchestration:
             )
 
         assert result.was_ai_applied is False
-        assert "[SCHEMA TRUNCATED" in result.schema_text
+        assert "[SCHEMA" in result.schema_text and "TRUNCATED" in result.schema_text
 
     @pytest.mark.asyncio
     async def test_max_input_chars_skips_haiku(self):
@@ -198,7 +208,7 @@ class TestReduceSchemaOrchestration:
         # Haiku should NOT have been called
         mock_create.assert_not_called()
         assert result.was_ai_applied is False
-        assert "[SCHEMA TRUNCATED" in result.schema_text
+        assert "[SCHEMA" in result.schema_text and "TRUNCATED" in result.schema_text
 
     @pytest.mark.asyncio
     async def test_api_key_resolved_from_env(self, monkeypatch: pytest.MonkeyPatch):
