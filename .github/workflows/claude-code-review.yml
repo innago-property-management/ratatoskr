@@ -13,7 +13,11 @@ jobs:
       pull-requests: write
       id-token: write
       actions: read
-    steps:
+    steps:    
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
       - name: PR Review
         uses: anthropics/claude-code-action@v1
         with:
