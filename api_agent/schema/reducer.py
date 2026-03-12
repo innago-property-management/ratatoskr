@@ -52,9 +52,6 @@ _STOPWORDS = frozenset(
 # Section header pattern: lines like <queries>, <types>, <auth>, <endpoints-v2>, etc.
 _SECTION_HEADER_RE = re.compile(r"^<[\w.\-]+>$")
 
-# Auth section header
-_AUTH_HEADER = "<auth>"
-
 # Sections that are always kept (headers + content)
 _ALWAYS_KEEP_SECTIONS = frozenset({"<auth>"})
 
@@ -154,10 +151,9 @@ def _parse_blocks(schema_text: str) -> list[Block]:
     return blocks
 
 
-def _score_block(block_text: str, keywords: list[str]) -> int:
-    """Count how many distinct keywords appear in the block (case-insensitive)."""
-    lower = block_text.lower()
-    return sum(1 for kw in keywords if kw in lower)
+def _score_block(block_text: str, keywords: list[re.Pattern[str]]) -> int:
+    """Count how many distinct keywords match in the block (word-boundary)."""
+    return sum(1 for kw in keywords if kw.search(block_text))
 
 
 def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
@@ -188,10 +184,13 @@ def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
         cut = max(0, threshold - len(_HARD_TRUNCATION_MARKER))
         return schema_text[:cut] + _HARD_TRUNCATION_MARKER
 
-    keywords = _extract_keywords(question)
-    if not keywords:
+    raw_keywords = _extract_keywords(question)
+    if not raw_keywords:
         cut = max(0, threshold - len(_HARD_TRUNCATION_MARKER))
         return schema_text[:cut] + _HARD_TRUNCATION_MARKER
+
+    # Compile word-boundary patterns for accurate scoring
+    keywords = [re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE) for kw in raw_keywords]
 
     blocks = _parse_blocks(schema_text)
 
@@ -224,6 +223,11 @@ def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
         if b.section:
             sections_needed.add(b.section)
 
+    # Reserve space for the ranked truncation marker (worst case).
+    # The marker is ~90 chars; we reserve it upfront and reclaim if nothing is dropped.
+    _RANKED_MARKER_MAX = 100  # generous estimate for marker + item count
+    effective_threshold = threshold - _RANKED_MARKER_MAX
+
     # Select blocks within budget
     selected: list[Block] = []
     used_chars = always_kept_chars
@@ -243,7 +247,7 @@ def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
                     break
 
         total_cost = len(block.text) + 1 + extra_header_cost
-        if used_chars + total_cost <= threshold:
+        if used_chars + total_cost <= effective_threshold:
             selected.append(block)
             used_chars += total_cost
             if block.section:
@@ -537,16 +541,15 @@ async def reduce_schema(
 ) -> ReductionResult:
     """Reduce schema_text to fit within threshold, guided by question.
 
-    Pipeline:
-      1. TOON encode — lossless compression, no AI call
-      2. If still over threshold AND API key available -> Haiku reduction
-      3. If Haiku unavailable or fails -> return TOON (or original if TOON larger)
-      4. Never raises — always returns a valid schema_text
+    Three-layer pipeline:
+      0. Keyword ranking — score schema blocks by question relevance, sort
+         by score, truncate at character budget (no AI call, no deps)
+      1. TOON encode — lossless structural compression (JSON only)
+      2. Haiku AI reduction — query-aware summarization (requires API key)
 
-    Note: Currently all protocol agents pass DSL/SDL text, not raw JSON, so
-    ToonLayer is inert (skips non-JSON input by design). The pipeline still
-    applies Haiku reduction and hard-truncation fallback. ToonLayer will
-    activate automatically if a future caller passes raw JSON schemas.
+    Each layer short-circuits: if the schema fits after any layer, later
+    layers are skipped.  Hard truncation is the final fallback.
+    Never raises — always returns a valid schema_text.
 
     Args:
         schema_text:  Serialized DSL text from protocol-specific builder.
