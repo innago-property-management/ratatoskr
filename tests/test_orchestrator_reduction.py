@@ -281,69 +281,66 @@ class TestAgentConcurrencyLimiter:
         import asyncio
 
         set_agent_semaphore(2)  # Allow only 2 concurrent
+        try:
+            barrier = asyncio.Event()
+            running_count: list[int] = [0]
+            max_observed: list[int] = [0]
 
-        barrier = asyncio.Event()
-        running_count: list[int] = [0]
-        max_observed: list[int] = [0]
+            async def slow_reduce(schema_text, **kwargs):
+                running_count[0] += 1
+                max_observed[0] = max(max_observed[0], running_count[0])
+                await barrier.wait()
+                running_count[0] -= 1
+                return _make_reduction_result(schema_text)
 
-        original_impl = (
-            run_agent_orchestration.__wrapped__
-            if hasattr(run_agent_orchestration, "__wrapped__")
-            else None
-        )  # noqa: E501
+            provider = FakeLLMProvider([make_text_response("Done.")] * 4)
+            monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", slow_reduce)
+            monkeypatch.setattr("api_agent.agent.orchestrator.settings.ENABLE_RECIPES", False)
 
-        async def slow_reduce(schema_text, **kwargs):
-            running_count[0] += 1
-            max_observed[0] = max(max_observed[0], running_count[0])
-            await barrier.wait()
-            running_count[0] -= 1
-            return _make_reduction_result(schema_text)
+            configs = [_make_config(provider) for _ in range(4)]
+            tasks = [asyncio.create_task(run_agent_orchestration("q", c)) for c in configs]
 
-        provider = FakeLLMProvider([make_text_response("Done.")] * 4)
-        monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", slow_reduce)
-        monkeypatch.setattr("api_agent.agent.orchestrator.settings.ENABLE_RECIPES", False)
+            # Let the event loop schedule all tasks
+            await asyncio.sleep(0.05)
 
-        configs = [_make_config(provider) for _ in range(4)]
-        tasks = [asyncio.create_task(run_agent_orchestration("q", c)) for c in configs]
+            # Release the barrier so they can complete
+            barrier.set()
+            results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Let the event loop schedule all tasks
-        await asyncio.sleep(0.05)
-
-        # Release the barrier so they can complete
-        barrier.set()
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # At most 2 should have been running at once
-        assert max_observed[0] <= 2
-        # Reset for other tests
-        set_agent_semaphore(10)
+            # No task should have raised an exception
+            assert all(not isinstance(r, BaseException) for r in results)
+            # At most 2 should have been running at once
+            assert max_observed[0] <= 2
+        finally:
+            set_agent_semaphore(10)
 
     @pytest.mark.asyncio
     async def test_semaphore_releases_on_error(self, monkeypatch):
         """A failing orchestration releases its semaphore slot."""
         set_agent_semaphore(1)
+        try:
 
-        async def failing_reduce(schema_text, **kwargs):
-            raise RuntimeError("boom")
+            async def failing_reduce(schema_text, **kwargs):
+                raise RuntimeError("boom")
 
-        provider = FakeLLMProvider([make_text_response("Done.")])
-        monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", failing_reduce)
-        monkeypatch.setattr("api_agent.agent.orchestrator.settings.ENABLE_RECIPES", False)
+            provider = FakeLLMProvider([make_text_response("Done.")])
+            monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", failing_reduce)
+            monkeypatch.setattr("api_agent.agent.orchestrator.settings.ENABLE_RECIPES", False)
 
-        config = _make_config(provider)
+            config = _make_config(provider)
 
-        # First call fails
-        result = await run_agent_orchestration("q", config)
-        assert result.result_dict["ok"] is False
+            # First call fails
+            result = await run_agent_orchestration("q", config)
+            assert result.result_dict["ok"] is False
 
-        # Second call should still work (slot was released)
-        async def ok_reduce(schema_text, **kwargs):
-            return _make_reduction_result(schema_text)
+            # Second call should still work (slot was released)
+            async def ok_reduce(schema_text, **kwargs):
+                return _make_reduction_result(schema_text)
 
-        provider2 = FakeLLMProvider([make_text_response("Done.")])
-        monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", ok_reduce)
-        config2 = _make_config(provider2)
-        result2 = await run_agent_orchestration("q", config2)
-        assert result2.result_dict["ok"] is True
-
-        set_agent_semaphore(10)
+            provider2 = FakeLLMProvider([make_text_response("Done.")])
+            monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", ok_reduce)
+            config2 = _make_config(provider2)
+            result2 = await run_agent_orchestration("q", config2)
+            assert result2.result_dict["ok"] is True
+        finally:
+            set_agent_semaphore(10)

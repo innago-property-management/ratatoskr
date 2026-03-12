@@ -118,7 +118,7 @@ def create_app():
 
     cors_origins = [o.strip() for o in settings.CORS_ALLOWED_ORIGINS.split(",")]
     # CORS spec forbids credentials with wildcard origins
-    allow_credentials = settings.CORS_ALLOWED_ORIGINS != "*"
+    allow_credentials = "*" not in cors_origins
     middleware = [
         Middleware(
             CORSMiddleware,  # type: ignore[arg-type]  # Starlette middleware typing
