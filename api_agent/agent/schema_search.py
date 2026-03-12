@@ -7,6 +7,8 @@ from typing import Callable
 from ..config import settings
 from ..llm.tools import tool as function_tool
 
+MAX_PATTERN_LENGTH = 200
+
 
 def create_search_schema_tool(raw_schema_var: ContextVar[str]):
     """Create a search_schema function_tool bound to a specific context var.
@@ -94,6 +96,12 @@ def create_search_schema_impl(
         char_limit = max_chars or settings.MAX_TOOL_RESPONSE_CHARS
         if char_limit <= 0:
             return "error: max_chars must be > 0"
+
+        if len(pattern) > MAX_PATTERN_LENGTH:
+            return (
+                f"error: pattern too long ({len(pattern)} chars, "
+                f"max {MAX_PATTERN_LENGTH})"
+            )
 
         try:
             regex = re.compile(pattern, re.IGNORECASE)
