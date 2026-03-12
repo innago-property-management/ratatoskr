@@ -100,9 +100,7 @@ class ProtocolConfig:
     api_id: str  # For recipe store matching
 
     # Fields with defaults must come after fields without defaults
-    schema_pre_hook: Callable[[str], str] | None = (
-        None  # Pre-hook before reduction (e.g., _strip_descriptions)
-    )
+    schema_pre_hook: Callable[[str], str] | None = None  # schema-text → schema-text transform before reduction (receives text only, not question)
     recipe_step_executor_factory: Callable | None = None  # Builds step executor for recipes
     recipe_item_key: str = "executed_calls"  # Key for recipe response formatting
 
@@ -446,20 +444,23 @@ async def _run_agent_orchestration_impl(
 
         # Schema reduction (centralized — replaces per-agent reduce_schema calls)
         schema_for_reduction = config.unreduced_schema_text
-        if config.schema_pre_hook:
-            schema_for_reduction = config.schema_pre_hook(schema_for_reduction)
-        reduction = await reduce_schema(
-            schema_text=schema_for_reduction,
-            question=question,
-            threshold=settings.MAX_SCHEMA_CHARS,
-            api_key=settings.SCHEMA_REDUCTION_API_KEY,
-            model=settings.SCHEMA_REDUCTION_MODEL,
-            timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
-            enabled=settings.SCHEMA_REDUCTION_ENABLED,
-            max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
-            max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,
-        )
-        schema_text = reduction.schema_text
+        if schema_for_reduction:
+            if config.schema_pre_hook:
+                schema_for_reduction = config.schema_pre_hook(schema_for_reduction)
+            reduction = await reduce_schema(
+                schema_text=schema_for_reduction,
+                question=question,
+                threshold=settings.MAX_SCHEMA_CHARS,
+                api_key=settings.SCHEMA_REDUCTION_API_KEY,
+                model=settings.SCHEMA_REDUCTION_MODEL,
+                timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
+                enabled=settings.SCHEMA_REDUCTION_ENABLED,
+                max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
+                max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,
+            )
+            schema_text = reduction.schema_text
+        else:
+            schema_text = ""
 
         # Pre-flight recipe search
         suggestions, recipe_context = [], ""

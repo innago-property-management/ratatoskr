@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from api_agent.agent.graphql_agent import _strip_descriptions
 from api_agent.agent.orchestrator import (
     AgentContextVars,
     ProtocolConfig,
@@ -251,3 +252,20 @@ class TestOrchestratorReduction:
         first_call_messages = provider.call_log[0]["messages"]
         user_messages = [m for m in first_call_messages if m.get("role") == "user"]
         assert any(reduced_text in m["content"] for m in user_messages)
+
+
+class TestStripDescriptionsPreHook:
+    """GraphQL _strip_descriptions conditional behavior (used as schema_pre_hook)."""
+
+    def test_no_op_below_threshold(self):
+        """Small schemas pass through unchanged — comments preserved."""
+        small = "type Query { hello: String # a comment }"
+        assert _strip_descriptions(small) == small
+
+    def test_strips_above_threshold(self, monkeypatch):
+        """Oversized schemas get # comments stripped."""
+        monkeypatch.setattr(settings, "MAX_SCHEMA_CHARS", 10)
+        large = "type Query { hello: String # inline comment }"
+        result = _strip_descriptions(large)
+        assert " #" not in result
+        assert "type Query" in result
