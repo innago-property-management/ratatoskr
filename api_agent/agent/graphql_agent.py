@@ -22,7 +22,6 @@ from ..recipe import (
     render_text_template,
 )
 from ..sanitize import sanitize_error, sanitize_schema_text
-from ..schema.reducer import reduce_schema
 from ..tracing import trace_span
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
@@ -222,8 +221,14 @@ def _build_schema_context(schema: dict) -> str:
 
 
 def _strip_descriptions(context: str) -> str:
-    """Strip # comments from SDL context."""
-    return re.sub(r" #[^\n]*", "", context)
+    """Strip # comments from SDL context if oversized.
+
+    Used as schema_pre_hook in ProtocolConfig — applied before reduce_schema
+    to cheaply shrink oversized schemas before the more expensive reduction pass.
+    """
+    if len(context) > settings.MAX_SCHEMA_CHARS:
+        return re.sub(r" #[^\n]*", "", context)
+    return context
 
 
 def _is_depth_limit_error(result: dict) -> bool:
@@ -244,7 +249,7 @@ class SchemaFetchResult:
     """
 
     schema_context: str
-    """Compact SDL context for the LLM prompt (may be reduced/truncated)."""
+    """Compact SDL context (unreduced — orchestrator handles reduction)."""
 
     allowed_field_count: int | None
     """Number of query fields after allowlist filtering.  ``None`` when no allowlist is active."""
@@ -304,24 +309,6 @@ async def _fetch_schema_context(
 
     # Build DSL for LLM context (from FILTERED schema)
     context = _build_schema_context(schema)
-
-    # Pre-pass: strip descriptions if oversized (cheap, before TOON/Haiku)
-    if len(context) > settings.MAX_SCHEMA_CHARS:
-        context = _strip_descriptions(context)
-
-    # Smart schema reduction (TOON + Haiku + hard truncation fallback)
-    result = await reduce_schema(
-        schema_text=context,
-        question=question,
-        threshold=settings.MAX_SCHEMA_CHARS,
-        api_key=settings.SCHEMA_REDUCTION_API_KEY,
-        model=settings.SCHEMA_REDUCTION_MODEL,
-        timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
-        enabled=settings.SCHEMA_REDUCTION_ENABLED,
-        max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
-        max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,
-    )
-    context = result.schema_text
 
     return SchemaFetchResult(
         schema_context=context,
@@ -580,8 +567,9 @@ async def _process_query_inner(question: str, ctx: RequestContext) -> dict[str, 
         log_prefix="[GQL]",
         call_key="queries",
         ctx_vars=_ctx_vars,
-        schema_text=schema_result.schema_context,
+        unreduced_schema_text=schema_result.schema_context,
         raw_schema=schema_result.raw_schema_json,
+        schema_pre_hook=_strip_descriptions,
         provider=provider,
         tools=tools,
         instructions=instructions,

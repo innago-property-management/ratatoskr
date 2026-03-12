@@ -29,7 +29,6 @@ from ..recipe import (
 )
 from ..recipe.store import render_text_template
 from ..sanitize import sanitize_error
-from ..schema.reducer import reduce_schema
 from ..tracing import trace_span
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
@@ -966,20 +965,6 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
                 raw_schema_text=filtered_text,
             )
 
-        # Smart schema reduction (TOON + Haiku + hard truncation fallback)
-        reduction = await reduce_schema(
-            schema_text=schema.raw_schema_text,
-            question=question,
-            threshold=settings.MAX_SCHEMA_CHARS,
-            api_key=settings.SCHEMA_REDUCTION_API_KEY,
-            model=settings.SCHEMA_REDUCTION_MODEL,
-            timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
-            enabled=settings.SCHEMA_REDUCTION_ENABLED,
-            max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
-            max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,
-        )
-        schema_text = reduction.schema_text
-
         # Create tools
         grpc_tool = _create_grpc_call_tool(ctx, schema)
         grpc_stream_tool = _create_grpc_stream_tool(ctx, schema)
@@ -1003,7 +988,7 @@ async def process_grpc_query(question: str, ctx: RequestContext) -> dict[str, An
             log_prefix="[gRPC]",
             call_key="rpc_calls",
             ctx_vars=_ctx_vars,
-            schema_text=schema_text,
+            unreduced_schema_text=schema.raw_schema_text,
             raw_schema=schema.raw_schema_text,
             provider=provider,
             tools=tools,

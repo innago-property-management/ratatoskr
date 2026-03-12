@@ -7,10 +7,8 @@ from typing import Any
 import structlog
 import yaml
 
-from ..config import settings
 from ..pool import pool
 from ..sanitize import sanitize_schema_text
-from ..schema.reducer import reduce_schema
 
 logger = structlog.get_logger(__name__)
 
@@ -351,11 +349,12 @@ async def fetch_schema_context(
         headers: Optional auth headers
         spec_filter: Optional filter to apply to spec before building DSL
             (used by endpoint allowlist to remove non-allowed paths)
-        question: User's NL question (guides smart schema reduction)
+        question: Unused (kept for backward compatibility; reduction now in orchestrator)
 
     Returns:
-        Tuple of (reduced_context, base_url, raw_spec_json)
+        Tuple of (unreduced_context, base_url, raw_spec_json)
     """
+    _ = question  # kept for backward compatibility; reduction now in orchestrator
     spec = await load_openapi_spec(spec_url, headers)
     if not spec:
         return "", "", ""
@@ -378,18 +377,4 @@ async def fetch_schema_context(
         dsl_context = ""
     base_url = get_base_url_from_spec(spec, spec_url)
 
-    # Smart schema reduction (TOON + Haiku + hard truncation fallback)
-    result = await reduce_schema(
-        schema_text=dsl_context,
-        question=question,
-        threshold=settings.MAX_SCHEMA_CHARS,
-        api_key=settings.SCHEMA_REDUCTION_API_KEY,
-        model=settings.SCHEMA_REDUCTION_MODEL,
-        timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
-        enabled=settings.SCHEMA_REDUCTION_ENABLED,
-        max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
-        max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,
-    )
-    context = result.schema_text
-
-    return context, base_url, raw_spec_json
+    return dsl_context, base_url, raw_spec_json
