@@ -891,11 +891,14 @@ class TestGrpcMediumPriority:
 
         monkeypatch.setattr("api_agent.agent.grpc_agent.fetch_schema", mock_fetch_schema)
 
-        # Bypass schema reducer so this test exercises the hard-truncation fallback
+        # Bypass schema reducer so this test exercises the hard-truncation fallback.
+        # Uses *args, **kwargs to stay resilient if reduce_schema gains new params.
         from api_agent.schema.reducer import ReductionResult
 
-        async def passthrough_reducer(schema_text, **kwargs):
+        async def passthrough_reducer(*args, **kwargs):
+            schema_text = args[0] if args else kwargs.get("schema_text", "")
             threshold = kwargs.get("threshold", settings.MAX_TOOL_RESPONSE_CHARS)
+            original_chars = len(schema_text)
             if len(schema_text) > threshold:
                 schema_text = (
                     schema_text[:threshold]
@@ -905,7 +908,7 @@ class TestGrpcMediumPriority:
                 schema_text=schema_text,
                 was_toon_applied=False,
                 was_ai_applied=False,
-                original_chars=len(big_text),
+                original_chars=original_chars,
                 final_chars=len(schema_text),
             )
 
@@ -924,6 +927,11 @@ class TestGrpcMediumPriority:
         # User message content contains the augmented query
         msg_content = user_msg.get("content", "") if isinstance(user_msg, dict) else str(user_msg)
         assert "[SCHEMA TRUNCATED" in msg_content
+        # Verify truncation semantics: marker present and length bounded
+        schema_portion = msg_content.split("\n\nQuestion:")[0]
+        assert len(schema_portion) <= settings.MAX_TOOL_RESPONSE_CHARS + len(
+            "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
+        )
 
 
 # ---------------------------------------------------------------------------
