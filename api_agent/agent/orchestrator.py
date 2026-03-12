@@ -50,6 +50,25 @@ from .progress import get_turn_context, reset_progress
 
 logger = structlog.get_logger(__name__)
 
+# ---------------------------------------------------------------------------
+# Agent concurrency limiter
+# ---------------------------------------------------------------------------
+
+_agent_semaphore: asyncio.Semaphore | None = None
+
+
+def _get_agent_semaphore() -> asyncio.Semaphore:
+    global _agent_semaphore
+    if _agent_semaphore is None:
+        _agent_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_AGENTS)
+    return _agent_semaphore
+
+
+def set_agent_semaphore(limit: int) -> None:
+    """Reset the agent concurrency semaphore (for testing or reconfiguration)."""
+    global _agent_semaphore
+    _agent_semaphore = asyncio.Semaphore(limit)
+
 
 # ---------------------------------------------------------------------------
 # Data structures
@@ -100,7 +119,9 @@ class ProtocolConfig:
     api_id: str  # For recipe store matching
 
     # Fields with defaults must come after fields without defaults
-    schema_pre_hook: Callable[[str], str] | None = None  # schema-text → schema-text transform before reduction (receives text only, not question)
+    schema_pre_hook: Callable[[str], str] | None = (
+        None  # schema-text → schema-text transform before reduction (receives text only, not question)
+    )
     recipe_step_executor_factory: Callable | None = None  # Builds step executor for recipes
     recipe_item_key: str = "executed_calls"  # Key for recipe response formatting
 
@@ -417,12 +438,13 @@ async def run_agent_orchestration(
         ``await`` is intentional — the task exists solely for context
         isolation, not parallelism.
     """
-    ctx = contextvars.copy_context()
-    task = asyncio.create_task(
-        _run_agent_orchestration_impl(question, config),
-        context=ctx,
-    )
-    return await task
+    async with _get_agent_semaphore():
+        ctx = contextvars.copy_context()
+        task = asyncio.create_task(
+            _run_agent_orchestration_impl(question, config),
+            context=ctx,
+        )
+        return await task
 
 
 async def _run_agent_orchestration_impl(

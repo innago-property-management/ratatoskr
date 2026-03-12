@@ -71,10 +71,13 @@ class OpenAICompatProvider(LLMProvider):
 
         usage = None
         if response.usage:
+            prompt_tokens = response.usage.prompt_tokens or 0
+            completion_tokens = response.usage.completion_tokens or 0
+            total_tokens = response.usage.total_tokens or (prompt_tokens + completion_tokens)
             usage = {
-                "prompt_tokens": response.usage.prompt_tokens,
-                "completion_tokens": response.usage.completion_tokens,
-                "total_tokens": response.usage.total_tokens,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
             }
 
         return LLMResponse(content=message.content, tool_calls=tool_calls, usage=usage)

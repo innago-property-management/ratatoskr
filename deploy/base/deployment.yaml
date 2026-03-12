@@ -57,11 +57,18 @@ spec:
             limits:
               cpu: "1"
               memory: 512Mi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 2
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
             runAsUser: 10001
+            runAsGroup: 10001
             capabilities:
               drop:
                 - ALL

@@ -117,6 +117,8 @@ def create_app():
     mcp.add_middleware(DynamicToolNamingMiddleware())
 
     cors_origins = [o.strip() for o in settings.CORS_ALLOWED_ORIGINS.split(",")]
+    # CORS spec forbids credentials with wildcard origins
+    allow_credentials = settings.CORS_ALLOWED_ORIGINS != "*"
     middleware = [
         Middleware(
             CORSMiddleware,  # type: ignore[arg-type]  # Starlette middleware typing
@@ -129,7 +131,7 @@ def create_app():
                 "MCP-Session-Id",
                 "mcp-protocol-version",
             ],
-            allow_credentials=True,
+            allow_credentials=allow_credentials,
             max_age=600,
         ),
     ]

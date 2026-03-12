@@ -3,6 +3,7 @@
 import asyncio
 import json
 import time
+from collections.abc import Callable
 from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
@@ -548,11 +549,11 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
         config_pats = parse_config_allowlist(settings.ALLOW_ENDPOINTS_REST)
         # Empty tuple (from X-Allow-Endpoints: []) treated as "no constraint" — not "block all"
         header_pats = ctx.allow_endpoints or None
-        spec_filter = None
+        spec_filter: Callable[[dict], dict] | None = None
         _filter_stats: dict[str, int] = {}  # captures total/allowed from inside closure
         if config_pats is not None or header_pats is not None:
 
-            def spec_filter(spec: dict) -> dict:
+            def _apply_allowlist_filter(spec: dict) -> dict:
                 # Count total ops before filtering for logging
                 pre_paths = spec.get("paths", {})
                 _filter_stats["total"] = sum(
@@ -572,6 +573,8 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
                     if m in p
                 )
                 return filtered
+
+            spec_filter = _apply_allowlist_filter
 
         t_schema = time.monotonic()
         with trace_span("schema.fetch", {"protocol": "rest"}):
