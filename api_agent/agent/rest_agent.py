@@ -625,7 +625,7 @@ async def process_rest_query(question: str, ctx: RequestContext) -> dict[str, An
             log_prefix="[REST]",
             call_key="api_calls",
             ctx_vars=_ctx_vars,
-            schema_text=schema_ctx,
+            unreduced_schema_text=schema_ctx,
             raw_schema=raw_spec_json,
             provider=provider,
             tools=tools,

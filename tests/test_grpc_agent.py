@@ -912,7 +912,7 @@ class TestGrpcMediumPriority:
                 final_chars=len(schema_text),
             )
 
-        monkeypatch.setattr("api_agent.agent.grpc_agent.reduce_schema", passthrough_reducer)
+        monkeypatch.setattr("api_agent.agent.orchestrator.reduce_schema", passthrough_reducer)
 
         prov = fake_provider_factory(
             monkeypatch,

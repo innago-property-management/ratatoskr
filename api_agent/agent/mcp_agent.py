@@ -533,7 +533,7 @@ async def _run_with_session(
         log_prefix="[MCP]",
         call_key="mcp_calls",
         ctx_vars=_ctx_vars,
-        schema_text=schema_text,
+        unreduced_schema_text=schema_text,
         raw_schema=schema_text,
         provider=provider,
         tools=agent_tools,
