@@ -49,14 +49,28 @@ _STOPWORDS = frozenset(
     "give tell make create update delete use".split()
 )
 
-# Section header pattern: lines like <queries>, <types>, <auth>, etc.
-_SECTION_HEADER_RE = re.compile(r"^<\w+>$")
+# Section header pattern: lines like <queries>, <types>, <auth>, <endpoints-v2>, etc.
+_SECTION_HEADER_RE = re.compile(r"^<[\w.\-]+>$")
 
 # Auth section header
 _AUTH_HEADER = "<auth>"
 
 # Sections that are always kept (headers + content)
 _ALWAYS_KEEP_SECTIONS = frozenset({"<auth>"})
+
+# Truncation marker for hard truncation (no keywords available)
+_HARD_TRUNCATION_MARKER = "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
+
+
+@dataclass
+class Block:
+    """A parsed schema block with scoring metadata."""
+
+    text: str
+    section: str | None
+    is_header: bool
+    original_index: int
+    score: int = 0
 
 
 def _extract_keywords(question: str) -> list[str]:
@@ -71,17 +85,10 @@ def _extract_keywords(question: str) -> list[str]:
     return result
 
 
-def _parse_blocks(schema_text: str) -> list[dict[str, object]]:
-    """Parse schema text into blocks with metadata.
-
-    Returns a list of dicts with keys:
-      - text: str — the block text (one or more lines)
-      - section: str | None — the section header this block belongs to
-      - is_header: bool — True if this is a section header line
-      - original_index: int — position in original document
-    """
+def _parse_blocks(schema_text: str) -> list[Block]:
+    """Parse schema text into blocks with metadata."""
     lines = schema_text.split("\n")
-    blocks: list[dict[str, object]] = []
+    blocks: list[Block] = []
     current_section: str | None = None
     idx = 0
     i = 0
@@ -90,7 +97,6 @@ def _parse_blocks(schema_text: str) -> list[dict[str, object]]:
         line = lines[i]
         stripped = line.strip()
 
-        # Skip blank lines (separators between blocks)
         if not stripped:
             i += 1
             continue
@@ -99,12 +105,12 @@ def _parse_blocks(schema_text: str) -> list[dict[str, object]]:
         if _SECTION_HEADER_RE.match(stripped):
             current_section = stripped
             blocks.append(
-                {
-                    "text": stripped,
-                    "section": current_section,
-                    "is_header": True,
-                    "original_index": idx,
-                }
+                Block(
+                    text=stripped,
+                    section=current_section,
+                    is_header=True,
+                    original_index=idx,
+                )
             )
             idx += 1
             i += 1
@@ -123,24 +129,24 @@ def _parse_blocks(schema_text: str) -> list[dict[str, object]]:
                 brace_depth += lines[i].count("{") - lines[i].count("}")
                 i += 1
             blocks.append(
-                {
-                    "text": "\n".join(block_lines),
-                    "section": current_section,
-                    "is_header": False,
-                    "original_index": idx,
-                }
+                Block(
+                    text="\n".join(block_lines),
+                    section=current_section,
+                    is_header=False,
+                    original_index=idx,
+                )
             )
             idx += 1
             continue
 
         # Single-line block
         blocks.append(
-            {
-                "text": line,
-                "section": current_section,
-                "is_header": False,
-                "original_index": idx,
-            }
+            Block(
+                text=line,
+                section=current_section,
+                is_header=False,
+                original_index=idx,
+            )
         )
         idx += 1
         i += 1
@@ -167,6 +173,9 @@ def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
 
     Returns the original schema unchanged if it fits within threshold.
     Falls back to hard truncation if question is empty.
+
+    Note: The truncation marker is included within the threshold budget,
+    so callers can rely on threshold as a hard cap.
     """
     if not schema_text:
         return schema_text
@@ -174,96 +183,86 @@ def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
     if len(schema_text) <= threshold:
         return schema_text
 
-    # Empty question — can't rank, hard truncate
+    # Empty question — can't rank, hard truncate within budget
     if not question or not question.strip():
-        return schema_text[:threshold] + "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
+        cut = max(0, threshold - len(_HARD_TRUNCATION_MARKER))
+        return schema_text[:cut] + _HARD_TRUNCATION_MARKER
 
     keywords = _extract_keywords(question)
     if not keywords:
-        return schema_text[:threshold] + "\n[SCHEMA TRUNCATED - use search_schema() to explore]"
+        cut = max(0, threshold - len(_HARD_TRUNCATION_MARKER))
+        return schema_text[:cut] + _HARD_TRUNCATION_MARKER
 
     blocks = _parse_blocks(schema_text)
 
     # Separate headers, always-keep blocks, and scorable blocks
-    headers: list[dict[str, object]] = []
-    auth_blocks: list[dict[str, object]] = []
-    scorable: list[dict[str, object]] = []
+    headers: list[Block] = []
+    auth_blocks: list[Block] = []
+    scorable: list[Block] = []
 
     for block in blocks:
-        if block["is_header"]:
+        if block.is_header:
             headers.append(block)
-        elif str(block.get("section", "")) in _ALWAYS_KEEP_SECTIONS:
+        elif block.section in _ALWAYS_KEEP_SECTIONS:
             auth_blocks.append(block)
         else:
+            block.score = _score_block(block.text, keywords)
             scorable.append(block)
 
-    # Score and sort scorable blocks (stable sort)
-    scored = [(block, _score_block(str(block["text"]), keywords)) for block in scorable]
-    scored.sort(key=lambda x: (-x[1], x[0]["original_index"]))  # type: ignore[index]
+    # Stable sort by (score desc, original_index asc)
+    scorable.sort(key=lambda b: (-b.score, b.original_index))
 
     # Calculate budget: threshold minus always-kept content
-    always_kept_chars = sum(len(str(b["text"])) + 1 for b in auth_blocks)  # +1 for \n
-    auth_header_chars = 0
+    always_kept_chars = sum(len(b.text) + 1 for b in auth_blocks)  # +1 for \n
     for h in headers:
-        if str(h["text"]) in _ALWAYS_KEEP_SECTIONS:
-            auth_header_chars += len(str(h["text"])) + 1
-    always_kept_chars += auth_header_chars
+        if h.text in _ALWAYS_KEEP_SECTIONS:
+            always_kept_chars += len(h.text) + 1
 
     # Track which sections have at least one included block
     sections_needed: set[str] = set()
     for b in auth_blocks:
-        section = str(b.get("section", ""))
-        if section:
-            sections_needed.add(section)
+        if b.section:
+            sections_needed.add(b.section)
 
     # Select blocks within budget
-    selected: list[dict[str, object]] = []
+    selected: list[Block] = []
     used_chars = always_kept_chars
     dropped_count = 0
 
-    for block, _score in scored:
-        block_text = str(block["text"])
-        section = str(block.get("section", ""))
-
+    for block in scorable:
         # Cost: block text + newline + possibly a section header
         extra_header_cost = 0
-        if section and section not in sections_needed and section not in _ALWAYS_KEEP_SECTIONS:
-            # Need to include this section's header too
+        if (
+            block.section
+            and block.section not in sections_needed
+            and block.section not in _ALWAYS_KEEP_SECTIONS
+        ):
             for h in headers:
-                if str(h["text"]) == section:
-                    extra_header_cost = len(str(h["text"])) + 1
+                if h.text == block.section:
+                    extra_header_cost = len(h.text) + 1
                     break
 
-        total_cost = len(block_text) + 1 + extra_header_cost
+        total_cost = len(block.text) + 1 + extra_header_cost
         if used_chars + total_cost <= threshold:
             selected.append(block)
             used_chars += total_cost
-            if section:
-                sections_needed.add(section)
+            if block.section:
+                sections_needed.add(block.section)
         else:
             dropped_count += 1
 
-    # Also count scorable blocks that were completely excluded
-    # (dropped_count already tracked above)
-
-    # Reassemble: group by section, maintaining score-based order within sections
-    # but keeping section grouping for readability
-    # Strategy: output sections in order of their highest-scoring block
-
-    # Determine section ordering by the best score of any selected block in that section
+    # Determine section ordering by the best score of any selected block
     section_best_score: dict[str, tuple[int, int]] = {}
-    for block, score in scored:
-        section = str(block.get("section", ""))
-        if section and section in sections_needed and block in selected:
-            if section not in section_best_score:
-                section_best_score[section] = (score, int(block["original_index"]))  # type: ignore[arg-type]
-            elif score > section_best_score[section][0]:
-                section_best_score[section] = (score, int(block["original_index"]))  # type: ignore[arg-type]
+    for b in selected:
+        if b.section:
+            best = section_best_score.get(b.section)
+            cur = (b.score, b.original_index)
+            if best is None or b.score > best[0]:
+                section_best_score[b.section] = cur
 
-    # Sections with no scorable selected blocks (auth-only sections)
+    # Sections with no scorable selected blocks (auth-only)
     for section in sections_needed:
         if section not in section_best_score:
-            # Auth sections go at the end
             section_best_score[section] = (-1, 9999)
 
     sorted_sections = sorted(
@@ -274,33 +273,28 @@ def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
         ),
     )
 
-    # Also handle blocks with no section (gRPC services etc.)
-    no_section_blocks = [b for b in selected if not b.get("section")]
-    has_sectioned = any(b.get("section") for b in selected)
+    # Blocks with no section (gRPC services etc.)
+    no_section_blocks = sorted(
+        [b for b in selected if not b.section],
+        key=lambda b: (-b.score, b.original_index),
+    )
 
     output_parts: list[str] = []
 
-    # Blocks without sections first (if they exist and are the only kind)
-    if no_section_blocks and not has_sectioned:
-        for block in sorted(no_section_blocks, key=lambda b: _block_sort_key(b, scored)):
-            output_parts.append(str(block["text"]))
-    elif no_section_blocks:
-        # Put no-section blocks in score order at the top
-        for block in sorted(no_section_blocks, key=lambda b: _block_sort_key(b, scored)):
-            output_parts.append(str(block["text"]))
+    for block in no_section_blocks:
+        output_parts.append(block.text)
 
     for section in sorted_sections:
-        # Add section header
         output_parts.append(section)
-        # Add auth blocks for this section
         for b in auth_blocks:
-            if str(b.get("section", "")) == section:
-                output_parts.append(str(b["text"]))
-        # Add selected scorable blocks for this section, in score order
-        section_blocks = [b for b in selected if str(b.get("section", "")) == section]
-        section_blocks.sort(key=lambda b: _block_sort_key(b, scored))
+            if b.section == section:
+                output_parts.append(b.text)
+        section_blocks = sorted(
+            [b for b in selected if b.section == section],
+            key=lambda b: (-b.score, b.original_index),
+        )
         for b in section_blocks:
-            output_parts.append(str(b["text"]))
+            output_parts.append(b.text)
 
     result = "\n".join(output_parts)
 
@@ -308,17 +302,6 @@ def rank_and_truncate(schema_text: str, question: str, threshold: int) -> str:
         result += f"\n[SCHEMA RANKED AND TRUNCATED - use search_schema() to explore remaining {dropped_count} items]"
 
     return result
-
-
-def _block_sort_key(
-    block: dict[str, object],
-    scored: list[tuple[dict[str, object], int]],
-) -> tuple[int, int]:
-    """Sort key for blocks: highest score first, then original index."""
-    for b, score in scored:
-        if b is block:
-            return (-score, int(block["original_index"]))  # type: ignore[arg-type]
-    return (0, int(block["original_index"]))  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------------------------

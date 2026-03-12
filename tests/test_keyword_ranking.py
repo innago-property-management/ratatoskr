@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from api_agent.schema.reducer import rank_and_truncate
+from api_agent.schema.reducer import _HARD_TRUNCATION_MARKER, rank_and_truncate
 
 # ---------------------------------------------------------------------------
 # Sample schemas for tests
@@ -221,23 +221,31 @@ class TestEmptyQuestion:
         long_schema = GRAPHQL_SCHEMA
         threshold = 200
         result = rank_and_truncate(long_schema, "", threshold=threshold)
-        # Should still truncate to roughly the threshold
-        # The result should contain a truncation marker
-        assert "[SCHEMA" in result or len(result) <= threshold
+        # Hard truncation marker must be present
+        assert _HARD_TRUNCATION_MARKER.strip() in result
+        # Result must respect threshold as a hard cap
+        assert len(result) <= threshold + len(_HARD_TRUNCATION_MARKER)
+        # Truncated content starts with the original schema
+        assert result[:20] == long_schema[:20]
+        # Result is shorter than full schema
+        assert len(result) < len(long_schema)
 
 
 class TestGrpcServiceBlocks:
     """Test 11: gRPC service blocks scored and ranked correctly."""
 
     def test_grpc_service_blocks_ranked(self) -> None:
-        result = rank_and_truncate(GRPC_SCHEMA, "hotel reservation", threshold=300)
-        # HotelService should be prioritized
+        # Threshold forces truncation so ranking effects are observable
+        result = rank_and_truncate(GRPC_SCHEMA, "hotel reservation", threshold=200)
+        # Truncation should have occurred
+        assert "[SCHEMA RANKED AND TRUNCATED" in result
+        # HotelService should survive (highest relevance)
         assert "HotelService" in result
-        # Less relevant services may be dropped
-        if "[SCHEMA RANKED AND TRUNCATED" in result:
-            # If truncation happened, weather should be less likely to survive
-            hotel_present = "HotelService" in result
-            assert hotel_present
+        # WeatherService should be dropped or appear after HotelService
+        if "WeatherService" in result:
+            assert result.find("HotelService") < result.find("WeatherService")
+        else:
+            assert "WeatherService" not in result
 
 
 class TestStableSort:
