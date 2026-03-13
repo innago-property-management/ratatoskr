@@ -52,12 +52,30 @@ jobs:
       - name: Build Docker image
         run: docker build -t api-agent:test .
 
-      - name: Test Docker image starts
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1  # v0.35.0
+        with:
+          image-ref: 'api-agent:test'
+          format: 'table'
+          exit-code: '1'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Test Docker image health
         run: |
           docker run -d --name test-container \
             -e OPENAI_API_KEY=test \
             -p 3000:3000 \
             api-agent:test
-          sleep 5
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3000/health && exit 0
+            sleep 1
+          done
           docker logs test-container
-          docker stop test-container
+          exit 1
+
+      - name: Cleanup test container
+        if: always()
+        run: |
+          docker stop test-container || true
+          docker rm test-container || true

@@ -1,5 +1,5 @@
 # ---------- builder ----------
-FROM python:3.11.15-slim AS builder
+FROM python:3.11.15-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -23,7 +23,7 @@ COPY api_agent ./api_agent
 RUN uv sync --frozen --no-dev --group toon
 
 # ---------- runtime ----------
-FROM python:3.11.15-slim
+FROM python:3.11.15-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47
 
 # OCI image metadata — https://github.com/opencontainers/image-spec/blob/main/annotations.md
 LABEL org.opencontainers.image.title="ratatoskr" \
@@ -48,6 +48,10 @@ WORKDIR /app
 # Copy uv binary and installed venv from builder
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /app /app
+
+# Remove system pip/setuptools/wheel — unused at runtime (uv + pre-built venv).
+# Eliminates vendored CVEs in setuptools/_vendor/ (jaraco.context, wheel)
+RUN pip uninstall -y setuptools wheel pip
 
 COPY start.sh healthcheck.sh ./
 RUN chmod +x ./start.sh ./healthcheck.sh && chown -R appuser:appuser /app

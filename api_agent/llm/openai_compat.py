@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import openai
 import structlog
 from openai import AsyncOpenAI
 
@@ -48,10 +49,15 @@ class OpenAICompatProvider(LLMProvider):
 
         try:
             response = await self.client.chat.completions.create(**kwargs)
-        except Exception as e:
-            # If tool calling fails, retry without tools
-            if tools and ("tool" in str(e).lower() or "function" in str(e).lower()):
-                logger.warning("tools_unsupported_retrying", error=str(e))
+        except (openai.BadRequestError, openai.UnprocessableEntityError) as e:
+            # Retry without tools only for 400/422 errors that mention tool/function support
+            error_msg = str(e).lower()
+            if tools and ("tool" in error_msg or "function" in error_msg):
+                logger.warning(
+                    "tools_unsupported_retrying",
+                    error=str(e),
+                    status_code=e.status_code,
+                )
                 kwargs.pop("tools", None)
                 response = await self.client.chat.completions.create(**kwargs)
             else:

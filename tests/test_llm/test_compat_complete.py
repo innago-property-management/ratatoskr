@@ -2,6 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock
 
+import openai
 import pytest
 
 from api_agent.llm.openai_compat import OpenAICompatProvider
@@ -43,6 +44,15 @@ def _make_tool_call(id, name, arguments_json):
     tc.function.name = name
     tc.function.arguments = arguments_json
     return tc
+
+
+def _make_openai_api_error(cls, message, status_code=None):
+    """Build an openai API error with a mock response."""
+    mock_response = MagicMock()
+    mock_response.status_code = status_code or 400
+    mock_response.json.return_value = {"error": {"message": message}}
+    mock_response.headers = {}
+    return cls(message=message, response=mock_response, body=None)
 
 
 # ---------------------------------------------------------------------------
@@ -89,8 +99,8 @@ class TestOpenAICompatProviderComplete:
         assert result.tool_calls[0].arguments == {"x": 1}
 
     @pytest.mark.asyncio
-    async def test_retry_without_tools_on_tool_error(self):
-        """First call with tools raises tool-related error; retries without tools."""
+    async def test_retry_without_tools_on_bad_request_tool_error(self):
+        """BadRequestError (400) with 'tool' in message triggers retry without tools."""
         provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         call_count = 0
@@ -100,7 +110,11 @@ class TestOpenAICompatProviderComplete:
             call_count += 1
             if call_count == 1:
                 assert "tools" in kwargs
-                raise Exception("This model does not support tool calling")
+                raise _make_openai_api_error(
+                    openai.BadRequestError,
+                    "This model does not support tool calling",
+                    status_code=400,
+                )
             # Second call should NOT have tools
             assert "tools" not in kwargs
             return _make_openai_response(content="Fallback response")
@@ -116,8 +130,8 @@ class TestOpenAICompatProviderComplete:
         assert call_count == 2
 
     @pytest.mark.asyncio
-    async def test_retry_without_tools_on_function_error(self):
-        """'function' keyword in error message also triggers retry."""
+    async def test_retry_without_tools_on_unprocessable_function_error(self):
+        """UnprocessableEntityError (422) with 'function' in message triggers retry."""
         provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         call_count = 0
@@ -126,7 +140,11 @@ class TestOpenAICompatProviderComplete:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                raise Exception("Unsupported function calling feature")
+                raise _make_openai_api_error(
+                    openai.UnprocessableEntityError,
+                    "Unsupported function calling feature",
+                    status_code=422,
+                )
             return _make_openai_response(content="Recovered")
 
         provider.client.chat.completions.create = mock_create  # type: ignore[invalid-assignment]
@@ -140,15 +158,57 @@ class TestOpenAICompatProviderComplete:
         assert call_count == 2
 
     @pytest.mark.asyncio
-    async def test_non_tool_error_propagates(self):
-        """Exception without 'tool' or 'function' in message raises normally."""
+    async def test_bad_request_without_tool_keyword_propagates(self):
+        """BadRequestError WITHOUT 'tool'/'function' in message is re-raised."""
         provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
-            side_effect=Exception("Connection refused")
+            side_effect=_make_openai_api_error(
+                openai.BadRequestError,
+                "Invalid request: max_tokens exceeds limit",
+                status_code=400,
+            ),
         )
 
-        with pytest.raises(Exception, match="Connection refused"):
+        with pytest.raises(openai.BadRequestError, match="max_tokens exceeds limit"):
+            await provider.complete(
+                [{"role": "user", "content": "Hi"}],
+                tools=[{"type": "function", "function": {"name": "test"}}],
+            )
+
+    @pytest.mark.asyncio
+    async def test_auth_error_not_caught(self):
+        """AuthenticationError is NOT caught by the retry logic — re-raised immediately."""
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
+
+        provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
+            side_effect=_make_openai_api_error(
+                openai.AuthenticationError,
+                "Invalid API key with tool info",
+                status_code=401,
+            ),
+        )
+
+        with pytest.raises(openai.AuthenticationError):
+            await provider.complete(
+                [{"role": "user", "content": "Hi"}],
+                tools=[{"type": "function", "function": {"name": "test"}}],
+            )
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_error_not_caught(self):
+        """RateLimitError is NOT caught by the retry logic — re-raised immediately."""
+        provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
+
+        provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
+            side_effect=_make_openai_api_error(
+                openai.RateLimitError,
+                "Rate limit exceeded, tool quota exhausted",
+                status_code=429,
+            ),
+        )
+
+        with pytest.raises(openai.RateLimitError):
             await provider.complete(
                 [{"role": "user", "content": "Hi"}],
                 tools=[{"type": "function", "function": {"name": "test"}}],
@@ -156,14 +216,18 @@ class TestOpenAICompatProviderComplete:
 
     @pytest.mark.asyncio
     async def test_error_without_tools_propagates(self):
-        """Exception when no tools are provided always propagates (no retry)."""
+        """BadRequestError when no tools are provided always propagates (no retry)."""
         provider = OpenAICompatProvider(model="local-model", base_url="http://localhost:11434/v1")
 
         provider.client.chat.completions.create = AsyncMock(  # type: ignore[invalid-assignment]
-            side_effect=Exception("This model does not support tool calling")
+            side_effect=_make_openai_api_error(
+                openai.BadRequestError,
+                "This model does not support tool calling",
+                status_code=400,
+            ),
         )
 
-        with pytest.raises(Exception, match="does not support tool"):
+        with pytest.raises(openai.BadRequestError, match="does not support tool"):
             await provider.complete(
                 [{"role": "user", "content": "Hi"}],
                 tools=None,
