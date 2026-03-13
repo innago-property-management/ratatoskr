@@ -49,8 +49,9 @@ WORKDIR /app
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /app /app
 
-# Upgrade system Python packages with known CVEs (Trivy scans /usr/local/lib)
-RUN pip install --no-cache-dir --upgrade "jaraco.context>=6.1.0" "wheel>=0.46.2"
+# Remove system pip/setuptools/wheel — unused at runtime (uv + pre-built venv).
+# Eliminates vendored CVEs in setuptools/_vendor/ (jaraco.context, wheel)
+RUN pip uninstall -y setuptools wheel pip
 
 COPY start.sh healthcheck.sh ./
 RUN chmod +x ./start.sh ./healthcheck.sh && chown -R appuser:appuser /app
