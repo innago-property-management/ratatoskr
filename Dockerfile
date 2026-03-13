@@ -49,8 +49,8 @@ WORKDIR /app
 COPY --from=builder /usr/local/bin/uv /usr/local/bin/uv
 COPY --from=builder /app /app
 
-# Upgrade base-image Python packages with known CVEs (uv venv has no pip)
-RUN uv pip install --python /app/.venv/bin/python --no-cache "jaraco.context>=6.1.0" "wheel>=0.46.2"
+# Upgrade system Python packages with known CVEs (Trivy scans /usr/local/lib)
+RUN pip install --no-cache-dir --upgrade "jaraco.context>=6.1.0" "wheel>=0.46.2"
 
 COPY start.sh healthcheck.sh ./
 RUN chmod +x ./start.sh ./healthcheck.sh && chown -R appuser:appuser /app
