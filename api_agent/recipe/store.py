@@ -359,7 +359,7 @@ class RecipeStore:
         scored: list[tuple[float, RecipeRecord]] = []
         for r in recs:
             score = _similarity(q_sig, r.question_sig)
-            if score >= min_score:
+            if score > 0 and score >= min_score:
                 scored.append((score, r))
 
         scored.sort(key=lambda t: (t[0], t[1].last_used_at), reverse=True)
