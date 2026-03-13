@@ -1,5 +1,5 @@
 # ---------- builder ----------
-FROM python:3.11.15-slim AS builder
+FROM python:3.11.15-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
@@ -23,7 +23,7 @@ COPY api_agent ./api_agent
 RUN uv sync --frozen --no-dev --group toon
 
 # ---------- runtime ----------
-FROM python:3.11.15-slim
+FROM python:3.11.15-slim@sha256:d6e4d224f70f9e0172a06a3a2eba2f768eb146811a349278b38fff3a36463b47
 
 # OCI image metadata — https://github.com/opencontainers/image-spec/blob/main/annotations.md
 LABEL org.opencontainers.image.title="ratatoskr" \
