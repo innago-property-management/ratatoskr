@@ -355,10 +355,11 @@ class RecipeStore:
             ids = list(self._by_key.get(key, set()))
             recs = [self._records[i] for i in ids if i in self._records]
 
+        min_score = settings.RECIPE_MIN_SIMILARITY / 100.0
         scored: list[tuple[float, RecipeRecord]] = []
         for r in recs:
             score = _similarity(q_sig, r.question_sig)
-            if score > 0:
+            if score >= min_score:
                 scored.append((score, r))
 
         scored.sort(key=lambda t: (t[0], t[1].last_used_at), reverse=True)
