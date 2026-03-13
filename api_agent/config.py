@@ -64,7 +64,9 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     PORT: int = 3000
     TRANSPORT: str = "streamable-http"
-    CORS_ALLOWED_ORIGINS: str = "*"
+    CORS_ALLOWED_ORIGINS: str = (
+        "*"  # Set specific origins in production; '*' with credentials is invalid per CORS spec
+    )
 
     # Recipes (in-process reuse)
     ENABLE_RECIPES: bool = True
@@ -102,6 +104,9 @@ class Settings(BaseSettings):
     MCP_TARGET_COMMAND: str = ""  # command for stdio transport
     MCP_TARGET_ARGS: str = ""  # shell-quoted args for stdio transport (parsed with shlex)
     MCP_TARGET_ENV: str = "{}"  # JSON object of env vars for stdio transport
+
+    # Agent concurrency
+    MAX_CONCURRENT_AGENTS: int = 10  # Semaphore bound for concurrent agent orchestrations
 
     # DuckDB resource limits
     MAX_CONCURRENT_QUERIES: int = 10  # Semaphore bound for concurrent DuckDB ops
