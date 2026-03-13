@@ -175,8 +175,6 @@ IMPORTANT: These paths are ASYNC and REQUIRE polling: {paths_str}
         poll_example = f"""Polling: poll_until_done("POST", "{poll_paths[0]}", done_field="isCompleted", done_value="true", body='{{...}}')
 """
 
-    workflow_start = "1"
-
     return f"""You are a REST API agent that answers questions by querying APIs and returning data.
 
 {SQL_RULES}
@@ -189,9 +187,9 @@ IMPORTANT: These paths are ASYNC and REQUIRE polling: {paths_str}
 {SEARCH_TOOL_DESC}
 </tools>
 <workflow>
-{workflow_start}. Read <endpoints> and <schemas> below
-{int(workflow_start) + 1}. Check if endpoint is in polling paths - if yes, use poll_until_done; otherwise use rest_call
-{int(workflow_start) + 2}. Use sql_query to filter/aggregate results
+1. Read <endpoints> and <schemas> below
+2. Check if endpoint is in polling paths - if yes, use poll_until_done; otherwise use rest_call
+3. Use sql_query to filter/aggregate results
 </workflow>
 
 {CONTEXT_SECTION.format(current_date=current_date, max_turns=settings.MAX_AGENT_TURNS)}

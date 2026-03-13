@@ -81,8 +81,17 @@ _ctx_vars = AgentContextVars(
 # gRPC-specific: mutation safety
 # ---------------------------------------------------------------------------
 
-# Parse unsafe patterns from config at module load
-_UNSAFE_PATTERNS = [p.strip() for p in settings.GRPC_UNSAFE_METHOD_PATTERNS.split(",") if p.strip()]
+_UNSAFE_PATTERNS_CACHE: list[str] | None = None
+
+
+def _get_unsafe_patterns() -> list[str]:
+    """Lazily compute and cache unsafe method patterns from settings."""
+    global _UNSAFE_PATTERNS_CACHE
+    if _UNSAFE_PATTERNS_CACHE is None:
+        _UNSAFE_PATTERNS_CACHE = [
+            p.strip() for p in settings.GRPC_UNSAFE_METHOD_PATTERNS.split(",") if p.strip()
+        ]
+    return _UNSAFE_PATTERNS_CACHE
 
 
 def _is_grpc_method_safe(method_path: str, allow_unsafe_rpcs: tuple[str, ...]) -> bool:
@@ -99,7 +108,7 @@ def _is_grpc_method_safe(method_path: str, allow_unsafe_rpcs: tuple[str, ...]) -
     Returns True if safe to call, False if blocked.
     """
     method_name = method_path.rsplit("/", 1)[-1]
-    is_unsafe = any(fnmatch.fnmatch(method_name, p) for p in _UNSAFE_PATTERNS)
+    is_unsafe = any(fnmatch.fnmatch(method_name, p) for p in _get_unsafe_patterns())
     if not is_unsafe:
         return True
     # Check allowlist — matches against the full method path (without leading /)

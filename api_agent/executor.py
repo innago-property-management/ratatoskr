@@ -165,10 +165,14 @@ def extract_tables_from_response(
     if not isinstance(data, dict):
         return {}, None
 
-    # Dict response: prefer top-level list if exists
+    # Dict response: prefer the largest top-level list (most likely the actual data)
+    best_list: list | None = None
     for value in data.values():
         if isinstance(value, list):
-            return {name: value}, None
+            if best_list is None or len(value) > len(best_list):
+                best_list = value
+    if best_list is not None:
+        return {name: best_list}, None
 
     # No list found - wrap whole dict as single-row table + extract schema
     wrapped = [data]
