@@ -70,7 +70,8 @@ def tool(fn: Callable[..., Any]) -> ToolDefinition:
             continue
         hint = hints.get(name, str)
 
-        # Unwrap Optional[T] (Union[T, None]) to get the inner type
+        # Unwrap Optional[T] (Union[T, None]) to get the inner type.
+        # For bare Union[str, int] (no None), takes the first concrete type.
         origin = get_origin(hint)
         if origin is Union or origin is types.UnionType:
             args = [a for a in get_args(hint) if a is not type(None)]

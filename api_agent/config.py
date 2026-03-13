@@ -71,7 +71,12 @@ class Settings(BaseSettings):
     # Recipes (in-process reuse)
     ENABLE_RECIPES: bool = True
     RECIPE_CACHE_SIZE: int = 64
-    RECIPE_MIN_SIMILARITY: int = 30  # Minimum similarity score (0-100) to return a recipe match
+    RECIPE_MIN_SIMILARITY: int = Field(
+        default=30,
+        ge=0,
+        le=100,
+        description="Minimum similarity score (0-100) to return a recipe match",
+    )
 
     # Security — SSRF protection
     ALLOWED_URL_SCHEMES: str = "http,https,grpc,grpcs,mcp"

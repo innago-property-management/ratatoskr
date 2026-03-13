@@ -85,13 +85,24 @@ _UNSAFE_PATTERNS_CACHE: list[str] | None = None
 
 
 def _get_unsafe_patterns() -> list[str]:
-    """Lazily compute and cache unsafe method patterns from settings."""
+    """Lazily compute and cache unsafe method patterns from settings.
+
+    Note: The cache is never invalidated within a process.  Tests that
+    monkeypatch ``settings.GRPC_UNSAFE_METHOD_PATTERNS`` after the cache
+    is populated must call ``_reset_unsafe_patterns_cache()`` first.
+    """
     global _UNSAFE_PATTERNS_CACHE
     if _UNSAFE_PATTERNS_CACHE is None:
         _UNSAFE_PATTERNS_CACHE = [
             p.strip() for p in settings.GRPC_UNSAFE_METHOD_PATTERNS.split(",") if p.strip()
         ]
     return _UNSAFE_PATTERNS_CACHE
+
+
+def _reset_unsafe_patterns_cache() -> None:
+    """Clear the cached unsafe patterns — for testing only."""
+    global _UNSAFE_PATTERNS_CACHE
+    _UNSAFE_PATTERNS_CACHE = None
 
 
 def _is_grpc_method_safe(method_path: str, allow_unsafe_rpcs: tuple[str, ...]) -> bool:
