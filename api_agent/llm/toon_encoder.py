@@ -10,6 +10,7 @@ exactly the shape produced by GraphQL, REST, gRPC, and SQL queries.
 
 from __future__ import annotations
 
+import functools
 import json
 from typing import Any
 
@@ -17,8 +18,14 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 
-# Guard to log the ImportError warning only once per process lifetime
-_toon_unavailable_logged = False
+
+def _log_toon_unavailable() -> None:
+    """Log toon_format ImportError once per process (thread-safe via lru_cache)."""
+    logger.warning("toon_package_missing_tool_results")
+
+
+# lru_cache makes the call a no-op after the first invocation and is thread-safe.
+_log_toon_unavailable = functools.lru_cache(maxsize=1)(_log_toon_unavailable)
 
 
 class ToolResultEncoder:
@@ -44,8 +51,6 @@ class ToolResultEncoder:
             - encoded_string: TOON text if compressed, else JSON string
             - was_toon_applied: True only if TOON was used and is smaller
         """
-        global _toon_unavailable_logged
-
         # Baseline: serialize as JSON for size comparison
         try:
             json_str = json.dumps(data)
@@ -59,9 +64,7 @@ class ToolResultEncoder:
         try:
             from toon_format import encode as toon_encode
         except ImportError:
-            if not _toon_unavailable_logged:
-                logger.warning("toon_package_missing_tool_results")
-                _toon_unavailable_logged = True
+            _log_toon_unavailable()
             return (json_str, False)
 
         try:
@@ -87,4 +90,6 @@ class ToolResultEncoder:
             toon_chars=toon_len,
             reduction_pct=reduction_pct,
         )
-        return (toon_str, True)
+        # Prepend a compact header so the LLM knows this is TOON, not JSON.
+        # The header also carries the success=true envelope that JSON paths include.
+        return (f"[success:true format:toon]\n{toon_str}", True)

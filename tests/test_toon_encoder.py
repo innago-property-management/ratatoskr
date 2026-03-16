@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import json
 import sys
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from api_agent.llm.toon_encoder import ToolResultEncoder
-
 
 # ---------------------------------------------------------------------------
 # ToolResultEncoder unit tests
@@ -69,6 +67,10 @@ class TestToolResultEncoder:
 
     def test_degrades_on_import_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If toon_format cannot be imported, returns JSON with was_applied=False."""
+        from api_agent.llm.toon_encoder import _log_toon_unavailable
+
+        # Reset lru_cache so this test exercises the warning path
+        _log_toon_unavailable.cache_clear()
         monkeypatch.setitem(sys.modules, "toon_format", None)  # type: ignore[arg-type]
 
         data = [{"x": i} for i in range(10)]
@@ -77,6 +79,9 @@ class TestToolResultEncoder:
 
         assert was_applied is False
         assert json.loads(encoded) == data
+
+        # Clean up so other tests aren't affected
+        _log_toon_unavailable.cache_clear()
 
     def test_degrades_on_encoding_exception(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """If toon_format.encode() raises, returns JSON with was_applied=False."""
@@ -163,13 +168,11 @@ class TestFormatToolResponseWithToon:
             result={"success": True},
         )
 
-        # TOON output is NOT a JSON object — it's a compact tabular text format
-        # e.g. "[50]{id,name,email,role}:\n  0,user_0,..."
-        assert not result.startswith("{"), (
-            "Expected TOON format (raw tabular text), got JSON wrapper. "
-            f"First 100 chars: {result[:100]}"
+        # TOON output carries a compact header + tabular body
+        assert result.startswith("[success:true format:toon]\n"), (
+            f"Expected TOON header, got: {result[:60]}"
         )
-        # TOON should be smaller than the original JSON
+        # TOON should be smaller than the original JSON (even with header)
         assert len(result) < len(json.dumps(data)), (
             f"TOON result ({len(result)} chars) should be smaller than JSON ({len(json.dumps(data))} chars)"
         )
@@ -182,10 +185,7 @@ class TestFormatToolResponseWithToon:
 
         monkeypatch.setattr(config.settings, "TOON_TOOL_RESULTS_ENABLED", False)
 
-        data = [
-            {"id": i, "name": f"user_{i}", "email": f"u{i}@test.com"}
-            for i in range(10)
-        ]
+        data = [{"id": i, "name": f"user_{i}", "email": f"u{i}@test.com"} for i in range(10)]
 
         result = await format_tool_response(
             stored_data=data,
@@ -242,10 +242,7 @@ class TestFormatToolResponseWithToon:
         # Set a very small budget so even TOON won't fit
         monkeypatch.setattr(config.settings, "MAX_TOOL_RESPONSE_CHARS", 50)
 
-        data = [
-            {"id": i, "name": f"user_{i}", "email": f"u{i}@test.com"}
-            for i in range(20)
-        ]
+        data = [{"id": i, "name": f"user_{i}", "email": f"u{i}@test.com"} for i in range(20)]
 
         result = await format_tool_response(
             stored_data=data,
@@ -259,3 +256,106 @@ class TestFormatToolResponseWithToon:
         assert parsed.get("success") is True
         # Truncated result has "truncated": True
         assert parsed.get("truncated") is True
+
+
+# ---------------------------------------------------------------------------
+# Integration: sql_query tool with TOON
+# ---------------------------------------------------------------------------
+
+
+class TestSqlQueryToolWithToon:
+    """sql_query() TOON integration in orchestrator.py."""
+
+    @pytest.mark.asyncio
+    async def test_sql_result_toon_encoded_when_enabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SQL results are TOON-encoded when TOON_TOOL_RESULTS_ENABLED=True."""
+        from contextvars import ContextVar
+
+        from api_agent import config
+        from api_agent.agent.orchestrator import AgentContextVars, create_sql_query_tool
+
+        monkeypatch.setattr(config.settings, "TOON_TOOL_RESULTS_ENABLED", True)
+
+        # Build context vars with pre-loaded data
+        query_results: ContextVar[dict] = ContextVar("test_qr")
+        last_result: ContextVar[list] = ContextVar("test_lr")
+        sql_steps: ContextVar[list[str]] = ContextVar("test_ss")
+
+        # 30 homogeneous rows — enough for TOON to compress
+        rows = [
+            {"id": i, "name": f"user_{i}", "email": f"u{i}@test.com", "active": True}
+            for i in range(30)
+        ]
+        query_results.set({"data": rows})
+        last_result.set([rows])
+        sql_steps.set([])
+
+        ctx_vars = AgentContextVars(
+            api_calls=ContextVar("ac"),
+            recipe_steps=ContextVar("rs"),
+            query_results=query_results,
+            last_result=last_result,
+            raw_schema=ContextVar("sc"),
+            sql_steps=sql_steps,
+        )
+
+        # Mock execute_sql to return the rows
+        import api_agent.agent.orchestrator as orch_mod
+
+        monkeypatch.setattr(
+            orch_mod, "execute_sql", lambda data, sql: {"success": True, "result": rows}
+        )
+
+        sql_tool = create_sql_query_tool(ctx_vars, lambda msg: None, "no data")
+        # The tool() wrapper exposes the inner function
+        result = await sql_tool.function(sql="SELECT * FROM data")
+
+        # Should have TOON header
+        assert result.startswith("[success:true format:toon]\n"), (
+            f"Expected TOON header, got: {result[:60]}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_sql_result_json_when_toon_disabled(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SQL results use JSON when TOON_TOOL_RESULTS_ENABLED=False."""
+        from contextvars import ContextVar
+
+        from api_agent import config
+        from api_agent.agent.orchestrator import AgentContextVars, create_sql_query_tool
+
+        monkeypatch.setattr(config.settings, "TOON_TOOL_RESULTS_ENABLED", False)
+
+        query_results: ContextVar[dict] = ContextVar("test_qr")
+        last_result: ContextVar[list] = ContextVar("test_lr")
+        sql_steps: ContextVar[list[str]] = ContextVar("test_ss")
+
+        rows = [{"id": i, "name": f"user_{i}"} for i in range(10)]
+        query_results.set({"data": rows})
+        last_result.set([rows])
+        sql_steps.set([])
+
+        ctx_vars = AgentContextVars(
+            api_calls=ContextVar("ac"),
+            recipe_steps=ContextVar("rs"),
+            query_results=query_results,
+            last_result=last_result,
+            raw_schema=ContextVar("sc"),
+            sql_steps=sql_steps,
+        )
+
+        import api_agent.agent.orchestrator as orch_mod
+
+        monkeypatch.setattr(
+            orch_mod, "execute_sql", lambda data, sql: {"success": True, "result": rows}
+        )
+
+        sql_tool = create_sql_query_tool(ctx_vars, lambda msg: None, "no data")
+        result = await sql_tool.function(sql="SELECT * FROM data")
+
+        parsed = json.loads(result)
+        assert parsed.get("success") is True
+        assert "data" in parsed
