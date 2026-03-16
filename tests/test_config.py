@@ -333,3 +333,14 @@ class TestSchemaReductionEnvOverrides:
     def test_max_output_tokens_override(self, monkeypatch):
         monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS", "16384")
         assert Settings().SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS == 16_384
+
+
+class TestToonConfig:
+    """Tests for TOON tool result compression settings."""
+
+    def test_toon_tool_results_enabled_default_true(self):
+        assert Settings().TOON_TOOL_RESULTS_ENABLED is True
+
+    def test_toon_tool_results_disabled_via_env(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_TOON_TOOL_RESULTS_ENABLED", "false")
+        assert Settings().TOON_TOOL_RESULTS_ENABLED is False
