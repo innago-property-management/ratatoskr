@@ -19,13 +19,10 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+@functools.lru_cache(maxsize=1)
 def _log_toon_unavailable() -> None:
     """Log toon_format ImportError once per process (thread-safe via lru_cache)."""
     logger.warning("toon_package_missing_tool_results")
-
-
-# lru_cache makes the call a no-op after the first invocation and is thread-safe.
-_log_toon_unavailable = functools.lru_cache(maxsize=1)(_log_toon_unavailable)
 
 
 class ToolResultEncoder:
