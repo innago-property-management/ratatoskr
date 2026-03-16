@@ -416,7 +416,9 @@ def _resolve_method_for_kind(
             )
         return method_info, None
 
-    # bidi_stream
+    if rpc_kind != "bidi_stream":
+        raise ValueError(f"Unknown RPC kind: {rpc_kind!r}")
+
     method_info = _find_bidi_streaming_method(schema, method)
     if not method_info:
         existing = _find_method(schema, method)
@@ -468,7 +470,8 @@ async def _execute_grpc_common(
     method_info, error = _resolve_method_for_kind(schema, method, rpc_kind)
     if error:
         return error
-    assert method_info is not None  # for type-checker
+    if method_info is None:  # pragma: no cover — _resolve_method_for_kind always sets error
+        raise RuntimeError(f"Method resolution failed without error for '{method}'")
 
     # 2. Mutation safety
     if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
@@ -509,14 +512,16 @@ async def _execute_grpc_common(
     if rpc_kind == "unary":
         result = await execute_unary_rpc(request_json=parsed, **common_kwargs)
     elif rpc_kind == "server_stream":
-        assert max_messages is not None  # always provided by wrapper
+        if max_messages is None:  # pragma: no cover — wrappers always provide this
+            raise RuntimeError("max_messages required for server_stream")
         result = await execute_server_streaming_rpc(
             request_json=parsed, max_messages=max_messages, **common_kwargs
         )
     elif rpc_kind == "client_stream":
         result = await execute_client_streaming_rpc(requests_json=parsed, **common_kwargs)
     else:
-        assert max_messages is not None  # always provided by wrapper
+        if max_messages is None:  # pragma: no cover — wrappers always provide this
+            raise RuntimeError("max_messages required for bidi_stream")
         result = await execute_bidi_streaming_rpc(
             requests_json=parsed, max_messages=max_messages, **common_kwargs
         )
@@ -541,7 +546,13 @@ async def _execute_grpc_common(
     stored_data, schema_info = None, None
     if result.get("success"):
         data = result.get("data", [] if uses_list_data else {})
-        stored_data, schema_info = store_result(_ctx_vars, data, name)
+        if uses_list_data:
+            stored_data, _ = store_result(_ctx_vars, data, name)
+        else:
+            stored_data, schema_info = store_result(_ctx_vars, data, name)
+
+    # Hoist msg_count once for streaming kinds (used in logging + response)
+    msg_count = result.get("message_count", 0) if uses_list_data else 0
 
     # 8. Recipe step tracking (unary only)
     if rpc_kind == "unary" and result.get("success"):
@@ -557,7 +568,6 @@ async def _execute_grpc_common(
 
     # 9. Log
     if uses_list_data:
-        msg_count = result.get("message_count", 0)
         _log(f"{_LOG_PREFIX[rpc_kind]} {method_info.full_method_path} -> {msg_count} messages")
     else:
         _log(
@@ -571,7 +581,6 @@ async def _execute_grpc_common(
     # 11. Format response
     if uses_list_data:
         # Server/bidi stream: custom response with message_count
-        msg_count = result.get("message_count", 0)
         if result.get("success") and stored_data and isinstance(stored_data, list):
             return json.dumps(
                 {
