@@ -5,7 +5,7 @@ import json
 import time
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 
@@ -266,7 +266,329 @@ def _find_bidi_streaming_method(schema: GrpcSchema, method_path: str) -> MethodI
 
 
 # ---------------------------------------------------------------------------
-# gRPC-specific: API call tools
+# gRPC-specific: API call tools — shared execution pipeline
+# ---------------------------------------------------------------------------
+
+RpcKind = Literal["unary", "server_stream", "client_stream", "bidi_stream"]
+
+
+def _resolve_method_for_kind(
+    schema: GrpcSchema,
+    method: str,
+    rpc_kind: RpcKind,
+) -> tuple[MethodInfo | None, str | None]:
+    """Resolve a gRPC method and validate it matches the expected streaming type.
+
+    Returns ``(method_info, None)`` on success or ``(None, error_json)`` on failure.
+    Error messages are intentionally specific per *rpc_kind* because tests assert
+    on the exact wording.
+    """
+    if rpc_kind == "unary":
+        method_info = _find_method(schema, method)
+        if not method_info:
+            available = [
+                m.full_method_path
+                for svc in schema.services
+                for m in svc.methods
+                if not m.server_streaming and not m.client_streaming
+            ]
+            return None, json.dumps(
+                {
+                    "success": False,
+                    "error": f"Method '{method}' not found. Available unary methods: {available}",
+                }
+            )
+        if method_info.client_streaming and method_info.server_streaming:
+            return None, json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        f"Method '{method}' is a bidi-streaming method. "
+                        "Use grpc_bidi_stream instead of grpc_call."
+                    ),
+                }
+            )
+        if method_info.server_streaming:
+            return None, json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        f"Method '{method}' is a server-streaming method. "
+                        "Use grpc_stream instead of grpc_call."
+                    ),
+                }
+            )
+        if method_info.client_streaming:
+            return None, json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        f"Method '{method}' is a client-streaming method. "
+                        "Use grpc_client_stream instead of grpc_call."
+                    ),
+                }
+            )
+        return method_info, None
+
+    if rpc_kind == "server_stream":
+        method_info = _find_streaming_method(schema, method)
+        if not method_info:
+            existing = _find_method(schema, method)
+            if existing:
+                if existing.client_streaming and existing.server_streaming:
+                    return None, json.dumps(
+                        {
+                            "success": False,
+                            "error": (
+                                f"Method '{method}' is bidi-streaming. "
+                                "Use grpc_bidi_stream instead."
+                            ),
+                        }
+                    )
+                if existing.client_streaming and not existing.server_streaming:
+                    return None, json.dumps(
+                        {
+                            "success": False,
+                            "error": (
+                                f"Method '{method}' is client-streaming. "
+                                "Use grpc_client_stream instead."
+                            ),
+                        }
+                    )
+                return None, json.dumps(
+                    {
+                        "success": False,
+                        "error": (
+                            f"Method '{method}' is not a server-streaming method. "
+                            "Use grpc_call instead."
+                        ),
+                    }
+                )
+            available = [
+                m.full_method_path
+                for svc in schema.services
+                for m in svc.methods
+                if m.server_streaming
+            ]
+            return None, json.dumps(
+                {
+                    "success": False,
+                    "error": f"Streaming method '{method}' not found. Available: {available}",
+                }
+            )
+        return method_info, None
+
+    if rpc_kind == "client_stream":
+        method_info = _find_client_streaming_method(schema, method)
+        if not method_info:
+            existing = _find_method(schema, method)
+            if existing:
+                if existing.server_streaming and existing.client_streaming:
+                    return None, json.dumps(
+                        {
+                            "success": False,
+                            "error": (
+                                f"Method '{method}' is bidi-streaming. "
+                                "Use grpc_bidi_stream instead."
+                            ),
+                        }
+                    )
+                return None, json.dumps(
+                    {
+                        "success": False,
+                        "error": (
+                            f"Method '{method}' is not a client-streaming method. "
+                            "Use grpc_call or grpc_stream instead."
+                        ),
+                    }
+                )
+            available = [
+                m.full_method_path
+                for svc in schema.services
+                for m in svc.methods
+                if m.client_streaming and not m.server_streaming
+            ]
+            return None, json.dumps(
+                {
+                    "success": False,
+                    "error": f"Client-streaming method '{method}' not found. Available: {available}",
+                }
+            )
+        return method_info, None
+
+    # bidi_stream
+    method_info = _find_bidi_streaming_method(schema, method)
+    if not method_info:
+        existing = _find_method(schema, method)
+        if existing:
+            return None, json.dumps(
+                {
+                    "success": False,
+                    "error": (
+                        f"Method '{method}' is not a bidi-streaming method. "
+                        "Use grpc_call, grpc_stream, or grpc_client_stream instead."
+                    ),
+                }
+            )
+        available = [
+            m.full_method_path
+            for svc in schema.services
+            for m in svc.methods
+            if m.client_streaming and m.server_streaming
+        ]
+        return None, json.dumps(
+            {
+                "success": False,
+                "error": f"Bidi-streaming method '{method}' not found. Available: {available}",
+            }
+        )
+    return method_info, None
+
+
+_LOG_PREFIX: dict[RpcKind, str] = {
+    "unary": "RPC",
+    "server_stream": "STREAM",
+    "client_stream": "CLIENT_STREAM",
+    "bidi_stream": "BIDI_STREAM",
+}
+
+
+async def _execute_grpc_common(
+    ctx: RequestContext,
+    schema: GrpcSchema,
+    method: str,
+    payload_str: str,
+    name: str,
+    rpc_kind: RpcKind,
+    max_messages: int | None = None,
+    return_directly: bool = False,
+) -> str:
+    """Shared execution pipeline for all four gRPC tool types."""
+    # 1. Resolve method
+    method_info, error = _resolve_method_for_kind(schema, method, rpc_kind)
+    if error:
+        return error
+    assert method_info is not None  # for type-checker
+
+    # 2. Mutation safety
+    if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
+        return _blocked_method_response(method)
+
+    # 3. Parse JSON payload
+    expects_array = rpc_kind in ("client_stream", "bidi_stream")
+    try:
+        parsed = json.loads(payload_str)
+        if expects_array and not isinstance(parsed, list):
+            return json.dumps(
+                {
+                    "success": False,
+                    "error": "requests must be a JSON array of request objects",
+                }
+            )
+    except json.JSONDecodeError as e:
+        label = "requests" if expects_array else "request"
+        return json.dumps(
+            {
+                "success": False,
+                "error": f"Invalid {label} JSON: {e.msg}",
+            }
+        )
+
+    # 4. Build metadata from target headers
+    metadata = [(k, v) for k, v in ctx.target_headers.items()] if ctx.target_headers else None
+
+    # 5. Execute RPC (dispatch by kind)
+    common_kwargs: dict[str, Any] = {
+        "target_url": ctx.target_url,
+        "method_path": method_info.full_method_path,
+        "pool": schema.pool,
+        "input_type_name": method_info.input_type,
+        "output_type_name": method_info.output_type,
+        "metadata": metadata,
+    }
+    if rpc_kind == "unary":
+        result = await execute_unary_rpc(request_json=parsed, **common_kwargs)
+    elif rpc_kind == "server_stream":
+        assert max_messages is not None  # always provided by wrapper
+        result = await execute_server_streaming_rpc(
+            request_json=parsed, max_messages=max_messages, **common_kwargs
+        )
+    elif rpc_kind == "client_stream":
+        result = await execute_client_streaming_rpc(requests_json=parsed, **common_kwargs)
+    else:
+        assert max_messages is not None  # always provided by wrapper
+        result = await execute_bidi_streaming_rpc(
+            requests_json=parsed, max_messages=max_messages, **common_kwargs
+        )
+
+    # 6. Track call in ContextVar
+    tracking: dict[str, Any] = {
+        "method": method_info.full_method_path,
+        "requests" if expects_array else "request": payload_str,
+        "name": name,
+        "success": bool(result.get("success")),
+    }
+    if rpc_kind == "server_stream":
+        tracking["streaming"] = True
+    elif rpc_kind == "client_stream":
+        tracking["streaming"] = "client"
+    elif rpc_kind == "bidi_stream":
+        tracking["streaming"] = "bidi"
+    safe_append_contextvar_list(_rpc_calls, tracking)
+
+    # 7. Store result for sql_query
+    uses_list_data = rpc_kind in ("server_stream", "bidi_stream")
+    stored_data, schema_info = None, None
+    if result.get("success"):
+        data = result.get("data", [] if uses_list_data else {})
+        stored_data, schema_info = store_result(_ctx_vars, data, name)
+
+    # 8. Recipe step tracking (unary only)
+    if rpc_kind == "unary" and result.get("success"):
+        safe_append_contextvar_list(
+            _recipe_steps,
+            {
+                "kind": "grpc",
+                "method": method_info.full_method_path,
+                "request": payload_str,
+                "name": name,
+            },
+        )
+
+    # 9. Log
+    if uses_list_data:
+        msg_count = result.get("message_count", 0)
+        _log(f"{_LOG_PREFIX[rpc_kind]} {method_info.full_method_path} -> {msg_count} messages")
+    else:
+        _log(
+            f"{_LOG_PREFIX[rpc_kind]} {method_info.full_method_path} -> {json.dumps(result)[:200]}"
+        )
+
+    # 10. Handle return_directly (unary + client_stream only)
+    if return_directly and result.get("success") and rpc_kind in ("unary", "client_stream"):
+        _set_return_directly()
+
+    # 11. Format response
+    if uses_list_data:
+        # Server/bidi stream: custom response with message_count
+        msg_count = result.get("message_count", 0)
+        if result.get("success") and stored_data and isinstance(stored_data, list):
+            return json.dumps(
+                {
+                    "success": True,
+                    "message_count": msg_count,
+                    **await truncate_for_context_async(stored_data, name),
+                },
+                indent=2,
+            )
+        return json.dumps(result, indent=2)
+
+    # Unary / client_stream: standard format
+    return await format_tool_response(stored_data, schema_info, name, result)
+
+
+# ---------------------------------------------------------------------------
+# gRPC-specific: thin tool factory wrappers
 # ---------------------------------------------------------------------------
 
 
@@ -290,117 +612,9 @@ def _create_grpc_call_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
         Returns:
             JSON string with RPC response
         """
-        # Resolve method
-        method_info = _find_method(schema, method)
-        if not method_info:
-            available = [
-                m.full_method_path
-                for svc in schema.services
-                for m in svc.methods
-                if not m.server_streaming and not m.client_streaming
-            ]
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Method '{method}' not found. Available unary methods: {available}",
-                }
-            )
-
-        # Block streaming methods (check bidi first since it has both flags)
-        if method_info.client_streaming and method_info.server_streaming:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": (
-                        f"Method '{method}' is a bidi-streaming method. "
-                        "Use grpc_bidi_stream instead of grpc_call."
-                    ),
-                }
-            )
-        if method_info.server_streaming:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": (
-                        f"Method '{method}' is a server-streaming method. "
-                        "Use grpc_stream instead of grpc_call."
-                    ),
-                }
-            )
-        if method_info.client_streaming:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": (
-                        f"Method '{method}' is a client-streaming method. "
-                        "Use grpc_client_stream instead of grpc_call."
-                    ),
-                }
-            )
-
-        # Mutation safety check
-        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
-            return _blocked_method_response(method)
-
-        # Parse request JSON
-        try:
-            request_json = json.loads(request)
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Invalid request JSON: {e.msg}",
-                }
-            )
-
-        # Build metadata from target headers
-        metadata = [(k, v) for k, v in ctx.target_headers.items()] if ctx.target_headers else None
-
-        # Execute RPC
-        result = await execute_unary_rpc(
-            target_url=ctx.target_url,
-            method_path=method_info.full_method_path,
-            request_json=request_json,
-            pool=schema.pool,
-            input_type_name=method_info.input_type,
-            output_type_name=method_info.output_type,
-            metadata=metadata,
+        return await _execute_grpc_common(
+            ctx, schema, method, request, name, "unary", return_directly=return_directly
         )
-
-        # Track call
-        safe_append_contextvar_list(
-            _rpc_calls,
-            {
-                "method": method_info.full_method_path,
-                "request": request,
-                "name": name,
-                "success": bool(result.get("success")),
-            },
-        )
-
-        # Store result for sql_query
-        stored_data, schema_info = None, None
-        if result.get("success"):
-            data = result.get("data", {})
-            stored_data, schema_info = store_result(_ctx_vars, data, name)
-
-            # Track successful step for recipe extraction
-            safe_append_contextvar_list(
-                _recipe_steps,
-                {
-                    "kind": "grpc",
-                    "method": method_info.full_method_path,
-                    "request": request,
-                    "name": name,
-                },
-            )
-
-        _log(f"RPC {method_info.full_method_path} -> {json.dumps(result)[:200]}")
-
-        if return_directly and result.get("success"):
-            _set_return_directly()
-
-        return await format_tool_response(stored_data, schema_info, name, result)
 
     return tool(grpc_call)
 
@@ -425,118 +639,9 @@ def _create_grpc_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> Any:
         Returns:
             JSON string with streamed response data
         """
-        # Resolve method — must be server-streaming (not bidi)
-        method_info = _find_streaming_method(schema, method)
-        if not method_info:
-            # Check if it's a valid method but wrong streaming type
-            existing = _find_method(schema, method)
-            if existing:
-                if existing.client_streaming and existing.server_streaming:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": (
-                                f"Method '{method}' is bidi-streaming. "
-                                "Use grpc_bidi_stream instead."
-                            ),
-                        }
-                    )
-                if existing.client_streaming and not existing.server_streaming:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": (
-                                f"Method '{method}' is client-streaming. "
-                                "Use grpc_client_stream instead."
-                            ),
-                        }
-                    )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": (
-                            f"Method '{method}' is not a server-streaming method. "
-                            "Use grpc_call instead."
-                        ),
-                    }
-                )
-            available = [
-                m.full_method_path
-                for svc in schema.services
-                for m in svc.methods
-                if m.server_streaming
-            ]
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Streaming method '{method}' not found. Available: {available}",
-                }
-            )
-
-        # Mutation safety check
-        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
-            return _blocked_method_response(method)
-
-        # Parse request JSON
-        try:
-            request_json = json.loads(request)
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Invalid request JSON: {e.msg}",
-                }
-            )
-
-        # Build metadata from target headers
-        metadata = [(k, v) for k, v in ctx.target_headers.items()] if ctx.target_headers else None
-
-        # Execute streaming RPC
-        result = await execute_server_streaming_rpc(
-            target_url=ctx.target_url,
-            method_path=method_info.full_method_path,
-            request_json=request_json,
-            pool=schema.pool,
-            input_type_name=method_info.input_type,
-            output_type_name=method_info.output_type,
-            metadata=metadata,
-            max_messages=max_messages,
+        return await _execute_grpc_common(
+            ctx, schema, method, request, name, "server_stream", max_messages=max_messages
         )
-
-        # Track call
-        safe_append_contextvar_list(
-            _rpc_calls,
-            {
-                "method": method_info.full_method_path,
-                "request": request,
-                "name": name,
-                "success": bool(result.get("success")),
-                "streaming": True,
-            },
-        )
-
-        # Store result for sql_query — streaming returns a list in "data"
-        stored_data = None
-        if result.get("success"):
-            data = result.get("data", [])
-            stored_data, _ = store_result(_ctx_vars, data, name)
-
-        msg_count = result.get("message_count", 0)
-        _log(f"STREAM {method_info.full_method_path} -> {msg_count} messages")
-
-        # Streaming has custom response with message_count
-        if result.get("success") and stored_data:
-            if isinstance(stored_data, list):
-                return json.dumps(
-                    {
-                        "success": True,
-                        "message_count": msg_count,
-                        **await truncate_for_context_async(stored_data, name),
-                    },
-                    indent=2,
-                )
-
-        return json.dumps(result, indent=2)
 
     return tool(grpc_stream)
 
@@ -561,103 +666,9 @@ def _create_grpc_client_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> 
         Returns:
             JSON string with RPC response
         """
-        # Resolve method — must be client-streaming (not bidi)
-        method_info = _find_client_streaming_method(schema, method)
-        if not method_info:
-            existing = _find_method(schema, method)
-            if existing:
-                if existing.server_streaming and existing.client_streaming:
-                    return json.dumps(
-                        {
-                            "success": False,
-                            "error": (
-                                f"Method '{method}' is bidi-streaming. "
-                                "Use grpc_bidi_stream instead."
-                            ),
-                        }
-                    )
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": (
-                            f"Method '{method}' is not a client-streaming method. "
-                            "Use grpc_call or grpc_stream instead."
-                        ),
-                    }
-                )
-            available = [
-                m.full_method_path
-                for svc in schema.services
-                for m in svc.methods
-                if m.client_streaming and not m.server_streaming
-            ]
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Client-streaming method '{method}' not found. Available: {available}",
-                }
-            )
-
-        # Mutation safety check
-        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
-            return _blocked_method_response(method)
-
-        # Parse requests JSON array
-        try:
-            requests_json = json.loads(requests)
-            if not isinstance(requests_json, list):
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": "requests must be a JSON array of request objects",
-                    }
-                )
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Invalid requests JSON: {e.msg}",
-                }
-            )
-
-        # Build metadata from target headers
-        metadata = [(k, v) for k, v in ctx.target_headers.items()] if ctx.target_headers else None
-
-        # Execute client-streaming RPC
-        result = await execute_client_streaming_rpc(
-            target_url=ctx.target_url,
-            method_path=method_info.full_method_path,
-            requests_json=requests_json,
-            pool=schema.pool,
-            input_type_name=method_info.input_type,
-            output_type_name=method_info.output_type,
-            metadata=metadata,
+        return await _execute_grpc_common(
+            ctx, schema, method, requests, name, "client_stream", return_directly=return_directly
         )
-
-        # Track call
-        safe_append_contextvar_list(
-            _rpc_calls,
-            {
-                "method": method_info.full_method_path,
-                "requests": requests,
-                "name": name,
-                "success": bool(result.get("success")),
-                "streaming": "client",
-            },
-        )
-
-        # Store result for sql_query
-        stored_data, schema_info = None, None
-        if result.get("success"):
-            data = result.get("data", {})
-            stored_data, schema_info = store_result(_ctx_vars, data, name)
-
-        _log(f"CLIENT_STREAM {method_info.full_method_path} -> {json.dumps(result)[:200]}")
-
-        if return_directly and result.get("success"):
-            _set_return_directly()
-
-        return await format_tool_response(stored_data, schema_info, name, result)
 
     return tool(grpc_client_stream)
 
@@ -682,104 +693,9 @@ def _create_grpc_bidi_stream_tool(ctx: RequestContext, schema: GrpcSchema) -> An
         Returns:
             JSON string with streamed response data
         """
-        # Resolve method — must be bidi-streaming
-        method_info = _find_bidi_streaming_method(schema, method)
-        if not method_info:
-            existing = _find_method(schema, method)
-            if existing:
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": (
-                            f"Method '{method}' is not a bidi-streaming method. "
-                            "Use grpc_call, grpc_stream, or grpc_client_stream instead."
-                        ),
-                    }
-                )
-            available = [
-                m.full_method_path
-                for svc in schema.services
-                for m in svc.methods
-                if m.client_streaming and m.server_streaming
-            ]
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Bidi-streaming method '{method}' not found. Available: {available}",
-                }
-            )
-
-        # Mutation safety check
-        if not _is_grpc_method_safe(method_info.full_method_path, ctx.grpc_allow_unsafe_rpcs):
-            return _blocked_method_response(method)
-
-        # Parse requests JSON array
-        try:
-            requests_json = json.loads(requests)
-            if not isinstance(requests_json, list):
-                return json.dumps(
-                    {
-                        "success": False,
-                        "error": "requests must be a JSON array of request objects",
-                    }
-                )
-        except json.JSONDecodeError as e:
-            return json.dumps(
-                {
-                    "success": False,
-                    "error": f"Invalid requests JSON: {e.msg}",
-                }
-            )
-
-        # Build metadata from target headers
-        metadata = [(k, v) for k, v in ctx.target_headers.items()] if ctx.target_headers else None
-
-        # Execute bidi-streaming RPC
-        result = await execute_bidi_streaming_rpc(
-            target_url=ctx.target_url,
-            method_path=method_info.full_method_path,
-            requests_json=requests_json,
-            pool=schema.pool,
-            input_type_name=method_info.input_type,
-            output_type_name=method_info.output_type,
-            metadata=metadata,
-            max_messages=max_messages,
+        return await _execute_grpc_common(
+            ctx, schema, method, requests, name, "bidi_stream", max_messages=max_messages
         )
-
-        # Track call
-        safe_append_contextvar_list(
-            _rpc_calls,
-            {
-                "method": method_info.full_method_path,
-                "requests": requests,
-                "name": name,
-                "success": bool(result.get("success")),
-                "streaming": "bidi",
-            },
-        )
-
-        # Store result for sql_query — bidi returns a list in "data"
-        stored_data = None
-        if result.get("success"):
-            data = result.get("data", [])
-            stored_data, _ = store_result(_ctx_vars, data, name)
-
-        msg_count = result.get("message_count", 0)
-        _log(f"BIDI_STREAM {method_info.full_method_path} -> {msg_count} messages")
-
-        # Bidi has custom response with message_count
-        if result.get("success") and stored_data:
-            if isinstance(stored_data, list):
-                return json.dumps(
-                    {
-                        "success": True,
-                        "message_count": msg_count,
-                        **await truncate_for_context_async(stored_data, name),
-                    },
-                    indent=2,
-                )
-
-        return json.dumps(result, indent=2)
 
     return tool(grpc_bidi_stream)
 
