@@ -83,11 +83,12 @@ class ToolResultEncoder:
             )
             return (json_str, False)
 
-        reduction_pct = round((1 - toon_len / original_len) * 100, 1)
+        total_toon_len = toon_len + len(_TOON_HEADER)
+        reduction_pct = round((1 - total_toon_len / original_len) * 100, 1)
         logger.info(
             "toon_tool_result_compressed",
             original_chars=original_len,
-            toon_chars=toon_len,
+            toon_chars=total_toon_len,
             reduction_pct=reduction_pct,
         )
         # Prepend a compact header so the LLM knows this is TOON, not JSON.
