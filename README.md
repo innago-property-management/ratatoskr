@@ -208,6 +208,16 @@ flowchart TB
 
 ---
 
+## Token-Optimized Output (TOON)
+
+API responses are automatically compressed using [TOON format](https://toonformat.dev/) before being sent to the LLM. TOON strips JSON's structural punctuation (braces, quotes, colons) that creates noise tokens diluting LLM attention, concentrating the model's focus on actual field names and values. Typical reduction: 30-60% fewer tokens with improved reasoning quality.
+
+- **Default-on** for tool results and SQL query output
+- Graceful JSON fallback if TOON produces larger output
+- Disable globally: `API_AGENT_TOON_TOOL_RESULTS_ENABLED=false`
+
+---
+
 ## Recipe Learning
 
 Agent learns reusable patterns from successful queries:
@@ -454,7 +464,7 @@ Planned improvements (contributions welcome):
 git clone https://github.com/innago-property-management/ratatoskr.git
 cd ratatoskr
 uv sync --group dev
-uv run pytest tests/ -v      # Tests (1159 passing)
+uv run pytest tests/ -v      # Tests (1236 passing)
 uv run ruff check api_agent/  # Lint
 uv run ty check               # Type check
 ```
@@ -472,7 +482,8 @@ Ratatoskr is a fork of **[api-agent](https://github.com/agoda-com/api-agent)** b
 The core architecture — FastMCP server, dynamic tool naming, agent orchestration, DuckDB post-processing, and recipe learning — is entirely Agoda's work. Ratatoskr extends it with:
 
 - **Polyglot LLM support** — Anthropic, OpenAI, and OpenAI-compatible providers via a pluggable `LLMProvider` abstraction
-- **Expanded test coverage** — 1159 tests covering orchestration, safety boundaries, configuration contracts, and provider SDK surfaces
+- **Token-Optimized Output (TOON)** — Strips JSON punctuation noise to improve LLM attention quality with 30-60% fewer tokens
+- **Expanded test coverage** — 1236 tests covering orchestration, safety boundaries, configuration contracts, and provider SDK surfaces
 - **GraphQL partial success fix** — Returns both `data` and `errors` when both present, per the GraphQL specification
 
 The name **Ratatoskr** comes from the Norse squirrel who runs up and down Yggdrasil carrying messages between realms — a fitting metaphor for a universal API-to-LLM bridge.

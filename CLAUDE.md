@@ -21,7 +21,7 @@ uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 -
 
 **Tests:**
 ```bash
-uv run pytest tests/ -v              # All tests (1159 passing)
+uv run pytest tests/ -v              # All tests (1236 passing)
 uv run pytest tests/test_foo.py -v   # Single test file
 uv run pytest tests/test_foo.py::test_bar -v  # Single test
 ```
@@ -128,6 +128,16 @@ Set `X-Poll-Paths` header to enable `poll_until_done` tool:
 - Checks `done_field` (dot-path like `"status"`, `"trips.0.isCompleted"`) against `done_value`
 - Max 20 polls (configurable), default 3s delay
 
+### TOON Compression
+
+- **Why**: JSON punctuation (braces, quotes, colons) creates noise tokens that dilute LLM attention. TOON strips this, concentrating attention on field names and values.
+- **Where**: `api_agent/llm/toon_encoder.py` — `ToolResultEncoder` class
+- **Integration**: Wired into `format_tool_response()` and `sql_query()` in `orchestrator.py`
+- **Header**: TOON output carries `[success:true format:toon]\n` prefix
+- **Config**: `TOON_TOOL_RESULTS_ENABLED` (default: true)
+- **Fallback**: If toon_format not installed or output is larger, falls back to JSON silently
+- **Size guard**: Includes `_TOON_HEADER` length in comparison to ensure TOON is always smaller
+
 ### Recipes
 
 Caches parameterized API call + SQL pipelines from successful agent runs, exposed as MCP tools:
@@ -143,7 +153,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 
 ## Testing
 
-1159 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
+1236 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
 
 ### Test Patterns
 
