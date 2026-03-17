@@ -19,6 +19,9 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 
+_TOON_HEADER = "[success:true format:toon]\n"
+
+
 @functools.lru_cache(maxsize=1)
 def _log_toon_unavailable() -> None:
     """Log toon_format ImportError once per process (thread-safe via lru_cache)."""
@@ -72,7 +75,7 @@ class ToolResultEncoder:
 
         toon_len = len(toon_str)
 
-        if toon_len >= original_len:
+        if toon_len + len(_TOON_HEADER) >= original_len:
             logger.debug(
                 "toon_tool_result_no_gain",
                 original_chars=original_len,
@@ -89,4 +92,4 @@ class ToolResultEncoder:
         )
         # Prepend a compact header so the LLM knows this is TOON, not JSON.
         # The header also carries the success=true envelope that JSON paths include.
-        return (f"[success:true format:toon]\n{toon_str}", True)
+        return (f"{_TOON_HEADER}{toon_str}", True)
