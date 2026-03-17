@@ -82,11 +82,13 @@ Returns answer and the queries/calls made (reusable with execute tool).""",
         calls_key = calls_key_map.get(req_ctx.api_type, "api_calls")
         response = _build_response(result, calls_key, req_ctx)
 
-        # TOON-encode the data field for the MCP client (default-on)
+        # TOON-encode the data field for the MCP client (default-on).
+        # The envelope (ok, error, queries/api_calls) is preserved —
+        # only the data value is replaced with the TOON string.
         if req_ctx.output_format == "toon" and isinstance(response.get("data"), list):
             encoder = ToolResultEncoder()
             toon_str, applied = encoder.encode(response["data"])
             if applied:
-                return toon_str
+                response["data"] = toon_str
 
         return response

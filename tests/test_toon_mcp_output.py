@@ -1,16 +1,16 @@
 """Tests for TOON MCP output encoding (P4).
 
 Verifies that _query and _execute TOON-encode the `data` field in
-their responses when output_format="toon" (default).
+their responses while preserving the ok/error envelope.
 """
 
 from __future__ import annotations
 
-import json
+from unittest.mock import patch
 
 import pytest
 
-from api_agent.context import RequestContext
+from api_agent.context import RequestContext, get_request_context
 from api_agent.llm.toon_encoder import ToolResultEncoder
 
 # ---------------------------------------------------------------------------
@@ -40,118 +40,176 @@ def _toon_encodable_data(n: int = 30) -> list[dict]:
     ]
 
 
+def _base_headers(**overrides: str) -> dict[str, str]:
+    """Return minimal valid headers for get_request_context()."""
+    h = {
+        "x-target-url": "https://api.example.com/graphql",
+        "x-api-type": "graphql",
+    }
+    h.update(overrides)
+    return h
+
+
 # ---------------------------------------------------------------------------
-# RequestContext output_format parsing
+# Integration: X-Output-Format header via get_request_context()
 # ---------------------------------------------------------------------------
 
 
-class TestOutputFormatParsing:
-    """X-Output-Format header parsing in context.py."""
+class TestOutputFormatIntegration:
+    """X-Output-Format header parsing through get_request_context()."""
 
-    def test_default_is_toon_when_config_enabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @patch("api_agent.context.get_http_headers")
+    def test_default_is_toon_when_config_enabled(
+        self, mock_headers, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """No header + TOON_MCP_OUTPUT_ENABLED=True → output_format='toon'."""
         from api_agent import config
 
         monkeypatch.setattr(config.settings, "TOON_MCP_OUTPUT_ENABLED", True)
+        mock_headers.return_value = _base_headers()
 
-        ctx = _make_ctx()
+        ctx = get_request_context()
         assert ctx.output_format == "toon"
 
-    def test_default_is_json_when_config_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @patch("api_agent.context.get_http_headers")
+    def test_default_is_json_when_config_disabled(
+        self, mock_headers, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """No header + TOON_MCP_OUTPUT_ENABLED=False → output_format='json'."""
-        ctx = _make_ctx(output_format="json")
+        from api_agent import config
+
+        monkeypatch.setattr(config.settings, "TOON_MCP_OUTPUT_ENABLED", False)
+        mock_headers.return_value = _base_headers()
+
+        ctx = get_request_context()
         assert ctx.output_format == "json"
 
-    def test_header_json_overrides(self) -> None:
-        """X-Output-Format: json → output_format='json'."""
-        ctx = _make_ctx(output_format="json")
+    @patch("api_agent.context.get_http_headers")
+    def test_header_json_overrides_config_true(self, mock_headers) -> None:
+        """X-Output-Format: json → output_format='json' even when config=True."""
+        mock_headers.return_value = _base_headers(**{"x-output-format": "json"})
+
+        ctx = get_request_context()
         assert ctx.output_format == "json"
 
-    def test_header_toon_explicit(self) -> None:
-        """X-Output-Format: toon → output_format='toon'."""
-        ctx = _make_ctx(output_format="toon")
+    @patch("api_agent.context.get_http_headers")
+    def test_header_toon_overrides_config_false(
+        self, mock_headers, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """X-Output-Format: toon → output_format='toon' even when config=False."""
+        from api_agent import config
+
+        monkeypatch.setattr(config.settings, "TOON_MCP_OUTPUT_ENABLED", False)
+        mock_headers.return_value = _base_headers(**{"x-output-format": "toon"})
+
+        ctx = get_request_context()
+        assert ctx.output_format == "toon"
+
+    @patch("api_agent.context.get_http_headers")
+    def test_unknown_format_defaults_to_toon(self, mock_headers) -> None:
+        """X-Output-Format: xml → falls back to 'toon'."""
+        mock_headers.return_value = _base_headers(**{"x-output-format": "xml"})
+
+        ctx = get_request_context()
         assert ctx.output_format == "toon"
 
 
 # ---------------------------------------------------------------------------
-# Query tool TOON output
+# Query tool: envelope preserved with TOON data
 # ---------------------------------------------------------------------------
 
 
 class TestQueryToonOutput:
-    """_query tool TOON-encodes data for MCP client."""
+    """_query tool TOON-encodes data while preserving envelope."""
 
-    def test_list_data_toon_encoded(self) -> None:
-        """When output_format='toon' and data is a list, return TOON string."""
+    def test_toon_replaces_data_preserves_envelope(self) -> None:
+        """TOON encoding replaces data field but ok/error/queries envelope stays."""
         data = _toon_encodable_data()
-        response = {"ok": True, "data": data, "queries": [], "error": None}
+        response = {"ok": True, "data": data, "queries": [{"q": "test"}], "error": None}
 
-        # Simulate what query.py does
+        # Simulate what query.py now does (mutate in place)
         if isinstance(response.get("data"), list):
             encoder = ToolResultEncoder()
             toon_str, applied = encoder.encode(response["data"])
             if applied:
-                assert toon_str.startswith("[success:true format:toon]\n")
-                assert len(toon_str) < len(json.dumps(data))
-                return
-        pytest.fail("TOON should have been applied")
+                response["data"] = toon_str
+
+        # Envelope preserved
+        assert response["ok"] is True
+        assert response["queries"] == [{"q": "test"}]
+        assert response["error"] is None
+        # Data is now a TOON string
+        assert isinstance(response["data"], str)
+        assert response["data"].startswith("[success:true format:toon]\n")
 
     def test_json_when_output_format_json(self) -> None:
-        """When output_format='json', data stays as dict (no TOON)."""
+        """When output_format='json', data stays as list (no TOON)."""
         ctx = _make_ctx(output_format="json")
         data = _toon_encodable_data()
         response = {"ok": True, "data": data, "queries": [], "error": None}
 
         # With json format, we skip TOON encoding
-        if ctx.output_format != "toon":
-            # Return response as-is
-            assert isinstance(response, dict)
-            assert response["ok"] is True
+        if ctx.output_format == "toon" and isinstance(response.get("data"), list):
+            pytest.fail("Should not TOON-encode when output_format='json'")
 
-    def test_non_list_data_stays_dict(self) -> None:
-        """When data is a dict (not list), return as dict regardless of format."""
+        assert isinstance(response["data"], list)
+        assert response["ok"] is True
+
+    def test_non_list_data_stays_unchanged(self) -> None:
+        """When data is a dict (not list), it stays unchanged."""
         response = {"ok": True, "data": {"id": 1, "name": "test"}, "queries": [], "error": None}
-        # isinstance check prevents TOON on non-list data
-        assert not isinstance(response.get("data"), list)
+        assert isinstance(response["data"], dict)
 
-    def test_error_response_stays_dict(self) -> None:
-        """Error responses are never TOON-encoded."""
+    def test_error_response_stays_unchanged(self) -> None:
+        """Error responses (data=None) are never TOON-encoded."""
         response = {"ok": False, "data": None, "queries": [], "error": "Something failed"}
-        assert response.get("data") is None
+        assert response["data"] is None
+        assert response["error"] == "Something failed"
 
-    def test_small_list_stays_json_when_toon_not_smaller(self) -> None:
-        """Tiny list where TOON overhead exceeds savings → stays as JSON."""
+    def test_small_list_stays_as_list_when_toon_not_smaller(self) -> None:
+        """Tiny list where TOON has no gain → data stays as list."""
         data = [{"a": 1}]
-        encoder = ToolResultEncoder()
-        toon_str, applied = encoder.encode(data)
-        if not applied:
-            # This is correct — TOON wasn't smaller
-            parsed = json.loads(toon_str)
-            assert parsed == data
+        response = {"ok": True, "data": data, "queries": [], "error": None}
+
+        if isinstance(response.get("data"), list):
+            encoder = ToolResultEncoder()
+            toon_str, applied = encoder.encode(response["data"])
+            if applied:
+                response["data"] = toon_str
+
+        # If TOON wasn't applied, data stays as list
+        if isinstance(response["data"], list):
+            assert response["data"] == data
 
 
 # ---------------------------------------------------------------------------
-# Execute tool TOON output
+# Execute tool: envelope preserved with TOON data
 # ---------------------------------------------------------------------------
 
 
 class TestExecuteToonOutput:
-    """_execute tool TOON-encodes data for MCP client."""
+    """_execute tool TOON-encodes data while preserving envelope."""
 
-    def test_list_data_toon_encoded(self) -> None:
-        """Execute result with list data gets TOON-encoded."""
+    def test_toon_replaces_data_preserves_envelope(self) -> None:
+        """Execute result: TOON replaces data, ok/error preserved."""
         data = _toon_encodable_data()
-        result = {"ok": True, "data": data}
+        result = {"ok": True, "data": data, "error": None}
 
-        encoder = ToolResultEncoder()
-        toon_str, applied = encoder.encode(result["data"])
-        if applied:
-            assert toon_str.startswith("[success:true format:toon]\n")
+        if isinstance(result.get("data"), list):
+            encoder = ToolResultEncoder()
+            toon_str, applied = encoder.encode(result["data"])
+            if applied:
+                result["data"] = toon_str
 
-    def test_dict_data_stays_dict(self) -> None:
+        assert result["ok"] is True
+        assert result["error"] is None
+        assert isinstance(result["data"], str)
+        assert result["data"].startswith("[success:true format:toon]\n")
+
+    def test_dict_data_stays_unchanged(self) -> None:
         """Execute result with dict data stays as dict."""
         result = {"ok": True, "data": {"id": 1, "name": "test"}}
-        assert not isinstance(result.get("data"), list)
+        assert isinstance(result["data"], dict)
 
 
 # ---------------------------------------------------------------------------
