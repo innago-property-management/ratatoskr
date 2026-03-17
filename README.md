@@ -214,7 +214,6 @@ API responses are automatically compressed using [TOON format](https://toonforma
 
 - **Default-on** for tool results and SQL query output
 - Graceful JSON fallback if TOON produces larger output
-- Disable per-request: `X-Output-Format: json` header
 - Disable globally: `API_AGENT_TOON_TOOL_RESULTS_ENABLED=false`
 
 ---
