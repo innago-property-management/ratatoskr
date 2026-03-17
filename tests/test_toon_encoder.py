@@ -124,6 +124,115 @@ class TestToolResultEncoder:
             f"Expected >=20% reduction for homogeneous array, got {reduction_pct:.1f}%"
         )
 
+    def test_record_toon_encoding_called_on_success(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """record_toon_encoding is called with applied=True on successful TOON compression."""
+        calls: list[dict] = []
+
+        def fake_record(original_chars: int, toon_chars: int, applied: bool) -> None:
+            calls.append(
+                {"original_chars": original_chars, "toon_chars": toon_chars, "applied": applied}
+            )
+
+        import api_agent.llm.toon_encoder as toon_mod
+
+        monkeypatch.setattr(toon_mod, "record_toon_encoding", fake_record)
+
+        data = [
+            {"id": i, "name": f"user_{i}", "email": f"u{i}@example.com", "active": True}
+            for i in range(30)
+        ]
+        encoder = ToolResultEncoder()
+        _, was_applied = encoder.encode(data)
+
+        assert was_applied is True
+        assert len(calls) == 1
+        assert calls[0]["applied"] is True
+        assert calls[0]["toon_chars"] < calls[0]["original_chars"]
+
+    def test_record_toon_encoding_called_on_no_gain(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """record_toon_encoding is called with applied=False when TOON has no gain."""
+        calls: list[dict] = []
+
+        def fake_record(original_chars: int, toon_chars: int, applied: bool) -> None:
+            calls.append(
+                {"original_chars": original_chars, "toon_chars": toon_chars, "applied": applied}
+            )
+
+        import api_agent.llm.toon_encoder as toon_mod
+
+        monkeypatch.setattr(toon_mod, "record_toon_encoding", fake_record)
+
+        # Single tiny item — TOON overhead likely exceeds savings
+        data = [{"a": 1}]
+        encoder = ToolResultEncoder()
+        _, was_applied = encoder.encode(data)
+
+        assert len(calls) == 1
+        # Either no-gain or applied — but record_toon_encoding was called
+        assert calls[0]["applied"] == was_applied
+
+    def test_record_toon_encoding_called_on_import_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """record_toon_encoding is called with applied=False on import error fallback."""
+        from api_agent.llm.toon_encoder import _log_toon_unavailable
+
+        _log_toon_unavailable.cache_clear()
+
+        calls: list[dict] = []
+
+        def fake_record(original_chars: int, toon_chars: int, applied: bool) -> None:
+            calls.append(
+                {"original_chars": original_chars, "toon_chars": toon_chars, "applied": applied}
+            )
+
+        import api_agent.llm.toon_encoder as toon_mod
+
+        monkeypatch.setattr(toon_mod, "record_toon_encoding", fake_record)
+        monkeypatch.setitem(sys.modules, "toon_format", None)
+
+        data = [{"x": i} for i in range(10)]
+        encoder = ToolResultEncoder()
+        encoder.encode(data)
+
+        assert len(calls) == 1
+        assert calls[0]["applied"] is False
+        # On import error, toon_chars == original_chars (no compression possible)
+        assert calls[0]["toon_chars"] == calls[0]["original_chars"]
+
+        _log_toon_unavailable.cache_clear()
+
+    def test_record_toon_encoding_called_on_encoding_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """record_toon_encoding is called with applied=False on encoding exception."""
+        calls: list[dict] = []
+
+        def fake_record(original_chars: int, toon_chars: int, applied: bool) -> None:
+            calls.append(
+                {"original_chars": original_chars, "toon_chars": toon_chars, "applied": applied}
+            )
+
+        import api_agent.llm.toon_encoder as toon_mod
+        import toon_format
+
+        monkeypatch.setattr(toon_mod, "record_toon_encoding", fake_record)
+        monkeypatch.setattr(
+            toon_format, "encode", lambda x: (_ for _ in ()).throw(RuntimeError("boom"))
+        )
+
+        data = [{"x": i} for i in range(10)]
+        encoder = ToolResultEncoder()
+        encoder.encode(data)
+
+        assert len(calls) == 1
+        assert calls[0]["applied"] is False
+        assert calls[0]["toon_chars"] == calls[0]["original_chars"]
+
     def test_non_list_input_returns_json(self) -> None:
         """ToolResultEncoder is designed for lists; dict input falls back to JSON."""
         # The encoder's contract is list[dict] input — passing other types

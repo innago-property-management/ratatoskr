@@ -24,6 +24,10 @@ _latency_histogram = None
 _turns_histogram = None
 _duckdb_histogram = None
 _schema_fetch_histogram = None
+_toon_compressions_counter = None
+_toon_fallbacks_counter = None
+_toon_chars_saved_counter = None
+_toon_ratio_histogram = None
 
 
 def init_metrics() -> bool:
@@ -257,3 +261,86 @@ def record_schema_fetch(duration_ms: float, protocol: str) -> None:
     hist = _schema_fetch_hist()
     if hist:
         hist.record(duration_ms, {"protocol": protocol})
+
+
+# --- TOON instrument accessors ---
+
+
+def _toon_compressions_ctr():
+    global _toon_compressions_counter
+    if _toon_compressions_counter is None:
+        m = _get_meter()
+        if m:
+            _toon_compressions_counter = m.create_counter(
+                "api_agent.toon.compressions.total",
+                description="Successful TOON encodings",
+                unit="encodings",
+            )
+    return _toon_compressions_counter
+
+
+def _toon_fallbacks_ctr():
+    global _toon_fallbacks_counter
+    if _toon_fallbacks_counter is None:
+        m = _get_meter()
+        if m:
+            _toon_fallbacks_counter = m.create_counter(
+                "api_agent.toon.fallbacks.total",
+                description="Times JSON fallback was used (no gain, error, import missing)",
+                unit="fallbacks",
+            )
+    return _toon_fallbacks_counter
+
+
+def _toon_chars_saved_ctr():
+    global _toon_chars_saved_counter
+    if _toon_chars_saved_counter is None:
+        m = _get_meter()
+        if m:
+            _toon_chars_saved_counter = m.create_counter(
+                "api_agent.toon.chars_saved.total",
+                description="Cumulative characters saved by TOON compression",
+                unit="chars",
+            )
+    return _toon_chars_saved_counter
+
+
+def _toon_ratio_hist():
+    global _toon_ratio_histogram
+    if _toon_ratio_histogram is None:
+        m = _get_meter()
+        if m:
+            _toon_ratio_histogram = m.create_histogram(
+                "api_agent.toon.compression_ratio",
+                description="TOON compression ratio per encoding (toon_chars / original_chars)",
+                unit="ratio",
+            )
+    return _toon_ratio_histogram
+
+
+def record_toon_encoding(original_chars: int, toon_chars: int, applied: bool) -> None:
+    """Record a TOON encoding attempt.
+
+    Args:
+        original_chars: Length of original JSON string.
+        toon_chars: Length of TOON output (including header), or original_chars on fallback.
+        applied: True if TOON was actually used, False for any fallback.
+    """
+    if applied:
+        ctr = _toon_compressions_ctr()
+        if ctr:
+            ctr.add(1)
+        saved = original_chars - toon_chars
+        if saved > 0:
+            chars_ctr = _toon_chars_saved_ctr()
+            if chars_ctr:
+                chars_ctr.add(saved)
+    else:
+        ctr = _toon_fallbacks_ctr()
+        if ctr:
+            ctr.add(1)
+
+    if original_chars > 0:
+        hist = _toon_ratio_hist()
+        if hist:
+            hist.record(toon_chars / original_chars)
