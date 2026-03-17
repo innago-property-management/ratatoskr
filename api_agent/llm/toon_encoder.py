@@ -73,17 +73,15 @@ class ToolResultEncoder:
             logger.warning("toon_encoding_failed_tool_results", exc_info=True)
             return (json_str, False)
 
-        toon_len = len(toon_str)
+        total_toon_len = len(toon_str) + len(_TOON_HEADER)
 
-        if toon_len + len(_TOON_HEADER) >= original_len:
+        if total_toon_len >= original_len:
             logger.debug(
                 "toon_tool_result_no_gain",
                 original_chars=original_len,
-                toon_chars=toon_len,
+                toon_chars=total_toon_len,
             )
             return (json_str, False)
-
-        total_toon_len = toon_len + len(_TOON_HEADER)
         reduction_pct = round((1 - total_toon_len / original_len) * 100, 1)
         logger.info(
             "toon_tool_result_compressed",
