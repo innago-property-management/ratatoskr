@@ -26,6 +26,7 @@ from ..executor import (
 )
 from ..llm.provider import DIRECT_RETURN, MaxTurnsExceeded
 from ..llm.tools import tool
+from ..llm.toon_encoder import ToolResultEncoder
 from ..metrics import record_agent_turns, record_token_usage
 from ..recipe import (
     RECIPE_STORE,
@@ -227,10 +228,11 @@ async def format_tool_response(
     name: str,
     result: dict,
 ) -> str:
-    """Format API tool response with smart truncation.
+    """Format API tool response with smart truncation and optional TOON compression.
 
-    - Wrapped dict (single object) → schema summary
-    - List → char-based truncation (async, avoids blocking event loop)
+    - Wrapped dict (single object) → schema summary (no TOON)
+    - List + TOON enabled → TOON-encoded string if it fits within budget
+    - List + TOON disabled or TOON oversized → char-based truncated JSON
     - Fallback → full result JSON
     """
     if result.get("success") and stored_data:
@@ -240,6 +242,11 @@ async def format_tool_response(
                 indent=2,
             )
         if isinstance(stored_data, list):
+            if settings.TOON_TOOL_RESULTS_ENABLED:
+                encoder = ToolResultEncoder()
+                toon_str, toon_applied = encoder.encode(stored_data)
+                if toon_applied and len(toon_str) <= settings.MAX_TOOL_RESPONSE_CHARS:
+                    return toon_str
             return json.dumps(
                 {"success": True, **await truncate_for_context_async(stored_data, name)},
                 indent=2,
@@ -300,6 +307,11 @@ def create_sql_query_tool(
                 _set_return_directly()
 
             if isinstance(rows, list):
+                if settings.TOON_TOOL_RESULTS_ENABLED:
+                    encoder = ToolResultEncoder()
+                    toon_str, toon_applied = encoder.encode(rows)
+                    if toon_applied and len(toon_str) <= settings.MAX_TOOL_RESPONSE_CHARS:
+                        return toon_str
                 return json.dumps(
                     {"success": True, **await truncate_for_context_async(rows, "sql_result")},
                     indent=2,

@@ -143,6 +143,9 @@ class Settings(BaseSettings):
     SCHEMA_REDUCTION_MAX_INPUT_CHARS: int = 100_000
     SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS: int = 8192
 
+    # TOON tool result compression
+    TOON_TOOL_RESULTS_ENABLED: bool = True
+
 
 settings = Settings()
 
