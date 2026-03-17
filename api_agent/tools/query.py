@@ -13,6 +13,7 @@ from ..agent.grpc_agent import process_grpc_query
 from ..agent.mcp_agent import process_mcp_query
 from ..agent.rest_agent import process_rest_query
 from ..context import MissingHeaderError, get_request_context
+from ..llm.toon_encoder import ToolResultEncoder
 from ..recipe import consume_recipe_changes, reset_recipe_change_flag
 from ..utils.csv import to_csv
 
@@ -80,5 +81,12 @@ Returns answer and the queries/calls made (reusable with execute tool).""",
         calls_key_map = {"graphql": "queries", "grpc": "rpc_calls", "mcp": "mcp_calls"}
         calls_key = calls_key_map.get(req_ctx.api_type, "api_calls")
         response = _build_response(result, calls_key, req_ctx)
+
+        # TOON-encode the data field for the MCP client (default-on)
+        if req_ctx.output_format == "toon" and isinstance(response.get("data"), list):
+            encoder = ToolResultEncoder()
+            toon_str, applied = encoder.encode(response["data"])
+            if applied:
+                return toon_str
 
         return response

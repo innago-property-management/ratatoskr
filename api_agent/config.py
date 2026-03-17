@@ -145,6 +145,8 @@ class Settings(BaseSettings):
 
     # TOON tool result compression
     TOON_TOOL_RESULTS_ENABLED: bool = True
+    # TOON MCP output compression (final response to client)
+    TOON_MCP_OUTPUT_ENABLED: bool = True
 
 
 settings = Settings()

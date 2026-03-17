@@ -18,6 +18,7 @@ from ..grpc.client import (
 )
 from ..grpc.reflection import GrpcSchema, MethodInfo
 from ..grpc.reflection import fetch_schema as fetch_grpc_schema
+from ..llm.toon_encoder import ToolResultEncoder
 from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
 
@@ -275,7 +276,7 @@ Use this to re-run queries from the query tool or execute known operations.""",
                 description="JSON array of request objects (for client-streaming/bidi-streaming)"
             ),
         ] = None,
-    ) -> dict:
+    ) -> dict | str:
         """Execute API call directly."""
         try:
             ctx = get_request_context()
@@ -283,8 +284,17 @@ Use this to re-run queries from the query tool or execute known operations.""",
             return {"ok": False, "error": str(e)}
 
         if ctx.api_type == "graphql":
-            return await _execute_graphql(ctx, query, variables)
+            result = await _execute_graphql(ctx, query, variables)
         elif ctx.api_type == "grpc":
-            return await _execute_grpc(ctx, grpc_method, grpc_request, grpc_requests)
+            result = await _execute_grpc(ctx, grpc_method, grpc_request, grpc_requests)
         else:
-            return await _execute_rest(ctx, method, path, path_params, query_params, body)
+            result = await _execute_rest(ctx, method, path, path_params, query_params, body)
+
+        # TOON-encode the data field for the MCP client (default-on)
+        if ctx.output_format == "toon" and isinstance(result.get("data"), list):
+            encoder = ToolResultEncoder()
+            toon_str, applied = encoder.encode(result["data"])
+            if applied:
+                return toon_str
+
+        return result
