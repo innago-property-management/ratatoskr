@@ -280,7 +280,7 @@ def create_sql_query_tool(
             return_directly: Skip LLM processing, return results directly to client
 
         Returns:
-            JSON string with query results
+            JSON or TOON-formatted string with query results
         """
         try:
             data = ctx_vars.query_results.get()
