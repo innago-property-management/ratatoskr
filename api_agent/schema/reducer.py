@@ -22,6 +22,8 @@ import anthropic
 import httpx
 import structlog
 
+from ..metrics import record_injection_detected as _record_injection_detected
+
 logger = structlog.get_logger(__name__)
 
 
@@ -380,6 +382,39 @@ _FENCE_RE = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?\s*```$", re.DOTALL)
 # Minimum output length — shorter than this is suspicious
 _MIN_OUTPUT_CHARS = 100
 
+# Common prompt injection markers — checked against Haiku output.
+# Only flag when a marker appears in the output but NOT in the original schema
+# (legitimate schemas may contain these words in descriptions).
+_INJECTION_MARKERS = [
+    "ignore previous",
+    "ignore above",
+    "disregard",
+    "system prompt",
+    "you are now",
+    "new instructions",
+    "override",
+    "forget everything",
+]
+
+
+def _flag_suspected_injection(output: str, original: str) -> bool:
+    """Check Haiku output for injection markers not present in the original schema.
+
+    Returns True if suspected injection was detected (output should be discarded).
+    The primary safety boundary is the zero-tools constraint on the Haiku call;
+    this scanner is defense-in-depth.
+    """
+    output_lower = output.lower()
+    original_lower = original.lower()
+    for marker in _INJECTION_MARKERS:
+        if marker in output_lower and marker not in original_lower:
+            logger.warning(
+                "schema_reduction_injection_suspected",
+                marker=marker,
+            )
+            return True
+    return False
+
 # Prompt template per DESIGN.md with untrusted framing markers
 _HAIKU_PROMPT = """You are a schema filter for an API agent.
 The following is a serialized API schema (TOON or DSL format).
@@ -445,6 +480,7 @@ class HaikuLayer:
                 model=self.model,
                 max_tokens=self.max_output_tokens,
                 messages=[{"role": "user", "content": prompt}],
+                tools=[],  # Explicit: no tools = no execution risk from injection
             )
 
             # Extract text content from response
@@ -479,6 +515,12 @@ class HaikuLayer:
                     output_chars=len(reduced),
                     input_chars=len(schema_text),
                 )
+                return schema_text, False
+
+            # Injection detection: discard output if it contains injection
+            # markers that weren't in the original schema
+            if _flag_suspected_injection(reduced, schema_text):
+                _record_injection_detected()
                 return schema_text, False
 
             logger.info(

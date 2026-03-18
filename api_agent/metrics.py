@@ -28,6 +28,7 @@ _toon_compressions_counter = None
 _toon_fallbacks_counter = None
 _toon_chars_saved_counter = None
 _toon_ratio_histogram = None
+_injection_detected_counter = None
 
 
 def init_metrics() -> bool:
@@ -316,6 +317,26 @@ def _toon_ratio_hist():
                 unit="ratio",
             )
     return _toon_ratio_histogram
+
+
+def _injection_detected_ctr():
+    global _injection_detected_counter
+    if _injection_detected_counter is None:
+        m = _get_meter()
+        if m:
+            _injection_detected_counter = m.create_counter(
+                "api_agent.schema_reduction.injection_detected.total",
+                description="Suspected prompt injection detected in Haiku schema reduction output",
+                unit="detections",
+            )
+    return _injection_detected_counter
+
+
+def record_injection_detected() -> None:
+    """Record a suspected prompt injection in Haiku schema reduction output."""
+    ctr = _injection_detected_ctr()
+    if ctr:
+        ctr.add(1)
 
 
 def record_toon_encoding(original_chars: int, toon_chars: int, applied: bool) -> None:
