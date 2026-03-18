@@ -124,9 +124,24 @@ class TestToolResultEncoder:
             f"Expected >=20% reduction for homogeneous array, got {reduction_pct:.1f}%"
         )
 
-    def test_record_toon_encoding_called_on_success(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_unserializable_data_records_metric(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """json.dumps TypeError path calls record_toon_encoding(0, 0, False)."""
+        import api_agent.llm.toon_encoder as toon_mod
+
+        calls: list[tuple] = []
+        monkeypatch.setattr(
+            toon_mod,
+            "record_toon_encoding",
+            lambda **kw: calls.append((kw["original_chars"], kw["toon_chars"], kw["applied"])),
+        )
+
+        encoder = ToolResultEncoder()
+        encoded, applied = encoder.encode([object()])  # not JSON-serializable
+        assert applied is False
+        assert encoded == "[]"
+        assert calls == [(0, 0, False)]
+
+    def test_record_toon_encoding_called_on_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """record_toon_encoding is called with applied=True on successful TOON compression."""
         calls: list[dict] = []
 
@@ -151,9 +166,7 @@ class TestToolResultEncoder:
         assert calls[0]["applied"] is True
         assert calls[0]["toon_chars"] < calls[0]["original_chars"]
 
-    def test_record_toon_encoding_called_on_no_gain(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_record_toon_encoding_called_on_no_gain(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """record_toon_encoding is called with applied=False when TOON has no gain."""
         calls: list[dict] = []
 
@@ -217,8 +230,9 @@ class TestToolResultEncoder:
                 {"original_chars": original_chars, "toon_chars": toon_chars, "applied": applied}
             )
 
-        import api_agent.llm.toon_encoder as toon_mod
         import toon_format
+
+        import api_agent.llm.toon_encoder as toon_mod
 
         monkeypatch.setattr(toon_mod, "record_toon_encoding", fake_record)
         monkeypatch.setattr(

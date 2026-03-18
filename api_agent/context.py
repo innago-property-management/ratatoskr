@@ -143,6 +143,7 @@ class RequestContext:
         str, ...
     ] = ()  # X-Allow-Unsafe-RPCs: glob patterns for gRPC mutations
     allow_endpoints: tuple[str, ...] = ()  # X-Allow-Endpoints: glob patterns for endpoint allowlist
+    output_format: str = "toon"  # X-Output-Format: "toon" (default) or "json"
 
 
 def get_request_context() -> RequestContext:
@@ -160,6 +161,7 @@ def get_request_context() -> RequestContext:
         X-Poll-Paths: JSON array of paths requiring polling (enables poll tool)
         X-Allow-Unsafe-RPCs: JSON array of glob patterns for gRPC mutations
         X-Allow-Endpoints: JSON array of glob patterns to restrict exposed endpoints
+        X-Output-Format: "toon" (default) or "json" — controls TOON encoding of MCP output
 
     Raises:
         MissingHeaderError: If required headers are missing or invalid
@@ -181,9 +183,16 @@ def get_request_context() -> RequestContext:
     poll_paths_raw = headers.get("x-poll-paths") or "[]"
     grpc_allow_unsafe_rpcs_raw = headers.get("x-allow-unsafe-rpcs") or "[]"
     allow_endpoints_raw = headers.get("x-allow-endpoints") or "[]"
+    output_format_raw = headers.get("x-output-format", "")
 
     base_url = base_url_raw if base_url_raw else None
     include_result = (include_result_raw or "").lower() in ("true", "1", "yes")
+
+    # TOON output format: header overrides config default
+    if output_format_raw:
+        output_format = "json" if output_format_raw.lower() == "json" else "toon"
+    else:
+        output_format = "toon" if settings.TOON_MCP_OUTPUT_ENABLED else "json"
 
     if not target_url:
         raise MissingHeaderError(
@@ -256,6 +265,7 @@ def get_request_context() -> RequestContext:
         request_id=request_id,
         grpc_allow_unsafe_rpcs=grpc_allow_unsafe_rpcs,
         allow_endpoints=allow_endpoints,
+        output_format=output_format,
     )
 
 
