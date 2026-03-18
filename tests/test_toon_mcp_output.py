@@ -11,7 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from api_agent.context import RequestContext, get_request_context
-from api_agent.llm.toon_encoder import ToolResultEncoder
+from api_agent.llm.toon_encoder import maybe_toon_encode_response
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -119,38 +119,28 @@ class TestOutputFormatIntegration:
 # ---------------------------------------------------------------------------
 
 
-class TestQueryToonOutput:
-    """_query tool TOON-encodes data while preserving envelope."""
+class TestMaybeToonEncodeResponse:
+    """maybe_toon_encode_response() — shared helper used by both tools."""
 
     def test_toon_replaces_data_preserves_envelope(self) -> None:
         """TOON encoding replaces data field but ok/error/queries envelope stays."""
         data = _toon_encodable_data()
         response = {"ok": True, "data": data, "queries": [{"q": "test"}], "error": None}
 
-        # Simulate what query.py now does (mutate in place)
-        if isinstance(response.get("data"), list):
-            encoder = ToolResultEncoder()
-            toon_str, applied = encoder.encode(response["data"])
-            if applied:
-                response["data"] = toon_str
+        maybe_toon_encode_response(response, "toon")
 
-        # Envelope preserved
         assert response["ok"] is True
         assert response["queries"] == [{"q": "test"}]
         assert response["error"] is None
-        # Data is now a TOON string
         assert isinstance(response["data"], str)
         assert response["data"].startswith("[success:true format:toon]\n")
 
-    def test_json_when_output_format_json(self) -> None:
-        """When output_format='json', data stays as list (no TOON)."""
-        ctx = _make_ctx(output_format="json")
+    def test_json_format_skips_encoding(self) -> None:
+        """When output_format='json', data stays as list."""
         data = _toon_encodable_data()
         response = {"ok": True, "data": data, "queries": [], "error": None}
 
-        # With json format, we skip TOON encoding
-        if ctx.output_format == "toon" and isinstance(response.get("data"), list):
-            pytest.fail("Should not TOON-encode when output_format='json'")
+        maybe_toon_encode_response(response, "json")
 
         assert isinstance(response["data"], list)
         assert response["ok"] is True
@@ -158,6 +148,9 @@ class TestQueryToonOutput:
     def test_non_list_data_stays_unchanged(self) -> None:
         """When data is a dict (not list), it stays unchanged."""
         response = {"ok": True, "data": {"id": 1, "name": "test"}, "queries": [], "error": None}
+
+        maybe_toon_encode_response(response, "toon")
+
         assert isinstance(response["data"], dict)
 
     def test_error_response_stays_unchanged(self) -> None:
@@ -171,45 +164,20 @@ class TestQueryToonOutput:
         data = [{"a": 1}]
         response = {"ok": True, "data": data, "queries": [], "error": None}
 
-        if isinstance(response.get("data"), list):
-            encoder = ToolResultEncoder()
-            toon_str, applied = encoder.encode(response["data"])
-            if applied:
-                response["data"] = toon_str
+        maybe_toon_encode_response(response, "toon")
 
-        # If TOON wasn't applied, data stays as list
+        # If TOON wasn't applied (no gain), data stays as list
         if isinstance(response["data"], list):
             assert response["data"] == data
 
+    def test_none_data_stays_unchanged(self) -> None:
+        """Error response with data=None is not touched."""
+        response = {"ok": False, "data": None, "error": "fail"}
 
-# ---------------------------------------------------------------------------
-# Execute tool: envelope preserved with TOON data
-# ---------------------------------------------------------------------------
+        maybe_toon_encode_response(response, "toon")
 
-
-class TestExecuteToonOutput:
-    """_execute tool TOON-encodes data while preserving envelope."""
-
-    def test_toon_replaces_data_preserves_envelope(self) -> None:
-        """Execute result: TOON replaces data, ok/error preserved."""
-        data = _toon_encodable_data()
-        result = {"ok": True, "data": data, "error": None}
-
-        if isinstance(result.get("data"), list):
-            encoder = ToolResultEncoder()
-            toon_str, applied = encoder.encode(result["data"])
-            if applied:
-                result["data"] = toon_str
-
-        assert result["ok"] is True
-        assert result["error"] is None
-        assert isinstance(result["data"], str)
-        assert result["data"].startswith("[success:true format:toon]\n")
-
-    def test_dict_data_stays_unchanged(self) -> None:
-        """Execute result with dict data stays as dict."""
-        result = {"ok": True, "data": {"id": 1, "name": "test"}}
-        assert isinstance(result["data"], dict)
+        assert response["data"] is None
+        assert response["error"] == "fail"
 
 
 # ---------------------------------------------------------------------------

@@ -126,3 +126,24 @@ class ToolResultEncoder:
         # Prepend a compact header so the LLM knows this is TOON, not JSON.
         # The header also carries the success=true envelope that JSON paths include.
         return (f"{_TOON_HEADER}{toon_str}", True)
+
+
+def maybe_toon_encode_response(response: dict[str, Any], output_format: str) -> None:
+    """TOON-encode response['data'] in place if appropriate.
+
+    Mutates the response dict — replaces the ``data`` value with a TOON
+    string when output_format is ``"toon"`` and the data is a compressible
+    list.  The rest of the response envelope (ok, error, etc.) is preserved.
+
+    This is the single integration point for MCP output TOON encoding,
+    called by both ``_query`` and ``_execute`` tools.
+    """
+    if output_format != "toon":
+        return
+    data = response.get("data")
+    if not isinstance(data, list):
+        return
+    encoder = ToolResultEncoder()
+    toon_str, applied = encoder.encode(data)
+    if applied:
+        response["data"] = toon_str
