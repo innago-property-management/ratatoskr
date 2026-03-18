@@ -22,6 +22,8 @@ import anthropic
 import httpx
 import structlog
 
+from ..metrics import record_injection_detected as _record_injection_detected
+
 logger = structlog.get_logger(__name__)
 
 
@@ -380,6 +382,39 @@ _FENCE_RE = re.compile(r"^```(?:\w+)?\s*\n?(.*?)\n?\s*```$", re.DOTALL)
 # Minimum output length — shorter than this is suspicious
 _MIN_OUTPUT_CHARS = 100
 
+# Common prompt injection markers — checked against Haiku output.
+# Only flag when a marker appears in the output but NOT in the original schema
+# (legitimate schemas may contain these words in descriptions).
+_INJECTION_MARKERS = [
+    "ignore previous",
+    "ignore above",
+    "system prompt",
+    "you are now",
+    "new instructions",
+    "forget everything",
+]
+
+
+def _flag_suspected_injection(output: str, original: str) -> str:
+    """Check Haiku output for injection markers not present in the original schema.
+
+    Returns the matched marker string if suspected injection was detected
+    (output should be discarded), or empty string if clean.
+    The primary safety boundary is the zero-tools constraint on the Haiku call;
+    this scanner is defense-in-depth.
+    """
+    output_lower = output.lower()
+    original_lower = original.lower()
+    for marker in _INJECTION_MARKERS:
+        if marker in output_lower and marker not in original_lower:
+            logger.warning(
+                "schema_reduction_injection_suspected",
+                marker=marker,
+            )
+            return marker
+    return ""
+
+
 # Prompt template per DESIGN.md with untrusted framing markers
 _HAIKU_PROMPT = """You are a schema filter for an API agent.
 The following is a serialized API schema (TOON or DSL format).
@@ -441,6 +476,11 @@ class HaikuLayer:
                 "{question}", question
             )
 
+            # Safety: no `tools` parameter = Haiku cannot call any tools.
+            # This is the primary security boundary — even if a malicious schema
+            # contains injected instructions, Haiku has no tools to execute them.
+            # We omit `tools` entirely (SDK default) rather than passing `tools=[]`
+            # to avoid potential API rejection of an empty array.
             response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=self.max_output_tokens,
@@ -479,6 +519,13 @@ class HaikuLayer:
                     output_chars=len(reduced),
                     input_chars=len(schema_text),
                 )
+                return schema_text, False
+
+            # Injection detection: discard output if it contains injection
+            # markers that weren't in the original schema
+            detected_marker = _flag_suspected_injection(reduced, schema_text)
+            if detected_marker:
+                _record_injection_detected(detected_marker)
                 return schema_text, False
 
             logger.info(
