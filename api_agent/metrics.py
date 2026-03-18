@@ -325,18 +325,19 @@ def _injection_detected_ctr():
         m = _get_meter()
         if m:
             _injection_detected_counter = m.create_counter(
-                "api_agent.schema_reduction.injection_detected.total",
-                description="Suspected prompt injection detected in Haiku schema reduction output",
+                "api_agent.schema_reduction.suspected_injection.total",
+                description="Suspected prompt injection in Haiku schema reduction output (heuristic)",
                 unit="detections",
             )
     return _injection_detected_counter
 
 
-def record_injection_detected() -> None:
+def record_injection_detected(marker: str = "") -> None:
     """Record a suspected prompt injection in Haiku schema reduction output."""
     ctr = _injection_detected_ctr()
     if ctr:
-        ctr.add(1)
+        attrs = {"marker": marker} if marker else {}
+        ctr.add(1, attrs)
 
 
 def record_toon_encoding(original_chars: int, toon_chars: int, applied: bool) -> None:

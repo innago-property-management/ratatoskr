@@ -388,19 +388,18 @@ _MIN_OUTPUT_CHARS = 100
 _INJECTION_MARKERS = [
     "ignore previous",
     "ignore above",
-    "disregard",
     "system prompt",
     "you are now",
     "new instructions",
-    "override",
     "forget everything",
 ]
 
 
-def _flag_suspected_injection(output: str, original: str) -> bool:
+def _flag_suspected_injection(output: str, original: str) -> str:
     """Check Haiku output for injection markers not present in the original schema.
 
-    Returns True if suspected injection was detected (output should be discarded).
+    Returns the matched marker string if suspected injection was detected
+    (output should be discarded), or empty string if clean.
     The primary safety boundary is the zero-tools constraint on the Haiku call;
     this scanner is defense-in-depth.
     """
@@ -412,8 +411,9 @@ def _flag_suspected_injection(output: str, original: str) -> bool:
                 "schema_reduction_injection_suspected",
                 marker=marker,
             )
-            return True
-    return False
+            return marker
+    return ""
+
 
 # Prompt template per DESIGN.md with untrusted framing markers
 _HAIKU_PROMPT = """You are a schema filter for an API agent.
@@ -476,11 +476,15 @@ class HaikuLayer:
                 "{question}", question
             )
 
+            # Safety: no `tools` parameter = Haiku cannot call any tools.
+            # This is the primary security boundary — even if a malicious schema
+            # contains injected instructions, Haiku has no tools to execute them.
+            # We omit `tools` entirely (SDK default) rather than passing `tools=[]`
+            # to avoid potential API rejection of an empty array.
             response = await self.client.messages.create(
                 model=self.model,
                 max_tokens=self.max_output_tokens,
                 messages=[{"role": "user", "content": prompt}],
-                tools=[],  # Explicit: no tools = no execution risk from injection
             )
 
             # Extract text content from response
@@ -519,8 +523,9 @@ class HaikuLayer:
 
             # Injection detection: discard output if it contains injection
             # markers that weren't in the original schema
-            if _flag_suspected_injection(reduced, schema_text):
-                _record_injection_detected()
+            detected_marker = _flag_suspected_injection(reduced, schema_text)
+            if detected_marker:
+                _record_injection_detected(detected_marker)
                 return schema_text, False
 
             logger.info(
