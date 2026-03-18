@@ -18,7 +18,7 @@ from ..grpc.client import (
 )
 from ..grpc.reflection import GrpcSchema, MethodInfo
 from ..grpc.reflection import fetch_schema as fetch_grpc_schema
-from ..llm.toon_encoder import ToolResultEncoder
+from ..llm.toon_encoder import maybe_toon_encode_response
 from ..rest.client import execute_request
 from ..rest.schema_loader import fetch_schema_context
 
@@ -290,13 +290,5 @@ Use this to re-run queries from the query tool or execute known operations.""",
         else:
             result = await _execute_rest(ctx, method, path, path_params, query_params, body)
 
-        # TOON-encode the data field for the MCP client (default-on).
-        # The envelope (ok, error) is preserved — only the data value
-        # is replaced with the TOON string.
-        if ctx.output_format == "toon" and isinstance(result.get("data"), list):
-            encoder = ToolResultEncoder()
-            toon_str, applied = encoder.encode(result["data"])
-            if applied:
-                result["data"] = toon_str
-
+        maybe_toon_encode_response(result, ctx.output_format)
         return result
