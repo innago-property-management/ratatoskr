@@ -60,10 +60,10 @@ Each layer short-circuits if schema fits within threshold.
 class HaikuLayer:
     async def reduce(self, schema_text: str, question: str) -> tuple[str, bool]:
         # 1. Build prompt with untrusted framing markers
-        # 2. Call Anthropic API with tools=[] (zero tools — no execution risk)
+        # 2. Call Anthropic API (tools omitted — no tool use possible)
         # 3. Strip markdown fences
         # 4. Sanity checks (empty, too short, longer than input)
-        # 5. Injection marker scan (_flag_suspected_injection)
+        # 5. Injection marker scan (_flag_suspected_injection → marker str or "")
         # 6. Return (reduced_text, True) or (original, False) on any failure
 ```
 
@@ -101,10 +101,13 @@ No explanatory text. Just the schema.
 
 ### Why the Haiku call is safe
 
-The Haiku reduction call is invoked with **zero tools** (`tools=[]`). Even if a
-malicious API schema contains injected instructions ("call this tool to exfiltrate
-data"), Haiku literally cannot execute them — no tools are available. The call is
-pure text-in → text-out.
+The Haiku reduction call omits the `tools` parameter entirely (SDK `NOT_GIVEN`),
+so the request body contains no tools key. Even if a malicious API schema contains
+injected instructions ("call this tool to exfiltrate data"), Haiku has no tools
+to execute them. The call is pure text-in → text-out.
+
+Note: We omit `tools` rather than passing `tools=[]` to avoid potential API
+rejection of an empty array, which would silently fall back via `except Exception`.
 
 This is **safer than the existing single-hop path**, where the untrusted schema goes
 directly to the main agent that has live tools (`graphql_query`, `rest_call`,
@@ -123,18 +126,17 @@ injection markers and flag them in structured logging:
 _INJECTION_MARKERS = [
     "ignore previous",
     "ignore above",
-    "disregard",
     "system prompt",
     "you are now",
     "new instructions",
-    "override",
     "forget everything",
 ]
 
-def _flag_suspected_injection(output: str, original: str) -> bool:
+def _flag_suspected_injection(output: str, original: str) -> str:
     """Check Haiku output for injection markers not present in the original schema.
 
-    Returns True if suspected injection was detected (output should be discarded).
+    Returns the matched marker string if suspected injection was detected
+    (output should be discarded), or empty string if clean.
     """
     output_lower = output.lower()
     original_lower = original.lower()
@@ -144,15 +146,20 @@ def _flag_suspected_injection(output: str, original: str) -> bool:
                 "schema_reduction_injection_suspected",
                 marker=marker,
             )
-            return True
-    return False
+            return marker
+    return ""
 ```
+
+Only multi-word injection-specific phrases are included. Single-word markers
+(`disregard`, `override`) were removed — they appear in legitimate API vocabulary
+and create false positives/negatives.
 
 When injection is detected:
 1. Log a warning with the marker found (not the full output — avoid log injection)
 2. Discard Haiku's output entirely
 3. Fall back to TOON or character truncation (graceful degradation)
-4. Increment `schema_reduction_injection_detected` OTel counter
+4. Increment `api_agent.schema_reduction.suspected_injection.total` OTel counter
+   with `marker` attribute for per-phrase triage
 
 This is a best-effort heuristic, not a guarantee. The primary safety boundary remains
 the zero-tools constraint on the Haiku call itself.
@@ -199,13 +206,13 @@ Final fallback → hard character truncation with marker
 ### Existing tests (`tests/test_schema_reducer.py`)
 - ToonLayer: 9 tests (JSON, non-JSON, import error, edge cases)
 
-### New tests (this PR)
-- `_flag_suspected_injection()` with marker in output but not original → True
-- `_flag_suspected_injection()` with marker in both output and original → False
-- `_flag_suspected_injection()` with no markers → False
-- `HaikuLayer.reduce()` with injection detected → returns original, was_applied=False
-- `HaikuLayer.reduce()` verifies `tools=[]` in API call
-- `reduce_schema()` end-to-end with Haiku + injection → falls back gracefully
+### Injection + HaikuLayer tests (PR #78)
+- `_flag_suspected_injection()` returns matched marker string (7 tests: detection, false-positive prevention, case insensitivity, empty strings)
+- `HaikuLayer.reduce()` with injection detected → returns original, was_applied=False, OTel counter incremented with marker
+- `HaikuLayer.reduce()` verifies `tools` parameter is omitted (not in kwargs)
+- `HaikuLayer.reduce()` sanity checks: empty, too short, longer than input, API error, fence stripping
+- `reduce_schema()` end-to-end: injection falls back gracefully + asserts OTel counter called with marker
+- `reduce_schema()` no API key → Haiku skipped entirely
 
 ## Open Questions — All Resolved
 
