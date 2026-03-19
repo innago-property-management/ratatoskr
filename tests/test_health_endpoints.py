@@ -77,3 +77,20 @@ class TestReadyEndpoint:
             resp = client.get("/ready")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ready"
+
+    def test_ready_settings_exception_returns_503(self, client: TestClient) -> None:
+        """get_settings() raises → 503 with error message in checks."""
+        with patch("api_agent.config.get_settings", side_effect=RuntimeError("config broken")):
+            resp = client.get("/ready")
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["status"] == "not_ready"
+        assert "config broken" in body["checks"]["config"]
+
+    def test_ready_provider_comparison_case_insensitive(self, client: TestClient) -> None:
+        """PROVIDER value with different casing still recognized as openai-compat."""
+        fake = _fake_settings(API_KEY="", PROVIDER="OpenAI-Compat")
+        with patch("api_agent.config.get_settings", return_value=fake):
+            resp = client.get("/ready")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ready"

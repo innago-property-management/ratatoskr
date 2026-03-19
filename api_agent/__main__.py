@@ -151,7 +151,7 @@ def create_app():
         try:
             s = get_settings()
             # openai-compat providers (Ollama, LM Studio, vLLM) don't require API keys
-            if not s.API_KEY and s.PROVIDER != "openai-compat":
+            if not s.API_KEY and s.PROVIDER.lower() != "openai-compat":
                 checks["config"] = "no API key configured"
         except Exception as exc:
             checks["config"] = str(exc)
