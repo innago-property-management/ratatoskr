@@ -142,6 +142,15 @@ class Settings(BaseSettings):
     )
     SCHEMA_REDUCTION_MAX_INPUT_CHARS: int = 100_000
     SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS: int = 8192
+    SCHEMA_AI_REDUCTION_THRESHOLD: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Minimum original schema size (chars) to trigger AI (Haiku) reduction. "
+            "0 = use MAX_SCHEMA_CHARS as the trigger (current behavior). "
+            "Set higher to skip AI for medium schemas and just hard-truncate."
+        ),
+    )
 
     # TOON tool result compression
     TOON_TOOL_RESULTS_ENABLED: bool = True
