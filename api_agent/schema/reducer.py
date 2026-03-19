@@ -610,7 +610,7 @@ async def reduce_schema(
         max_input_chars: Skip Haiku above this size (safety limit).
         max_output_tokens: Max tokens for Haiku response (default 8192).
         ai_reduction_threshold: Minimum original schema size (chars) to trigger
-            AI reduction.  0 = use threshold (current behavior).
+            AI reduction. 0 = use threshold (current behavior).
 
     Returns:
         ReductionResult with the best schema_text that fits (or best effort if not).
@@ -662,7 +662,9 @@ async def reduce_schema(
 
     # Layer 2: Haiku
     ai_applied = False
-    effective_ai_threshold = ai_reduction_threshold if ai_reduction_threshold > 0 else threshold
+    # When 0, fall back to threshold — original_chars > threshold is always true
+    # at Layer 2 (Layers 0/1 would have returned early otherwise)
+    effective_ai_threshold = ai_reduction_threshold or threshold
     resolved_key = _get_api_key(api_key)
     if (
         resolved_key
