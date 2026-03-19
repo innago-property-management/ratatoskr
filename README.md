@@ -469,6 +469,23 @@ uv run ruff check api_agent/  # Lint
 uv run ty check               # Type check
 ```
 
+## Kubernetes
+
+Kustomize manifests are in `deploy/`:
+
+```
+deploy/
+  base/          # Deployment + Service (1 replica)
+  overlays/
+    production/  # 2 replicas, PDB, topology spread
+```
+
+**Requirements:** Kubernetes >= 1.21 (production overlay uses `policy/v1` PodDisruptionBudget).
+
+**Probes:**
+- `/health` — liveness (process alive)
+- `/ready` — readiness (config valid, API key present for cloud providers; `openai-compat` providers like Ollama/vLLM don't require a key)
+
 ## Observability
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable OpenTelemetry tracing. Works with Jaeger, Zipkin, Grafana Tempo, Arize Phoenix.
