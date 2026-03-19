@@ -585,6 +585,7 @@ async def reduce_schema(
     enabled: bool = True,
     max_input_chars: int = 100_000,
     max_output_tokens: int = 8192,
+    ai_reduction_threshold: int = 0,
 ) -> ReductionResult:
     """Reduce schema_text to fit within threshold, guided by question.
 
@@ -608,6 +609,8 @@ async def reduce_schema(
         enabled:      Master switch. If False, returns original text unchanged.
         max_input_chars: Skip Haiku above this size (safety limit).
         max_output_tokens: Max tokens for Haiku response (default 8192).
+        ai_reduction_threshold: Minimum original schema size (chars) to trigger
+            AI reduction. 0 = use threshold (current behavior).
 
     Returns:
         ReductionResult with the best schema_text that fits (or best effort if not).
@@ -659,8 +662,16 @@ async def reduce_schema(
 
     # Layer 2: Haiku
     ai_applied = False
+    # When 0, fall back to threshold — original_chars > threshold is always true
+    # at Layer 2 (Layers 0/1 would have returned early otherwise)
+    effective_ai_threshold = ai_reduction_threshold or threshold
     resolved_key = _get_api_key(api_key)
-    if resolved_key and question and len(current_text) <= max_input_chars:
+    if (
+        resolved_key
+        and question
+        and original_chars >= effective_ai_threshold
+        and len(current_text) <= max_input_chars
+    ):
         haiku_layer = _get_haiku_layer(resolved_key, model, timeout_ms, max_output_tokens)
         reduced_text, ai_applied = await haiku_layer.reduce(current_text, question)
         if ai_applied:

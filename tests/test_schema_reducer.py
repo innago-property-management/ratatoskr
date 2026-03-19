@@ -486,3 +486,127 @@ class TestReduceSchemaWithHaiku:
         assert result.was_ai_applied is False
         # Should fall through to hard truncation
         assert "[SCHEMA TRUNCATED" in result.schema_text or len(result.schema_text) <= threshold
+
+
+# ---------------------------------------------------------------------------
+# AI reduction threshold tests
+# ---------------------------------------------------------------------------
+
+
+class TestAIReductionThreshold:
+    """Tests for SCHEMA_AI_REDUCTION_THRESHOLD gating Haiku invocation."""
+
+    @pytest.mark.asyncio
+    async def test_schema_below_ai_threshold_skips_haiku(self) -> None:
+        """Original schema smaller than ai_threshold → Haiku never called."""
+        schema = "GET /users " + "x" * 500  # 511 chars
+        threshold = 300  # target size
+        ai_threshold = 1000  # original must be >= 1000 to trigger Haiku
+
+        with (
+            patch("api_agent.schema.reducer._get_api_key", return_value="test-key"),
+            patch("api_agent.schema.reducer._get_haiku_layer") as mock_get_layer,
+            patch("api_agent.schema.reducer.rank_and_truncate", return_value=schema),
+        ):
+            result = await reduce_schema(
+                schema_text=schema,
+                question="find users",
+                threshold=threshold,
+                api_key="test-key",
+                enabled=True,
+                ai_reduction_threshold=ai_threshold,
+            )
+
+        # Haiku layer never instantiated
+        mock_get_layer.assert_not_called()
+        assert result.was_ai_applied is False
+        # Falls through to hard truncation
+        assert "[SCHEMA TRUNCATED" in result.schema_text
+
+    @pytest.mark.asyncio
+    async def test_schema_above_ai_threshold_invokes_haiku(self) -> None:
+        """Original schema larger than ai_threshold → Haiku called."""
+        schema = "GET /users " + "x" * 500  # 511 chars
+        reduced = "GET /users " + "y" * 150  # shorter, above _MIN_OUTPUT_CHARS
+        threshold = 300
+        ai_threshold = 400  # original (511) > 400 → Haiku fires
+
+        mock_create = AsyncMock(return_value=_make_haiku_response(reduced))
+
+        with (
+            patch("api_agent.schema.reducer._get_api_key", return_value="test-key"),
+            patch("api_agent.schema.reducer._get_haiku_layer") as mock_get_layer,
+            patch("api_agent.schema.reducer.rank_and_truncate", return_value=schema),
+        ):
+            mock_layer = HaikuLayer(api_key="test-key", timeout_ms=5000)
+            with patch.object(mock_layer.client.messages, "create", mock_create):
+                mock_get_layer.return_value = mock_layer
+                result = await reduce_schema(
+                    schema_text=schema,
+                    question="find users",
+                    threshold=threshold,
+                    api_key="test-key",
+                    enabled=True,
+                    ai_reduction_threshold=ai_threshold,
+                )
+
+        assert result.was_ai_applied is True
+        assert result.schema_text == reduced
+
+    @pytest.mark.asyncio
+    async def test_zero_ai_threshold_uses_current_behavior(self) -> None:
+        """ai_threshold=0 (default) → Haiku fires when schema > threshold (current behavior)."""
+        schema = "GET /users " + "x" * 500
+        reduced = "GET /users " + "y" * 150
+        threshold = 300
+
+        mock_create = AsyncMock(return_value=_make_haiku_response(reduced))
+
+        with (
+            patch("api_agent.schema.reducer._get_api_key", return_value="test-key"),
+            patch("api_agent.schema.reducer._get_haiku_layer") as mock_get_layer,
+            patch("api_agent.schema.reducer.rank_and_truncate", return_value=schema),
+        ):
+            mock_layer = HaikuLayer(api_key="test-key", timeout_ms=5000)
+            with patch.object(mock_layer.client.messages, "create", mock_create):
+                mock_get_layer.return_value = mock_layer
+                result = await reduce_schema(
+                    schema_text=schema,
+                    question="find users",
+                    threshold=threshold,
+                    api_key="test-key",
+                    enabled=True,
+                    ai_reduction_threshold=0,
+                )
+
+        # With threshold=0, falls back to checking len > threshold → Haiku fires
+        assert result.was_ai_applied is True
+
+    @pytest.mark.asyncio
+    async def test_ai_threshold_equal_to_schema_size_invokes_haiku(self) -> None:
+        """Boundary: original == ai_threshold → Haiku fires (>=, not >)."""
+        schema = "x" * 500
+        reduced = "y" * 200
+        threshold = 300
+        ai_threshold = 500  # exactly equal to len(schema)
+
+        mock_create = AsyncMock(return_value=_make_haiku_response(reduced))
+
+        with (
+            patch("api_agent.schema.reducer._get_api_key", return_value="test-key"),
+            patch("api_agent.schema.reducer._get_haiku_layer") as mock_get_layer,
+            patch("api_agent.schema.reducer.rank_and_truncate", return_value=schema),
+        ):
+            mock_layer = HaikuLayer(api_key="test-key", timeout_ms=5000)
+            with patch.object(mock_layer.client.messages, "create", mock_create):
+                mock_get_layer.return_value = mock_layer
+                result = await reduce_schema(
+                    schema_text=schema,
+                    question="find users",
+                    threshold=threshold,
+                    api_key="test-key",
+                    enabled=True,
+                    ai_reduction_threshold=ai_threshold,
+                )
+
+        assert result.was_ai_applied is True

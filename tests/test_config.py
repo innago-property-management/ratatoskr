@@ -335,6 +335,22 @@ class TestSchemaReductionEnvOverrides:
         assert Settings().SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS == 16_384
 
 
+class TestSchemaAIReductionThreshold:
+    """Tests for SCHEMA_AI_REDUCTION_THRESHOLD setting."""
+
+    def test_default_is_zero(self):
+        assert Settings().SCHEMA_AI_REDUCTION_THRESHOLD == 0
+
+    def test_env_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_AI_REDUCTION_THRESHOLD", "50000")
+        assert Settings().SCHEMA_AI_REDUCTION_THRESHOLD == 50_000
+
+    def test_rejects_negative(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_AI_REDUCTION_THRESHOLD", "-1")
+        with pytest.raises(Exception):
+            Settings()
+
+
 class TestToonConfig:
     """Tests for TOON tool result compression settings."""
 

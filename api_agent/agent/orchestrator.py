@@ -491,6 +491,7 @@ async def _run_agent_orchestration_impl(
                 enabled=settings.SCHEMA_REDUCTION_ENABLED,
                 max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
                 max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,
+                ai_reduction_threshold=settings.SCHEMA_AI_REDUCTION_THRESHOLD,
             )
             schema_text = reduction.schema_text
         else:
