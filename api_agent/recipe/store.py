@@ -10,9 +10,12 @@ import time
 import uuid
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import structlog
+
+if TYPE_CHECKING:
+    from .backend import RecipeBackend
 from rapidfuzz import fuzz
 
 from ..config import settings
@@ -225,12 +228,13 @@ class RecipeStore:
     provide security isolation.
     """
 
-    def __init__(self, max_size: int = 64) -> None:
+    def __init__(self, max_size: int = 64, backend: RecipeBackend | None = None) -> None:
         self._max_size = max(1, int(max_size))
         self._lock = asyncio.Lock()
         self._records: dict[str, RecipeRecord] = {}
         self._by_key: dict[tuple[str, str], set[str]] = defaultdict(set)
         self._lru: OrderedDict[str, None] = OrderedDict()
+        self._backend = backend
 
     async def save_recipe(
         self,
@@ -313,6 +317,10 @@ class RecipeStore:
             self._by_key[(api_id, schema_hash)].add(recipe_id)
             self._touch(recipe_id)
             self._evict_if_needed()
+
+        # Fire-and-forget persistence
+        if self._backend:
+            asyncio.create_task(self._persist_recipe(record))
 
         params = list(recipe.get("params", {}).keys())
         _log_recipe(f"SAVE {recipe_id} params={params} q={question[:40]}")
@@ -472,5 +480,123 @@ class RecipeStore:
             if not ids:
                 self._by_key.pop(key, None)
 
+    # ------------------------------------------------------------------
+    # Persistence integration
+    # ------------------------------------------------------------------
 
-RECIPE_STORE = RecipeStore(max_size=settings.RECIPE_CACHE_SIZE)
+    async def load_from_backend(self) -> int:
+        """Load recipes from backend into the in-memory LRU.
+
+        Returns the count of recipes loaded. Caps at self._max_size.
+        Called during startup before accepting connections.
+        """
+        if not self._backend:
+            return 0
+
+        try:
+            rows = await self._backend.load_all()
+        except Exception:
+            logger.warning("recipe_load_from_backend_failed", exc_info=True)
+            return 0
+
+        count = 0
+        async with self._lock:
+            for api_id, schema_hash, recipe_id, recipe_dict, created_at, last_used_at in rows:
+                if len(self._records) >= self._max_size:
+                    logger.warning(
+                        "recipe_load_capped",
+                        loaded=count,
+                        max_size=self._max_size,
+                    )
+                    break
+
+                question = recipe_dict.get("question", "")
+                tool_name = recipe_dict.get("tool_name", recipe_id)
+                record = RecipeRecord(
+                    recipe_id=recipe_id,
+                    api_id=api_id,
+                    schema_hash=schema_hash,
+                    question=question,
+                    question_sig=_normalize_question(question),
+                    question_tokens=_tokens(question),
+                    recipe=dict(recipe_dict),
+                    tool_name=tool_name,
+                    created_at=created_at,
+                    last_used_at=last_used_at,
+                )
+                self._records[recipe_id] = record
+                self._by_key[(api_id, schema_hash)].add(recipe_id)
+                self._touch(recipe_id)
+                count += 1
+
+        if count:
+            logger.info("recipe_store_loaded", count=count)
+        return count
+
+    async def _persist_recipe(self, record: RecipeRecord) -> None:
+        """Fire-and-forget: persist a recipe to the backend."""
+        try:
+            assert self._backend is not None
+            await self._backend.save(
+                api_id=record.api_id,
+                schema_hash=record.schema_hash,
+                recipe_id=record.recipe_id,
+                recipe=record.recipe,
+                created_at=record.created_at,
+                last_used_at=record.last_used_at,
+            )
+        except Exception:
+            logger.warning(
+                "recipe_persist_failed",
+                recipe_id=record.recipe_id,
+                exc_info=True,
+            )
+
+    async def invalidate_schema(self, api_id: str, schema_hash: str) -> int:
+        """Remove all recipes for an API+schema pair from memory and backend.
+
+        Returns the count of recipes removed from memory.
+        """
+        removed = 0
+        async with self._lock:
+            key = (api_id, schema_hash)
+            recipe_ids = list(self._by_key.get(key, set()))
+            for rid in recipe_ids:
+                self._delete(rid)
+                removed += 1
+
+        if self._backend and removed > 0:
+            try:
+                await self._backend.delete_by_schema(api_id, schema_hash)
+            except Exception:
+                logger.warning(
+                    "recipe_invalidate_backend_failed",
+                    api_id=api_id,
+                    schema_hash=schema_hash,
+                    exc_info=True,
+                )
+
+        if removed:
+            logger.info(
+                "recipe_schema_invalidated",
+                api_id=api_id,
+                schema_hash=schema_hash,
+                removed=removed,
+            )
+        return removed
+
+
+def _create_recipe_store() -> RecipeStore:
+    """Create the global RecipeStore with backend from config."""
+    from .backend import create_backend_from_config
+
+    backend = create_backend_from_config(settings)
+    return RecipeStore(max_size=settings.RECIPE_CACHE_SIZE, backend=backend)
+
+
+RECIPE_STORE = _create_recipe_store()
+
+
+async def init_recipe_store() -> int:
+    """Load persisted recipes into the global store. Call during app startup."""
+    return await RECIPE_STORE.load_from_backend()

@@ -351,6 +351,24 @@ class TestSchemaAIReductionThreshold:
             Settings()
 
 
+class TestRecipePersistenceConfig:
+    """Tests for recipe persistence settings (T006)."""
+
+    def test_recipe_persistence_default_sqlite(self):
+        assert Settings().RECIPE_PERSISTENCE == "sqlite"
+
+    def test_recipe_sqlite_path_default_empty(self):
+        assert Settings().RECIPE_SQLITE_PATH == ""
+
+    def test_recipe_persistence_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_RECIPE_PERSISTENCE", "memory")
+        assert Settings().RECIPE_PERSISTENCE == "memory"
+
+    def test_recipe_sqlite_path_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_RECIPE_SQLITE_PATH", "/tmp/custom.db")
+        assert Settings().RECIPE_SQLITE_PATH == "/tmp/custom.db"
+
+
 class TestToonConfig:
     """Tests for TOON tool result compression settings."""
 
