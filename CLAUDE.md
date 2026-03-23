@@ -185,9 +185,3 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 | Endpoint filtering | `test_filtering.py` (63 tests) |
 | Allowlist integration | `test_endpoint_allowlist.py` (9 tests) |
 
-## Active Technologies
-- Python 3.11+ + sqlite3 (stdlib), asyncio, existing RecipeStore (001-recipe-persistence)
-- SQLite with WAL mode (default), MemoryBackend (opt-out) (001-recipe-persistence)
-
-## Recent Changes
-- 001-recipe-persistence: Added Python 3.11+ + sqlite3 (stdlib), asyncio, existing RecipeStore

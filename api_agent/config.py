@@ -79,7 +79,7 @@ class Settings(BaseSettings):
     )
 
     # Recipe persistence
-    RECIPE_PERSISTENCE: str = "sqlite"  # "memory" or "sqlite"
+    RECIPE_PERSISTENCE: Literal["sqlite", "memory"] = "sqlite"
     RECIPE_SQLITE_PATH: str = ""  # empty = XDG fallback chain
 
     # Security — SSRF protection

@@ -60,10 +60,8 @@ class SQLiteBackend(RecipeBackend):
             conn.close()
 
     def _connect(self) -> sqlite3.Connection:
-        """Create a new connection with WAL mode."""
-        conn = sqlite3.connect(self._db_path)
-        conn.execute("PRAGMA journal_mode=WAL")
-        return conn
+        """Create a new connection. WAL mode is persisted in the DB file by _init_db()."""
+        return sqlite3.connect(self._db_path)
 
     @staticmethod
     def resolve_path(explicit_path: str) -> str:

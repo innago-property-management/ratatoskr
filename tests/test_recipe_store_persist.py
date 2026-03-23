@@ -10,6 +10,13 @@ import pytest
 from api_agent.recipe.backend import MemoryBackend
 from api_agent.recipe.store import RecipeStore
 
+
+async def _drain_background_tasks(store: RecipeStore) -> None:
+    """Await all pending fire-and-forget persistence tasks deterministically."""
+    if store._background_tasks:
+        await asyncio.gather(*store._background_tasks, return_exceptions=True)
+
+
 # ---------------------------------------------------------------------------
 # US1: Recipes survive restarts
 # ---------------------------------------------------------------------------
@@ -34,15 +41,63 @@ class TestRecipeStoreSaveWritesThrough:
             tool_name="list_users",
         )
         assert recipe_id is not None
-
-        # Give fire-and-forget task time to complete
-        await asyncio.sleep(0.1)
+        await _drain_background_tasks(store)
 
         # Verify it was persisted to SQLite
         rows = await backend.load_all()
         assert len(rows) == 1
         assert rows[0][2] == recipe_id
         assert rows[0][3]["steps"][0]["query"] == "{ users }"
+
+    @pytest.mark.asyncio
+    async def test_save_recipe_also_persists(self, tmp_path):
+        """save_recipe (not just save_recipe_if_unique) also writes through."""
+        from api_agent.recipe.sqlite_backend import SQLiteBackend
+
+        db_path = str(tmp_path / "test.db")
+        backend = SQLiteBackend(db_path=db_path)
+        store = RecipeStore(max_size=10, backend=backend)
+
+        recipe_id = await store.save_recipe(
+            api_id="api1",
+            schema_hash="hash1",
+            question="list users",
+            recipe={"steps": []},
+            tool_name="list_users",
+        )
+        await _drain_background_tasks(store)
+
+        rows = await backend.load_all()
+        assert len(rows) == 1
+        assert rows[0][2] == recipe_id
+
+    @pytest.mark.asyncio
+    async def test_tool_name_survives_round_trip(self, tmp_path):
+        """tool_name is persisted and restored correctly, not lost to recipe_id fallback."""
+        from api_agent.recipe.sqlite_backend import SQLiteBackend
+
+        db_path = str(tmp_path / "test.db")
+        backend = SQLiteBackend(db_path=db_path)
+        store = RecipeStore(max_size=10, backend=backend)
+
+        await store.save_recipe_if_unique(
+            api_id="api1",
+            schema_hash="hash1",
+            question="list users",
+            recipe={"steps": []},
+            tool_name="list_users",
+        )
+        await _drain_background_tasks(store)
+
+        # Create a fresh store and load from backend
+        store2 = RecipeStore(max_size=10, backend=backend)
+        count = await store2.load_from_backend()
+        assert count == 1
+
+        # The loaded recipe should have the original tool_name, not the recipe_id
+        recipes = await store2.list_recipes(api_id="api1", schema_hash="hash1")
+        assert len(recipes) == 1
+        assert recipes[0]["tool_name"] == "list_users"
 
 
 class TestRecipeStoreLoadFromBackend:
@@ -56,7 +111,7 @@ class TestRecipeStoreLoadFromBackend:
         backend = SQLiteBackend(db_path=db_path)
 
         # Pre-populate backend directly
-        recipe = {"steps": [], "params": {}, "question": "get users"}
+        recipe = {"steps": [], "params": {}, "question": "get users", "tool_name": "get_users"}
         await backend.save("api1", "hash1", "r_preload1", recipe, 100.0, 200.0)
 
         # Create new store and load
@@ -71,7 +126,11 @@ class TestRecipeStoreLoadFromBackend:
         db_path = str(tmp_path / "test.db")
         backend = SQLiteBackend(db_path=db_path)
 
-        recipe = {"steps": [{"type": "rest"}], "params": {"id": {"type": "string"}}}
+        recipe = {
+            "steps": [{"type": "rest"}],
+            "params": {"id": {"type": "string"}},
+            "tool_name": "get_thing",
+        }
         await backend.save("api1", "hash1", "r_load01", recipe, 100.0, 200.0)
 
         store = RecipeStore(max_size=10, backend=backend)
@@ -124,8 +183,8 @@ class TestRecipeStoreFireAndForget:
         # Should still return the recipe_id (in-memory save succeeded)
         assert recipe_id is not None
 
-        # Give fire-and-forget task time to run (and fail gracefully)
-        await asyncio.sleep(0.1)
+        # Drain tasks — the failure should be caught and logged
+        await _drain_background_tasks(store)
 
         # Recipe should still be retrievable from in-memory store
         result = await store.get_recipe(recipe_id)
@@ -171,7 +230,7 @@ class TestRecipeStoreSchemaInvalidation:
             recipe={"steps": []},
             tool_name="t3",
         )
-        await asyncio.sleep(0.1)
+        await _drain_background_tasks(store)
 
         count = await store.invalidate_schema("api1", "hash1")
         assert count == 2
@@ -199,7 +258,7 @@ class TestRecipeStoreSchemaInvalidation:
             recipe={"steps": []},
             tool_name="t1",
         )
-        await asyncio.sleep(0.1)
+        await _drain_background_tasks(store)
 
         await store.invalidate_schema("api1", "hash1")
 
@@ -235,10 +294,9 @@ class TestRecipeStoreOptOut:
             recipe={"steps": []},
             tool_name="test_tool",
         )
-        await asyncio.sleep(0.1)
+        await _drain_background_tasks(store)
 
         # tmp_path should have no new files
-
         files = list(tmp_path.iterdir())
         assert len(files) == 0
 

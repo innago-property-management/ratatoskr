@@ -235,6 +235,7 @@ class RecipeStore:
         self._by_key: dict[tuple[str, str], set[str]] = defaultdict(set)
         self._lru: OrderedDict[str, None] = OrderedDict()
         self._backend = backend
+        self._background_tasks: set[asyncio.Task[None]] = set()
 
     async def save_recipe(
         self,
@@ -265,6 +266,10 @@ class RecipeStore:
             self._by_key[(api_id, schema_hash)].add(recipe_id)
             self._touch(recipe_id)
             self._evict_if_needed()
+
+        # Fire-and-forget persistence
+        if self._backend:
+            self._schedule_persist(record)
 
         params = list(recipe.get("params", {}).keys())
         _log_recipe(f"SAVE {recipe_id} params={params} q={question[:40]}")
@@ -320,7 +325,7 @@ class RecipeStore:
 
         # Fire-and-forget persistence
         if self._backend:
-            asyncio.create_task(self._persist_recipe(record))
+            self._schedule_persist(record)
 
         params = list(recipe.get("params", {}).keys())
         _log_recipe(f"SAVE {recipe_id} params={params} q={question[:40]}")
@@ -533,15 +538,27 @@ class RecipeStore:
             logger.info("recipe_store_loaded", count=count)
         return count
 
+    def _schedule_persist(self, record: RecipeRecord) -> None:
+        """Schedule a fire-and-forget persistence task with strong reference."""
+        task = asyncio.create_task(self._persist_recipe(record))
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
     async def _persist_recipe(self, record: RecipeRecord) -> None:
         """Fire-and-forget: persist a recipe to the backend."""
+        if not self._backend:
+            return
         try:
-            assert self._backend is not None
+            # Include tool_name and question in the persisted JSON so they
+            # survive round-trips through the backend
+            recipe_with_meta = dict(record.recipe)
+            recipe_with_meta["tool_name"] = record.tool_name
+            recipe_with_meta["question"] = record.question
             await self._backend.save(
                 api_id=record.api_id,
                 schema_hash=record.schema_hash,
                 recipe_id=record.recipe_id,
-                recipe=record.recipe,
+                recipe=recipe_with_meta,
                 created_at=record.created_at,
                 last_used_at=record.last_used_at,
             )
@@ -555,6 +572,10 @@ class RecipeStore:
     async def invalidate_schema(self, api_id: str, schema_hash: str) -> int:
         """Remove all recipes for an API+schema pair from memory and backend.
 
+        Backend delete runs inside the lock to prevent a concurrent
+        save_recipe_if_unique from inserting a record between the memory
+        eviction and the backend purge.
+
         Returns the count of recipes removed from memory.
         """
         removed = 0
@@ -565,16 +586,16 @@ class RecipeStore:
                 self._delete(rid)
                 removed += 1
 
-        if self._backend and removed > 0:
-            try:
-                await self._backend.delete_by_schema(api_id, schema_hash)
-            except Exception:
-                logger.warning(
-                    "recipe_invalidate_backend_failed",
-                    api_id=api_id,
-                    schema_hash=schema_hash,
-                    exc_info=True,
-                )
+            if self._backend and removed > 0:
+                try:
+                    await self._backend.delete_by_schema(api_id, schema_hash)
+                except Exception:
+                    logger.warning(
+                        "recipe_invalidate_backend_failed",
+                        api_id=api_id,
+                        schema_hash=schema_hash,
+                        exc_info=True,
+                    )
 
         if removed:
             logger.info(
