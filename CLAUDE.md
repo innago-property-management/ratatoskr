@@ -184,3 +184,4 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 | Middleware | `test_middleware_routing.py` (8 tests) |
 | Endpoint filtering | `test_filtering.py` (63 tests) |
 | Allowlist integration | `test_endpoint_allowlist.py` (9 tests) |
+

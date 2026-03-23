@@ -78,6 +78,10 @@ class Settings(BaseSettings):
         description="Minimum similarity score (0-100) to return a recipe match",
     )
 
+    # Recipe persistence
+    RECIPE_PERSISTENCE: Literal["sqlite", "memory"] = "sqlite"
+    RECIPE_SQLITE_PATH: str = ""  # empty = XDG fallback chain
+
     # Security — SSRF protection
     ALLOWED_URL_SCHEMES: str = "http,https,grpc,grpcs,mcp"
     BLOCK_PRIVATE_IPS: bool = True

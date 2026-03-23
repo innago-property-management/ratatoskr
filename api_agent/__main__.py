@@ -189,6 +189,16 @@ def create_app():
         loop = asyncio.get_running_loop()
         install_shutdown_signals(loop, _shutdown_event, lambda: shutdown_cleanup(pool))
 
+        # Load persisted recipes into the store before accepting connections
+        try:
+            from .recipe.store import init_recipe_store
+
+            count = await init_recipe_store()
+            if count:
+                logger.info("recipe_persistence_loaded", count=count)
+        except Exception:
+            logger.warning("recipe_persistence_startup_failed", exc_info=True)
+
     async def shutdown():
         await shutdown_cleanup(pool)
 
