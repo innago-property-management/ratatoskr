@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 import os
 import sqlite3
 import tempfile
 from typing import Any
 
+import structlog
+
 from .backend import RecipeBackend
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS recipes (
@@ -86,7 +87,7 @@ class SQLiteBackend(RecipeBackend):
         # Last resort: temp directory
         logger.warning(
             "recipe_sqlite_path_tempdir_fallback",
-            msg="No HOME or XDG_CACHE_HOME set, using temp directory for recipe DB",
+            detail="No HOME or XDG_CACHE_HOME set, using temp directory for recipe DB",
         )
         return os.path.join(tempfile.gettempdir(), "ratatoskr", "recipes.db")
 
@@ -110,8 +111,8 @@ class SQLiteBackend(RecipeBackend):
                         recipe_dict = json.loads(recipe_json)
                     except (json.JSONDecodeError, TypeError):
                         logger.warning(
-                            "recipe_load_skip_corrupted: recipe_id=%s",
-                            recipe_id,
+                            "recipe_load_skip_corrupted",
+                            recipe_id=recipe_id,
                         )
                         continue
                     results.append(

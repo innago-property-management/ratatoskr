@@ -586,7 +586,7 @@ class RecipeStore:
                 self._delete(rid)
                 removed += 1
 
-            if self._backend and removed > 0:
+            if self._backend:
                 try:
                     await self._backend.delete_by_schema(api_id, schema_hash)
                 except Exception:
