@@ -35,9 +35,28 @@ class TestSchemeValidation:
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
             validate_target_url("ftp://evil.com/file", "rest")
 
-    def test_file_rejected(self):
-        with pytest.raises(MissingHeaderError, match="(?i)scheme"):
-            validate_target_url("file:///etc/passwd", "rest")
+    def test_file_valid_for_rest(self):
+        """file:// is a valid local spec path — no network, no SSRF risk."""
+        assert validate_target_url("file:///opt/specs/openapi.json", "rest")
+
+    def test_file_valid_for_graphql(self):
+        assert validate_target_url("file:///opt/specs/schema.graphql", "graphql")
+
+    def test_file_valid_for_grpc(self):
+        assert validate_target_url("file:///opt/specs/service.proto", "grpc")
+
+    def test_file_skips_ssrf_checks(self):
+        """file:// should not trigger private IP or hostname checks."""
+        # This would fail hostname check if not early-returned
+        assert validate_target_url("file:///etc/schemas/spec.json", "rest")
+
+    def test_bare_absolute_path_valid(self):
+        """Bare absolute paths are valid local spec lookup keys."""
+        assert validate_target_url("/opt/specs/openapi.json", "rest")
+
+    def test_bare_relative_path_valid(self):
+        """Relative paths starting with ./ are valid local spec lookup keys."""
+        assert validate_target_url("./specs/openapi.json", "rest")
 
     def test_javascript_rejected(self):
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):

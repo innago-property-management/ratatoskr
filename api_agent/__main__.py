@@ -189,6 +189,16 @@ def create_app():
         loop = asyncio.get_running_loop()
         install_shutdown_signals(loop, _shutdown_event, lambda: shutdown_cleanup(pool))
 
+        # Load pre-configured schemas into SCHEMA_STORE before accepting connections
+        try:
+            from .schema.startup import load_configured_schemas
+
+            schema_count = await load_configured_schemas()
+            if schema_count:
+                logger.info("schema_store_loaded", count=schema_count)
+        except Exception:
+            logger.warning("schema_store_startup_failed", exc_info=True)
+
         # Load persisted recipes into the store before accepting connections
         try:
             from .recipe.store import init_recipe_store

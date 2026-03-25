@@ -50,6 +50,11 @@ def validate_target_url(url: str, api_type: str) -> str:
     """
     parsed = urlparse(url)
 
+    # Local spec paths — no network involved. Early return (like mcp://).
+    # file:// URIs and bare absolute/relative paths are valid lookup keys.
+    if parsed.scheme == "file" or (not parsed.scheme and url.startswith(("/", "./"))):
+        return url
+
     # Scheme validation (per protocol)
     allowed_schemes = {s.strip() for s in settings.ALLOWED_URL_SCHEMES.split(",")}
     if api_type == "grpc":

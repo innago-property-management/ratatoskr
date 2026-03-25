@@ -9,6 +9,7 @@ import yaml
 
 from ..pool import pool
 from ..sanitize import sanitize_schema_text
+from ..schema.spec_cache import SCHEMA_STORE
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +29,12 @@ async def load_openapi_spec(
     """
     if not spec_url:
         return {}
+
+    # Check pre-loaded schema store first (startup-time load, no HTTP)
+    preloaded = SCHEMA_STORE.get(spec_url)
+    if preloaded is not None and isinstance(preloaded, dict):
+        logger.debug("openapi_spec_from_store", url=spec_url)
+        return preloaded
 
     request_headers = dict(headers) if headers else {}
 
