@@ -35,15 +35,40 @@ class TestSchemeValidation:
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
             validate_target_url("ftp://evil.com/file", "rest")
 
-    def test_file_rejected(self):
-        """file:// is blocked in per-request validation (only valid at startup/SchemaStore)."""
+    def test_file_rejected_when_not_in_store(self):
+        """file:// is blocked when not pre-loaded in SchemaStore."""
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
             validate_target_url("file:///etc/passwd", "rest")
 
-    def test_bare_path_rejected(self):
-        """Bare paths are blocked in per-request validation."""
+    def test_bare_path_rejected_when_not_in_store(self):
+        """Bare paths are blocked when not pre-loaded in SchemaStore."""
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
             validate_target_url("/opt/specs/openapi.json", "rest")
+
+    def test_file_url_allowed_when_in_schema_store(self, monkeypatch):
+        """file:// URLs pass validation when pre-loaded in SCHEMA_STORE at startup."""
+        from api_agent.schema.spec_cache import SCHEMA_STORE
+
+        url = "file:///opt/specs/openapi.json"
+        monkeypatch.setitem(SCHEMA_STORE._schemas, url, {"openapi": "3.0.0"})
+
+        result = validate_target_url(url, "rest")
+        assert result == url
+
+    def test_bare_path_allowed_when_in_schema_store(self, monkeypatch):
+        """Bare paths pass validation when pre-loaded in SCHEMA_STORE at startup."""
+        from api_agent.schema.spec_cache import SCHEMA_STORE
+
+        url = "/opt/specs/openapi.json"
+        monkeypatch.setitem(SCHEMA_STORE._schemas, url, {"openapi": "3.0.0"})
+
+        result = validate_target_url(url, "rest")
+        assert result == url
+
+    def test_file_url_not_in_store_still_blocked(self):
+        """file:// URLs not in SCHEMA_STORE are still blocked (SSRF protection)."""
+        with pytest.raises(MissingHeaderError, match="(?i)scheme"):
+            validate_target_url("file:///etc/shadow", "rest")
 
     def test_javascript_rejected(self):
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
