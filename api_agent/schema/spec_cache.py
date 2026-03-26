@@ -27,14 +27,30 @@ Fetcher = Callable[[str], Awaitable[dict[str, Any] | str | None]]
 
 
 def is_local_path(source: str) -> tuple[bool, str]:
-    """Detect if source is a local file path. Returns (is_local, resolved_path)."""
+    """Detect if source is a local file path. Returns (is_local, resolved_path).
+
+    Guards against bare host:port strings (e.g., "localhost:50051") which
+    urlparse misparses as scheme="localhost".
+    """
     if source.startswith("file://"):
         return True, source[7:]
     if source.startswith("/") or source.startswith("./"):
         return True, source
+    # Bare host:port (e.g., "localhost:50051") — urlparse sees "localhost" as scheme.
+    # These are network targets, not local paths.
+    if ":" in source and not source.startswith(("/", ".")):
+        parsed = urlparse(source)
+        if parsed.scheme and parsed.scheme.isalpha() and "." not in parsed.scheme:
+            # Single-word "scheme" like "localhost" — likely host:port, not a file
+            if parsed.path and parsed.path.lstrip("/").isdigit():
+                return False, ""
     parsed = urlparse(source)
     if not parsed.scheme or parsed.scheme not in ("http", "https", "grpc", "grpcs"):
-        return True, source
+        # Only treat as local if it looks like a path (has path separators)
+        if "/" in source or source.startswith("."):
+            return True, source
+        # Bare strings without slashes (e.g., "localhost:50051") are not local paths
+        return False, ""
     return False, ""
 
 
@@ -47,7 +63,7 @@ class SchemaStore:
     """Pre-loaded schema store. Populated at startup, read-only at runtime.
 
     Usage (startup):
-        store = SchemaStore(cache_dir="~/.cache/ratatoskr/schemas")
+        store = SchemaStore(cache_dir="/var/cache/ratatoskr/schemas")
         await store.load(url_or_path, fetcher=my_http_fetch_fn)
 
     Usage (runtime — agents):
@@ -56,7 +72,7 @@ class SchemaStore:
 
     def __init__(self, cache_dir: str | None = None) -> None:
         self._schemas: dict[str, dict[str, Any] | str] = {}
-        self._cache_dir = cache_dir
+        self._cache_dir = os.path.expanduser(cache_dir) if cache_dir else None
 
     async def load(
         self,
@@ -124,5 +140,13 @@ class SchemaStore:
         return source in self._schemas
 
 
+def _create_schema_store() -> SchemaStore:
+    """Create the module-level SchemaStore from config."""
+    from ..config import settings
+
+    cache_dir = settings.SCHEMA_CACHE_DIR or None
+    return SchemaStore(cache_dir=cache_dir)
+
+
 # Module-level singleton — populated at startup, read-only at runtime.
-SCHEMA_STORE = SchemaStore()
+SCHEMA_STORE = _create_schema_store()

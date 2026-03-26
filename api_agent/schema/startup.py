@@ -33,9 +33,12 @@ async def _http_fetcher(url: str) -> dict[str, Any] | str | None:
     raw = resp.text
 
     if raw.strip().startswith("{"):
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            return parsed
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except (json.JSONDecodeError, ValueError):
+            pass  # Fall through to YAML
 
     parsed = yaml.safe_load(raw)
     if isinstance(parsed, dict):

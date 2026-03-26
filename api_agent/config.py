@@ -101,6 +101,7 @@ class Settings(BaseSettings):
     DEFAULT_API_TYPE: str = ""  # "graphql", "rest", or "grpc"
     DEFAULT_BASE_URL: str = ""  # REST base URL override
     DEFAULT_TARGET_HEADERS: str = ""  # JSON object, e.g. '{"Accept": "application/json"}'
+    SCHEMA_CACHE_DIR: str = ""  # empty = no disk cache; path for HTTP schema disk caching
 
     # Endpoint allowlist (empty = all endpoints exposed, backwards compatible)
     ALLOW_ENDPOINTS_REST: str = ""  # CSV: "GET /users/*,GET /orders/*"

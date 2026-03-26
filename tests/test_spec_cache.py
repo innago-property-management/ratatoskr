@@ -8,8 +8,46 @@ from unittest.mock import AsyncMock
 import pytest
 import yaml
 
+from api_agent.schema.spec_cache import SchemaStore, is_local_path
 from api_agent.schema.spec_io import SpecReader, SpecWriter
-from api_agent.schema.spec_cache import SchemaStore
+
+# ---------------------------------------------------------------------------
+# is_local_path
+# ---------------------------------------------------------------------------
+
+
+class TestIsLocalPath:
+    """is_local_path correctly classifies file paths vs network targets."""
+
+    def test_file_uri(self) -> None:
+        assert is_local_path("file:///opt/spec.json") == (True, "/opt/spec.json")
+
+    def test_absolute_path(self) -> None:
+        assert is_local_path("/opt/spec.json") == (True, "/opt/spec.json")
+
+    def test_relative_path(self) -> None:
+        assert is_local_path("./spec.json") == (True, "./spec.json")
+
+    def test_http_url(self) -> None:
+        is_local, _ = is_local_path("http://api.example.com/spec")
+        assert not is_local
+
+    def test_https_url(self) -> None:
+        is_local, _ = is_local_path("https://api.example.com/spec")
+        assert not is_local
+
+    def test_grpc_url(self) -> None:
+        is_local, _ = is_local_path("grpc://localhost:50051")
+        assert not is_local
+
+    def test_bare_host_port_not_local(self) -> None:
+        """host:port like 'localhost:50051' should NOT be classified as local."""
+        is_local, _ = is_local_path("localhost:50051")
+        assert not is_local
+
+    def test_bare_ip_port_not_local(self) -> None:
+        is_local, _ = is_local_path("10.0.0.1:8080")
+        assert not is_local
 
 
 # ---------------------------------------------------------------------------
