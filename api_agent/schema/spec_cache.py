@@ -36,14 +36,13 @@ def is_local_path(source: str) -> tuple[bool, str]:
         return True, source[7:]
     if source.startswith("/") or source.startswith("./"):
         return True, source
-    # Bare host:port (e.g., "localhost:50051") — urlparse sees "localhost" as scheme.
-    # These are network targets, not local paths.
+    # Bare host:port or host:port/path (e.g., "localhost:50051", "localhost:8080/api")
+    # — urlparse sees "localhost" as scheme. These are network targets, not local paths.
     if ":" in source and not source.startswith(("/", ".")):
         parsed = urlparse(source)
         if parsed.scheme and parsed.scheme.isalpha() and "." not in parsed.scheme:
             # Single-word "scheme" like "localhost" — likely host:port, not a file
-            if parsed.path and parsed.path.lstrip("/").isdigit():
-                return False, ""
+            return False, ""
     parsed = urlparse(source)
     if not parsed.scheme or parsed.scheme not in ("http", "https", "grpc", "grpcs"):
         # Only treat as local if it looks like a path (has path separators)

@@ -45,7 +45,7 @@ class SpecReader:
                     return parsed
             except (json.JSONDecodeError, ValueError):
                 logger.debug("spec_read_json_parse_failed", path=path)
-                return None
+                # Fall through to YAML — content like {'key': 'value'} is valid YAML
 
         # Try YAML (only if it looks structured, not plain text)
         try:

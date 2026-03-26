@@ -49,6 +49,11 @@ class TestIsLocalPath:
         is_local, _ = is_local_path("10.0.0.1:8080")
         assert not is_local
 
+    def test_bare_host_port_path_not_local(self) -> None:
+        """host:port/path like 'localhost:8080/api' should NOT be classified as local."""
+        is_local, _ = is_local_path("localhost:8080/api")
+        assert not is_local
+
 
 # ---------------------------------------------------------------------------
 # SpecReader
@@ -87,12 +92,28 @@ class TestSpecReader:
         result = SpecReader.read_file(str(tmp_path / "nope.json"))
         assert result is None
 
-    def test_corrupt_json_returns_none(self, tmp_path) -> None:
+    def test_corrupt_json_falls_through_to_yaml(self, tmp_path) -> None:
+        """Content starting with { that isn't JSON falls through to YAML/text."""
         path = tmp_path / "bad.json"
         path.write_text("{not valid json")
 
         result = SpecReader.read_file(str(path))
-        assert result is None
+        # Not valid JSON or YAML dict — returned as plain text string
+        assert isinstance(result, str)
+        assert "not valid json" in result
+
+    def test_yaml_flow_mapping_starting_with_brace(self, tmp_path) -> None:
+        """YAML flow mappings like {'key': 'value'} start with { but are not JSON.
+
+        SpecReader must fall through from JSON to YAML parser.
+        """
+        content = "{'openapi': '3.0.0', 'info': {'title': 'Test'}}"
+        path = tmp_path / "flow.yaml"
+        path.write_text(content)
+
+        result = SpecReader.read_file(str(path))
+        assert isinstance(result, dict)
+        assert result["openapi"] == "3.0.0"
 
     def test_empty_file_returns_none(self, tmp_path) -> None:
         path = tmp_path / "empty.json"
@@ -153,10 +174,16 @@ class TestSpecWriter:
 
         assert json.loads(path.read_text()) == {"new": True}
 
-    def test_write_failure_raises(self, tmp_path) -> None:
-        """Writing to an unwritable path raises."""
+    def test_write_failure_raises(self, monkeypatch, tmp_path) -> None:
+        """Writing failures raise an OSError (OS-agnostic)."""
+
+        def raising_open(*args, **kwargs):
+            raise OSError("simulated write failure")
+
+        monkeypatch.setattr("builtins.open", raising_open)
+
         with pytest.raises(OSError):
-            SpecWriter.write_file("/proc/nope/spec.json", {"a": 1})
+            SpecWriter.write_file(str(tmp_path / "spec.json"), {"a": 1})
 
 
 # ---------------------------------------------------------------------------

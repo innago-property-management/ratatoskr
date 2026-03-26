@@ -111,6 +111,20 @@ class TestLoadConfiguredSchemas:
         assert not SCHEMA_STORE.is_loaded("grpc://localhost:50051")
 
     @pytest.mark.asyncio
+    async def test_skips_graphql(self, monkeypatch) -> None:
+        """GraphQL targets are skipped — plain HTTP GET can't introspect."""
+        from api_agent.schema.startup import load_configured_schemas
+
+        monkeypatch.setattr(
+            "api_agent.schema.startup.settings.DEFAULT_TARGET_URL", "https://api.example.com/graphql"
+        )
+        monkeypatch.setattr("api_agent.schema.startup.settings.DEFAULT_API_TYPE", "graphql")
+
+        count = await load_configured_schemas()
+
+        assert count == 0
+
+    @pytest.mark.asyncio
     async def test_skips_when_no_default_url(self, monkeypatch) -> None:
         """No DEFAULT_TARGET_URL configured — nothing loaded."""
         from api_agent.schema.startup import load_configured_schemas

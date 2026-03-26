@@ -20,7 +20,7 @@ logger = structlog.get_logger(__name__)
 
 # API types that benefit from pre-loaded schemas.
 # gRPC needs live reflection for its DescriptorPool — can't pre-load.
-_PRELOADABLE_TYPES = {"rest", "graphql"}
+_PRELOADABLE_TYPES = {"rest"}
 
 
 async def _http_fetcher(url: str) -> dict[str, Any] | str | None:
