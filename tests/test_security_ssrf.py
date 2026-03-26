@@ -36,8 +36,14 @@ class TestSchemeValidation:
             validate_target_url("ftp://evil.com/file", "rest")
 
     def test_file_rejected(self):
+        """file:// is blocked in per-request validation (only valid at startup/SchemaStore)."""
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
             validate_target_url("file:///etc/passwd", "rest")
+
+    def test_bare_path_rejected(self):
+        """Bare paths are blocked in per-request validation."""
+        with pytest.raises(MissingHeaderError, match="(?i)scheme"):
+            validate_target_url("/opt/specs/openapi.json", "rest")
 
     def test_javascript_rejected(self):
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):

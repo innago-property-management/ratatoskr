@@ -22,6 +22,7 @@ from ..recipe import (
     render_text_template,
 )
 from ..sanitize import sanitize_error, sanitize_schema_text
+from ..schema.spec_cache import SCHEMA_STORE
 from ..tracing import trace_span
 from .contextvar_utils import safe_append_contextvar_list
 from .model import provider
@@ -279,17 +280,23 @@ async def _fetch_schema_context(
         allowed_field_count is None when no allowlist is active; 0+ when filtering applied.
         raw_schema_json is the full introspection JSON (filtered if allowlist active).
     """
-    result = await graphql_fetch(_INTROSPECTION_QUERY, None, endpoint, headers)
+    # Check pre-loaded schema store first (startup-time load, no introspection)
+    preloaded = SCHEMA_STORE.get(endpoint)
+    if preloaded is not None and isinstance(preloaded, dict):
+        logger.debug("graphql_schema_from_store", endpoint=endpoint)
+        schema = preloaded
+    else:
+        result = await graphql_fetch(_INTROSPECTION_QUERY, None, endpoint, headers)
 
-    # Retry with shallow introspection if depth limit exceeded
-    if not result.get("success") and _is_depth_limit_error(result):
-        logger.info("graphql_introspection_retry", reason="depth_limit")
-        result = await graphql_fetch(_INTROSPECTION_QUERY_SHALLOW, None, endpoint, headers)
+        # Retry with shallow introspection if depth limit exceeded
+        if not result.get("success") and _is_depth_limit_error(result):
+            logger.info("graphql_introspection_retry", reason="depth_limit")
+            result = await graphql_fetch(_INTROSPECTION_QUERY_SHALLOW, None, endpoint, headers)
 
-    if not result.get("success") or not result.get("data"):
-        return SchemaFetchResult(schema_context="", allowed_field_count=None, raw_schema_json="")
+        if not result.get("success") or not result.get("data"):
+            return SchemaFetchResult(schema_context="", allowed_field_count=None, raw_schema_json="")
 
-    schema = result["data"]["__schema"]
+        schema = result["data"]["__schema"]
     allowed_count: int | None = None
 
     # Apply endpoint allowlist filter (if configured)

@@ -42,7 +42,7 @@ jobs:
         run: uv run ty check
 
       - name: Audit dependencies for known vulnerabilities
-        run: uv run pip-audit
+        run: uv run pip-audit --ignore-vuln CVE-2026-4539  # pygments — no fix available yet
 
   docker-build:
     runs-on: ubuntu-latest
