@@ -45,9 +45,19 @@ def validate_target_url(url: str, api_type: str) -> str:
     Checks: scheme whitelist, private IP blocklist, cloud metadata blocklist,
     optional host allowlist.
 
+    Exception: URLs already in SCHEMA_STORE (loaded at startup from config)
+    bypass scheme validation — they are known-safe local specs, not
+    client-supplied fetch directives.
+
     Raises MissingHeaderError on validation failure.
     Returns the URL unchanged if valid.
     """
+    from .schema.spec_cache import SCHEMA_STORE
+
+    # Startup-configured local specs bypass SSRF — they are lookup keys, not fetch targets.
+    if SCHEMA_STORE.is_loaded(url):
+        return url
+
     parsed = urlparse(url)
 
     # Scheme validation (per protocol)
