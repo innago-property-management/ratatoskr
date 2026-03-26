@@ -70,6 +70,16 @@ class TestSchemeValidation:
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
             validate_target_url("file:///etc/shadow", "rest")
 
+    def test_private_ip_url_allowed_when_in_schema_store(self, monkeypatch):
+        """Store bypass skips ALL SSRF checks including private IP blocking."""
+        from api_agent.schema.spec_cache import SCHEMA_STORE
+
+        url = "http://10.0.0.1:8080/openapi.json"
+        monkeypatch.setitem(SCHEMA_STORE._schemas, url, {"openapi": "3.0.0"})
+
+        result = validate_target_url(url, "rest")
+        assert result == url
+
     def test_javascript_rejected(self):
         with pytest.raises(MissingHeaderError, match="(?i)scheme"):
             validate_target_url("javascript:alert(1)", "rest")

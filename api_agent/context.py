@@ -13,6 +13,7 @@ from fastmcp.server.dependencies import get_http_headers
 
 from .config import settings
 from .exceptions import APIAgentError
+from .schema.spec_cache import SCHEMA_STORE
 from .logging import set_request_id
 
 logger = structlog.get_logger(__name__)
@@ -46,15 +47,13 @@ def validate_target_url(url: str, api_type: str) -> str:
     optional host allowlist.
 
     Exception: URLs already in SCHEMA_STORE (loaded at startup from config)
-    bypass scheme validation — they are known-safe local specs, not
-    client-supplied fetch directives.
+    bypass all SSRF validation — they are known-safe local specs populated
+    from server config, not client-supplied fetch directives.
 
     Raises MissingHeaderError on validation failure.
     Returns the URL unchanged if valid.
     """
-    from .schema.spec_cache import SCHEMA_STORE
-
-    # Startup-configured local specs bypass SSRF — they are lookup keys, not fetch targets.
+    # Startup-configured specs bypass SSRF — they are lookup keys, not fetch targets.
     if SCHEMA_STORE.is_loaded(url):
         return url
 
