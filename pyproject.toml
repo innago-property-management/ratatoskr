@@ -61,6 +61,12 @@ allow-direct-references = true
 [tool.hatch.build.targets.wheel]
 packages = ["api_agent"]
 
+[tool.uv]
+# Pin transitive deps to patched versions for CVE fixes.
+constraint-dependencies = [
+    "requests>=2.33.0",  # CVE-2026-25645
+]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
