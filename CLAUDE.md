@@ -21,7 +21,7 @@ uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 -
 
 **Tests:**
 ```bash
-uv run pytest tests/ -v              # All tests (1236 passing)
+uv run pytest tests/ -v              # All tests (1412 passing)
 uv run pytest tests/test_foo.py -v   # Single test file
 uv run pytest tests/test_foo.py::test_bar -v  # Single test
 ```
@@ -138,6 +138,22 @@ Set `X-Poll-Paths` header to enable `poll_until_done` tool:
 - **Fallback**: If toon_format not installed or output is larger, falls back to JSON silently
 - **Size guard**: Includes `_TOON_HEADER` length in comparison to ensure TOON is always smaller
 
+### Schema Reduction
+
+3-layer pipeline in `api_agent/schema/reducer.py`: keyword ranking → TOON → AI reduction.
+
+- **AIReductionLayer**: Provider-agnostic (replaces old Anthropic-only HaikuLayer). Uses `LLMProvider.complete()` with `tools=None` (security boundary).
+- **Factory**: `api_agent/llm/factory.py` — `create_schema_reduction_provider()` builds a provider from `SCHEMA_REDUCTION_*` settings, falling back to main provider config. Timeout baked into HTTP client at construction.
+- **Config**: `SCHEMA_REDUCTION_PROVIDER` (inherits `PROVIDER`), `SCHEMA_REDUCTION_MODEL` (inherits provider default), `SCHEMA_REDUCTION_API_KEY` (inherits `API_KEY`), `SCHEMA_REDUCTION_BASE_URL` (inherits `BASE_URL`)
+- **Orchestrator**: Lazy singleton `_get_schema_reduction_provider()` in `orchestrator.py`, resettable via `_reset_schema_reduction_provider()` for tests
+
+### PROFILE Preset
+
+- **`PROFILE=local`**: Sets `BLOCK_PRIVATE_IPS=false`, `LOG_FORMAT=console`, `SCHEMA_REDUCTION_ENABLED=false`. One env var for local dev.
+- **CLI**: `--profile local` flag in `__main__.py`
+- **Implementation**: `model_validator(mode="before")` on `Settings` — injects defaults before field validation, explicit env vars always win
+- **`_profile_overrides`**: Module-level list in `config.py`, populated by validator, read by `__main__.py` for startup logging
+
 ### Recipes
 
 Caches parameterized API call + SQL pipelines from successful agent runs, exposed as MCP tools:
@@ -153,7 +169,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 
 ## Testing
 
-1236 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
+1412 tests, pytest-asyncio. CI runs tests + linting + type checking on Python 3.11/3.12.
 
 ### Test Patterns
 
@@ -175,7 +191,7 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 | gRPC reflection | `test_grpc_reflection.py` (21 tests) |
 | Execute tool | `test_execute_tool.py` (32 tests) |
 | Recipe runner | `test_recipe_runner.py` (12 tests) |
-| Config settings | `test_config.py` (53 tests) |
+| Config settings | `test_config.py` (93 tests) |
 | OpenAI provider | `test_llm/test_openai_complete.py` (7 tests) |
 | Anthropic provider | `test_llm/test_anthropic_complete.py` (8 tests) |
 | OpenAI-compat provider | `test_llm/test_compat_complete.py` (9 tests) |
@@ -184,4 +200,6 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 | Middleware | `test_middleware_routing.py` (8 tests) |
 | Endpoint filtering | `test_filtering.py` (63 tests) |
 | Allowlist integration | `test_endpoint_allowlist.py` (9 tests) |
+| Schema reduction provider factory | `test_provider_factory.py` (15 tests) |
+| AI reduction layer | `test_haiku_layer.py` (15 tests) |
 
