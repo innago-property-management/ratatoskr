@@ -65,6 +65,7 @@ packages = ["api_agent"]
 # Pin transitive deps to patched versions for CVE fixes.
 constraint-dependencies = [
     "requests>=2.33.0",  # CVE-2026-25645
+    "cryptography>=46.0.6",  # CVE-2026-34073
 ]
 
 [tool.ruff]

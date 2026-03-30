@@ -98,10 +98,7 @@ def create_search_schema_impl(
             return "error: max_chars must be > 0"
 
         if len(pattern) > MAX_PATTERN_LENGTH:
-            return (
-                f"error: pattern too long ({len(pattern)} chars, "
-                f"max {MAX_PATTERN_LENGTH})"
-            )
+            return f"error: pattern too long ({len(pattern)} chars, max {MAX_PATTERN_LENGTH})"
 
         try:
             regex = re.compile(pattern, re.IGNORECASE)

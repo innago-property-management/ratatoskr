@@ -14,12 +14,21 @@ from .types import LLMResponse, ToolCall, ToolDefinition, ToolResult
 class OpenAIProvider(LLMProvider):
     """OpenAI chat completions provider."""
 
-    def __init__(self, model: str, api_key: str, base_url: str | None = None):
+    def __init__(
+        self,
+        model: str,
+        api_key: str,
+        base_url: str | None = None,
+        timeout: float | None = None,
+    ):
         super().__init__(model, api_key, base_url, provider_name="openai")
-        self.client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=base_url or "https://api.openai.com/v1",
-        )
+        kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "base_url": base_url or "https://api.openai.com/v1",
+        }
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        self.client = AsyncOpenAI(**kwargs)
 
     async def complete(
         self,

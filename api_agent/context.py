@@ -259,9 +259,7 @@ def get_request_context() -> RequestContext:
             else ()
         )
     except json.JSONDecodeError:
-        logger.warning(
-            "malformed_header_json", header="X-Allow-Endpoints", fallback="empty tuple"
-        )
+        logger.warning("malformed_header_json", header="X-Allow-Endpoints", fallback="empty tuple")
         allow_endpoints = ()
 
     return RequestContext(
