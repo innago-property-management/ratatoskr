@@ -1,6 +1,11 @@
 """API Agent - MCP server for querying APIs in natural language."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("api-agent-ratatoskr")
+except PackageNotFoundError:
+    __version__ = "unknown"
 
 from .exceptions import APIAgentError, ProviderError, RecipeError, SchemaError
 
