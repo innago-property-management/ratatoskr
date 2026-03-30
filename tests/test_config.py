@@ -283,7 +283,7 @@ class TestSchemaReductionDefaults:
         assert Settings().SCHEMA_REDUCTION_ENABLED is True
 
     def test_model_default(self):
-        assert Settings().SCHEMA_REDUCTION_MODEL == "claude-haiku-4-5-20251001"
+        assert Settings().SCHEMA_REDUCTION_MODEL == ""
 
     def test_timeout_default(self):
         assert Settings().SCHEMA_REDUCTION_TIMEOUT_MS == 30_000
@@ -314,13 +314,13 @@ class TestSchemaReductionEnvOverrides:
         monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_API_KEY", "sk-ant-explicit")
         assert Settings().SCHEMA_REDUCTION_API_KEY == "sk-ant-explicit"
 
-    def test_api_key_falls_back_to_anthropic_key(self, monkeypatch):
+    def test_api_key_no_longer_falls_back_to_anthropic_key(self, monkeypatch):
+        """Breaking change: ANTHROPIC_API_KEY no longer aliases to schema reduction key."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-fallback")
-        assert Settings().SCHEMA_REDUCTION_API_KEY == "sk-ant-fallback"
+        assert Settings().SCHEMA_REDUCTION_API_KEY == ""
 
-    def test_explicit_api_key_wins_over_anthropic(self, monkeypatch):
+    def test_explicit_api_key_set_via_env(self, monkeypatch):
         monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_API_KEY", "sk-explicit")
-        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-fallback")
         assert Settings().SCHEMA_REDUCTION_API_KEY == "sk-explicit"
 
     def test_max_input_chars_override(self, monkeypatch):
@@ -378,3 +378,117 @@ class TestToonConfig:
     def test_toon_tool_results_disabled_via_env(self, monkeypatch):
         monkeypatch.setenv("API_AGENT_TOON_TOOL_RESULTS_ENABLED", "false")
         assert Settings().TOON_TOOL_RESULTS_ENABLED is False
+
+
+# ---------------------------------------------------------------------------
+# PROFILE preset (provider-generalization feature)
+# ---------------------------------------------------------------------------
+
+
+class TestProfileLocal:
+    """PROFILE=local sets sensible defaults for local development."""
+
+    def test_profile_local_sets_block_private_ips_false(self, monkeypatch):
+        """AC-1: PROFILE=local disables SSRF guard for private IPs."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "local")
+        s = Settings()
+        assert s.BLOCK_PRIVATE_IPS is False
+
+    def test_profile_local_sets_log_format_console(self, monkeypatch):
+        """AC-1: PROFILE=local sets human-readable log format."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "local")
+        s = Settings()
+        assert s.LOG_FORMAT == "console"
+
+    def test_profile_local_sets_schema_reduction_disabled(self, monkeypatch):
+        """AC-3: PROFILE=local disables schema reduction by default."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "local")
+        s = Settings()
+        assert s.SCHEMA_REDUCTION_ENABLED is False
+
+    def test_profile_local_explicit_override_wins(self, monkeypatch):
+        """AC-2: Explicit env var overrides profile default."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "local")
+        monkeypatch.setenv("API_AGENT_BLOCK_PRIVATE_IPS", "true")
+        s = Settings()
+        assert s.BLOCK_PRIVATE_IPS is True
+
+    def test_profile_local_explicit_schema_reduction_wins(self, monkeypatch):
+        """AC-2: Explicit SCHEMA_REDUCTION_ENABLED=true wins over profile."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "local")
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_ENABLED", "true")
+        s = Settings()
+        assert s.SCHEMA_REDUCTION_ENABLED is True
+
+    def test_profile_empty_no_change(self, monkeypatch):
+        """AC-4: Empty profile (default) produces no change in defaults."""
+        s = Settings()
+        assert s.PROFILE == ""
+        assert s.BLOCK_PRIVATE_IPS is True
+        assert s.LOG_FORMAT == "json"
+        assert s.SCHEMA_REDUCTION_ENABLED is True
+
+    def test_profile_invalid_raises_value_error(self, monkeypatch):
+        """AC-18: Invalid PROFILE value raises a clear error at startup."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "production")
+        with pytest.raises(ValueError, match="Supported profiles"):
+            Settings()
+
+    def test_profile_invalid_error_message_is_human_readable(self, monkeypatch):
+        """AC-18: Error message includes the invalid value and valid options."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "staging")
+        with pytest.raises(ValueError, match="staging"):
+            Settings()
+
+    def test_profile_case_insensitive(self, monkeypatch):
+        """PROFILE=LOCAL (uppercase) should work like 'local'."""
+        monkeypatch.setenv("API_AGENT_PROFILE", "LOCAL")
+        s = Settings()
+        assert s.BLOCK_PRIVATE_IPS is False
+
+    def test_profile_overrides_list_populated(self, monkeypatch):
+        """_profile_overrides is populated when PROFILE=local is applied."""
+        from api_agent.config import _profile_overrides
+
+        _profile_overrides.clear()
+        monkeypatch.setenv("API_AGENT_PROFILE", "local")
+        Settings()
+        assert len(_profile_overrides) > 0
+        assert any("BLOCK_PRIVATE_IPS" in o for o in _profile_overrides)
+
+
+# ---------------------------------------------------------------------------
+# Schema reduction provider fields (provider-generalization feature)
+# ---------------------------------------------------------------------------
+
+
+class TestSchemaReductionProviderFields:
+    """New fields for schema reduction provider generalization."""
+
+    def test_schema_reduction_provider_default_empty(self):
+        """AC-5: Defaults to empty (inherit from main PROVIDER)."""
+        assert Settings().SCHEMA_REDUCTION_PROVIDER == ""
+
+    def test_schema_reduction_provider_env_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_PROVIDER", "anthropic")
+        assert Settings().SCHEMA_REDUCTION_PROVIDER == "anthropic"
+
+    def test_schema_reduction_base_url_default_empty(self):
+        assert Settings().SCHEMA_REDUCTION_BASE_URL == ""
+
+    def test_schema_reduction_base_url_env_override(self, monkeypatch):
+        monkeypatch.setenv("API_AGENT_SCHEMA_REDUCTION_BASE_URL", "http://localhost:11434/v1")
+        assert Settings().SCHEMA_REDUCTION_BASE_URL == "http://localhost:11434/v1"
+
+    def test_schema_reduction_model_default_empty(self):
+        """AC-7: Model defaults to empty (provider decides)."""
+        assert Settings().SCHEMA_REDUCTION_MODEL == ""
+
+    def test_schema_reduction_api_key_no_anthropic_alias(self, monkeypatch):
+        """AC-6: ANTHROPIC_API_KEY no longer falls back for schema reduction.
+
+        The key is now resolved at factory level from main API_KEY.
+        """
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-should-not-reach")
+        # ANTHROPIC_API_KEY feeds API_KEY via its alias, but NOT SCHEMA_REDUCTION_API_KEY
+        assert Settings().SCHEMA_REDUCTION_API_KEY == ""

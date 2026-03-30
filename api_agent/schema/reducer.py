@@ -4,7 +4,7 @@ Reduces oversized API schemas to fit within LLM context limits through a
 multi-layer pipeline:
   0. KeywordRanking — question-aware block scoring and truncation (no AI call)
   1. ToonLayer — lossless structural compression (JSON schemas only)
-  2. HaikuLayer — AI-powered relevance filtering (Claude Haiku)
+  2. AIReductionLayer — provider-agnostic AI relevance filtering
 
 Never raises — always returns a valid schema_text, falling back gracefully
 through each layer on any error.
@@ -13,16 +13,16 @@ through each layer on any error.
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass
-from functools import lru_cache
+from typing import TYPE_CHECKING
 
-import anthropic
-import httpx
 import structlog
 
 from ..metrics import record_injection_detected as _record_injection_detected
+
+if TYPE_CHECKING:
+    from ..llm.provider import LLMProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -438,33 +438,23 @@ No explanatory text. Just the schema.
 [END UNTRUSTED SCHEMA]"""
 
 
-class HaikuLayer:
-    """Claude Haiku reduction layer.
+class AIReductionLayer:
+    """Provider-agnostic AI reduction layer (replaces HaikuLayer).
 
-    Only instantiated when api_key is non-empty.
+    Only instantiated when a provider is available.
     Never raises — returns (original, False) on ANY failure.
     """
 
-    def __init__(
-        self,
-        api_key: str,
-        model: str = "claude-haiku-4-5-20251001",
-        timeout_ms: int = 30_000,
-        max_output_tokens: int = 8192,
-    ):
-        self.model = model
+    def __init__(self, provider: LLMProvider, max_output_tokens: int = 8192):
+        self.provider = provider
         self.max_output_tokens = max_output_tokens
-        self.client = anthropic.AsyncAnthropic(
-            api_key=api_key,
-            timeout=httpx.Timeout(timeout_ms / 1000),
-        )
 
     async def reduce(
         self,
         schema_text: str,
         question: str,
     ) -> tuple[str, bool]:
-        """Reduce schema_text using Haiku, guided by the user's question.
+        """Reduce schema_text using the LLM provider, guided by the user's question.
 
         Returns (reduced_or_original, was_applied).
         Never raises — returns (schema_text, False) on ANY error.
@@ -476,38 +466,31 @@ class HaikuLayer:
                 "{question}", question
             )
 
-            # Safety: no `tools` parameter = Haiku cannot call any tools.
+            # Safety: tools=None means the LLM cannot call any tools.
             # This is the primary security boundary — even if a malicious schema
-            # contains injected instructions, Haiku has no tools to execute them.
-            # We omit `tools` entirely (SDK default) rather than passing `tools=[]`
-            # to avoid potential API rejection of an empty array.
-            response = await self.client.messages.create(
-                model=self.model,
+            # contains injected instructions, the LLM has no tools to execute them.
+            messages = [{"role": "user", "content": prompt}]
+            response = await self.provider.complete(
+                messages,
+                tools=None,
                 max_tokens=self.max_output_tokens,
-                messages=[{"role": "user", "content": prompt}],
             )
 
-            # Extract text content from response
-            text_parts = []
-            for block in response.content:
-                if block.type == "text":
-                    text_parts.append(block.text)  # type: ignore[union-attr]
+            reduced = response.content or ""
 
-            reduced = "\n".join(text_parts)
-
-            # Strip markdown fences (Haiku sometimes wraps in ```json ... ```)
+            # Strip markdown fences (LLMs sometimes wrap in ```json ... ```)
             fence_match = _FENCE_RE.match(reduced)
             if fence_match:
                 reduced = fence_match.group(1)
 
             # Sanity checks
             if not reduced or not reduced.strip():
-                logger.warning("haiku_empty_response")
+                logger.warning("ai_reduction_empty_response")
                 return schema_text, False
 
             if len(reduced) < _MIN_OUTPUT_CHARS:
                 logger.warning(
-                    "haiku_response_too_short",
+                    "ai_reduction_response_too_short",
                     response_chars=len(reduced),
                     minimum_chars=_MIN_OUTPUT_CHARS,
                 )
@@ -515,7 +498,7 @@ class HaikuLayer:
 
             if len(reduced) > len(schema_text):
                 logger.warning(
-                    "haiku_output_longer_than_input",
+                    "ai_reduction_output_longer_than_input",
                     output_chars=len(reduced),
                     input_chars=len(schema_text),
                 )
@@ -529,7 +512,8 @@ class HaikuLayer:
                 return schema_text, False
 
             logger.info(
-                "haiku_reduced",
+                "ai_reduction_reduced",
+                provider=self.provider.provider_name,
                 original_chars=len(schema_text),
                 final_chars=len(reduced),
                 reduction_pct=round((1 - len(reduced) / len(schema_text)) * 100),
@@ -538,10 +522,14 @@ class HaikuLayer:
 
         except Exception:
             logger.warning(
-                "haiku_reduction_error",
+                "ai_reduction_error",
                 exc_info=True,
             )
             return schema_text, False
+
+
+# Keep backward-compatible alias for any external references
+HaikuLayer = AIReductionLayer
 
 
 # ---------------------------------------------------------------------------
@@ -549,39 +537,11 @@ class HaikuLayer:
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=8)
-def _get_haiku_layer(
-    api_key: str, model: str, timeout_ms: int, max_output_tokens: int
-) -> HaikuLayer:
-    """Return a cached HaikuLayer to reuse httpx connection pools.
-
-    Keyed on all constructor args. Note: if the API key is rotated at runtime
-    (e.g., via env-var reload), the old client remains cached until process
-    restart or cache eviction.
-    """
-    return HaikuLayer(api_key, model, timeout_ms, max_output_tokens)
-
-
-def _get_api_key(explicit_key: str = "") -> str:
-    """Resolve the API key for schema reduction.
-
-    Priority:
-      1. Explicitly passed key (from settings.SCHEMA_REDUCTION_API_KEY)
-      2. ANTHROPIC_API_KEY env var
-      3. Empty string (Haiku layer disabled)
-    """
-    if explicit_key:
-        return explicit_key
-    return os.environ.get("ANTHROPIC_API_KEY", "")
-
-
 async def reduce_schema(
     schema_text: str,
     question: str,
     threshold: int,
-    api_key: str = "",
-    model: str = "claude-haiku-4-5-20251001",
-    timeout_ms: int = 30_000,
+    provider: LLMProvider | None = None,
     enabled: bool = True,
     max_input_chars: int = 100_000,
     max_output_tokens: int = 8192,
@@ -593,7 +553,7 @@ async def reduce_schema(
       0. Keyword ranking — score schema blocks by question relevance, sort
          by score, truncate at character budget (no AI call, no deps)
       1. TOON encode — lossless structural compression (JSON only)
-      2. Haiku AI reduction — query-aware summarization (requires API key)
+      2. AI reduction — provider-agnostic query-aware summarization
 
     Each layer short-circuits: if the schema fits after any layer, later
     layers are skipped.  Hard truncation is the final fallback.
@@ -601,14 +561,12 @@ async def reduce_schema(
 
     Args:
         schema_text:  Serialized DSL text from protocol-specific builder.
-        question:     User's NL question (guides Haiku's relevance filter).
+        question:     User's NL question (guides AI relevance filter).
         threshold:    Character limit (typically settings.MAX_SCHEMA_CHARS).
-        api_key:      Anthropic API key. Empty = skip Haiku layer.
-        model:        Haiku model name.
-        timeout_ms:   Timeout for the Haiku API call.
+        provider:     LLMProvider for AI reduction. None = skip AI layer.
         enabled:      Master switch. If False, returns original text unchanged.
-        max_input_chars: Skip Haiku above this size (safety limit).
-        max_output_tokens: Max tokens for Haiku response (default 8192).
+        max_input_chars: Skip AI above this size (safety limit).
+        max_output_tokens: Max tokens for AI response (default 8192).
         ai_reduction_threshold: Minimum original schema size (chars) to trigger
             AI reduction. 0 = use threshold (current behavior).
 
@@ -660,20 +618,19 @@ async def reduce_schema(
         )
         return result
 
-    # Layer 2: Haiku
+    # Layer 2: AI reduction
     ai_applied = False
     # When 0, fall back to threshold — original_chars > threshold is always true
     # at Layer 2 (Layers 0/1 would have returned early otherwise)
     effective_ai_threshold = ai_reduction_threshold or threshold
-    resolved_key = _get_api_key(api_key)
     if (
-        resolved_key
+        provider is not None
         and question
         and original_chars >= effective_ai_threshold
         and len(current_text) <= max_input_chars
     ):
-        haiku_layer = _get_haiku_layer(resolved_key, model, timeout_ms, max_output_tokens)
-        reduced_text, ai_applied = await haiku_layer.reduce(current_text, question)
+        ai_layer = AIReductionLayer(provider, max_output_tokens)
+        reduced_text, ai_applied = await ai_layer.reduce(current_text, question)
         if ai_applied:
             current_text = reduced_text
 

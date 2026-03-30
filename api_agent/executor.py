@@ -307,7 +307,6 @@ async def truncate_for_context_async(
     return result
 
 
-
 _DDL_DML_RE = re.compile(
     r"\b(?:CREATE|DROP|INSERT|UPDATE|DELETE|ALTER|TRUNCATE|ATTACH|DETACH|COPY|LOAD|INSTALL|EXPORT|IMPORT)\b",
     re.I,

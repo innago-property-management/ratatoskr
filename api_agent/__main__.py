@@ -77,6 +77,13 @@ def parse_args() -> argparse.Namespace:
         help=f"MCP transport (default: {settings.TRANSPORT}).",
     )
     parser.add_argument(
+        "--profile",
+        choices=("local",),
+        default=None,
+        help="Configuration profile. 'local' enables local-dev defaults "
+        "(BLOCK_PRIVATE_IPS=false, LOG_FORMAT=console, SCHEMA_REDUCTION_ENABLED=false).",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         default=False,
@@ -106,6 +113,8 @@ def apply_cli_overrides(args: argparse.Namespace) -> None:
         os.environ["API_AGENT_HOST"] = args.host
     if args.transport:
         os.environ["API_AGENT_TRANSPORT"] = args.transport
+    if args.profile:
+        os.environ["API_AGENT_PROFILE"] = args.profile
     if args.debug:
         os.environ["API_AGENT_DEBUG"] = "true"
 
@@ -242,6 +251,16 @@ def main():
 
     if reloaded.DEBUG:
         configure_logging(log_format=reloaded.LOG_FORMAT, debug=reloaded.DEBUG)
+
+    # Log profile overrides (U-1)
+    from .config import _profile_overrides
+
+    if _profile_overrides:
+        logger.info(
+            "profile_applied",
+            profile=reloaded.PROFILE,
+            overrides=", ".join(_profile_overrides),
+        )
 
     logger.info("server_starting", host=host, port=port)
     logger.info(

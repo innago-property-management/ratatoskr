@@ -24,7 +24,8 @@ from ..executor import (
     extract_tables_from_response,
     truncate_for_context_async,
 )
-from ..llm.provider import DIRECT_RETURN, MaxTurnsExceeded
+from ..llm.factory import create_schema_reduction_provider
+from ..llm.provider import DIRECT_RETURN, LLMProvider, MaxTurnsExceeded
 from ..llm.tools import tool
 from ..llm.toon_encoder import ToolResultEncoder
 from ..metrics import record_agent_turns, record_token_usage
@@ -63,6 +64,29 @@ def _get_agent_semaphore() -> asyncio.Semaphore:
     if _agent_semaphore is None:
         _agent_semaphore = asyncio.Semaphore(settings.MAX_CONCURRENT_AGENTS)
     return _agent_semaphore
+
+
+# ---------------------------------------------------------------------------
+# Schema reduction provider (lazy singleton)
+# ---------------------------------------------------------------------------
+
+_schema_reduction_provider: LLMProvider | None = None
+_schema_reduction_provider_initialized = False
+
+
+def _get_schema_reduction_provider() -> LLMProvider | None:
+    global _schema_reduction_provider, _schema_reduction_provider_initialized
+    if not _schema_reduction_provider_initialized:
+        _schema_reduction_provider = create_schema_reduction_provider(settings)
+        _schema_reduction_provider_initialized = True
+    return _schema_reduction_provider
+
+
+def _reset_schema_reduction_provider() -> None:
+    """Reset for testing — forces re-evaluation on next call."""
+    global _schema_reduction_provider, _schema_reduction_provider_initialized
+    _schema_reduction_provider = None
+    _schema_reduction_provider_initialized = False
 
 
 def set_agent_semaphore(limit: int) -> None:
@@ -485,9 +509,9 @@ async def _run_agent_orchestration_impl(
                 schema_text=schema_for_reduction,
                 question=question,
                 threshold=settings.MAX_SCHEMA_CHARS,
-                api_key=settings.SCHEMA_REDUCTION_API_KEY,
-                model=settings.SCHEMA_REDUCTION_MODEL,
-                timeout_ms=settings.SCHEMA_REDUCTION_TIMEOUT_MS,
+                provider=(
+                    _get_schema_reduction_provider() if settings.SCHEMA_REDUCTION_ENABLED else None
+                ),
                 enabled=settings.SCHEMA_REDUCTION_ENABLED,
                 max_input_chars=settings.SCHEMA_REDUCTION_MAX_INPUT_CHARS,
                 max_output_tokens=settings.SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS,

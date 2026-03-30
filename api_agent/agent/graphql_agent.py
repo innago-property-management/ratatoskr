@@ -294,7 +294,9 @@ async def _fetch_schema_context(
             result = await graphql_fetch(_INTROSPECTION_QUERY_SHALLOW, None, endpoint, headers)
 
         if not result.get("success") or not result.get("data"):
-            return SchemaFetchResult(schema_context="", allowed_field_count=None, raw_schema_json="")
+            return SchemaFetchResult(
+                schema_context="", allowed_field_count=None, raw_schema_json=""
+            )
 
         schema = result["data"]["__schema"]
     allowed_count: int | None = None

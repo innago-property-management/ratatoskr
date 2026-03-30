@@ -1,16 +1,64 @@
 """Configuration settings for API Agent MCP server."""
 
 import re
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import AliasChoices, Field, computed_field
+from pydantic import AliasChoices, Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Module-level list populated by the PROFILE validator for startup logging (U-1).
+_profile_overrides: list[str] = []
 
 
 class Settings(BaseSettings):
     """Settings with API_AGENT_ env prefix. OPENAI_* also accepts unprefixed."""
 
     model_config = SettingsConfigDict(env_prefix="API_AGENT_", env_file=".env", extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def apply_profile_defaults(cls, data: dict[str, Any]) -> dict[str, Any]:
+        """Inject sensible defaults when PROFILE is set.
+
+        Runs before field validation, so explicit env vars always win.
+        """
+        profile = data.get("PROFILE", data.get("API_AGENT_PROFILE", ""))
+        if isinstance(profile, str):
+            profile = profile.strip().lower()
+
+        if not profile:
+            return data
+
+        # Custom validation error (U-3) — before Literal validation
+        if profile != "local":
+            raise ValueError(
+                f"Invalid PROFILE '{profile}'. "
+                "Supported profiles: 'local'. Leave empty for default behavior."
+            )
+
+        local_defaults: dict[str, Any] = {
+            "BLOCK_PRIVATE_IPS": False,
+            "LOG_FORMAT": "console",
+            "SCHEMA_REDUCTION_ENABLED": False,
+        }
+
+        # Normalize the profile value so Literal validation accepts it
+        if "PROFILE" in data:
+            data["PROFILE"] = profile
+        if "API_AGENT_PROFILE" in data:
+            data["API_AGENT_PROFILE"] = profile
+
+        _profile_overrides.clear()
+        for key, value in local_defaults.items():
+            prefixed = f"API_AGENT_{key}"
+            if key not in data and prefixed not in data:
+                data[key] = value
+                _profile_overrides.append(f"{key}={value}")
+
+        return data
+
+    # Profile preset (e.g. "local" for local development)
+    PROFILE: Literal["local", ""] = ""
 
     # MCP Server
     MCP_NAME: str = "API Agent"
@@ -139,12 +187,14 @@ class Settings(BaseSettings):
 
     # Schema reduction pipeline
     SCHEMA_REDUCTION_ENABLED: bool = True
-    SCHEMA_REDUCTION_MODEL: str = "claude-haiku-4-5-20251001"
+    SCHEMA_REDUCTION_PROVIDER: str = ""  # empty = inherit from PROVIDER
+    SCHEMA_REDUCTION_MODEL: str = ""  # empty = provider default
     SCHEMA_REDUCTION_TIMEOUT_MS: int = 30_000
     SCHEMA_REDUCTION_API_KEY: str = Field(
         default="",
-        validation_alias=AliasChoices("API_AGENT_SCHEMA_REDUCTION_API_KEY", "ANTHROPIC_API_KEY"),
+        validation_alias=AliasChoices("API_AGENT_SCHEMA_REDUCTION_API_KEY"),
     )
+    SCHEMA_REDUCTION_BASE_URL: str = ""  # empty = inherit from BASE_URL
     SCHEMA_REDUCTION_MAX_INPUT_CHARS: int = 100_000
     SCHEMA_REDUCTION_MAX_OUTPUT_TOKENS: int = 8192
     SCHEMA_AI_REDUCTION_THRESHOLD: int = Field(
