@@ -375,6 +375,7 @@ Cached pipelines, no LLM reasoning. Appear after successful queries. Clients not
 | `--port`       | Server port (default: 3000)                              |
 | `--host`       | Server host (default: 0.0.0.0)                           |
 | `--transport`  | MCP transport: `http`, `streamable-http`, `sse`           |
+| `--profile`    | Config profile: `local` (relaxes security for local dev)  |
 | `--debug`      | Enable debug logging                                     |
 
 CLI arguments override environment variables.
@@ -393,6 +394,11 @@ CLI arguments override environment variables.
 | `API_AGENT_ALLOW_ENDPOINTS_REST` | No     | -                         | CSV glob patterns for REST endpoint allowlist |
 | `API_AGENT_ALLOW_ENDPOINTS_GRAPHQL` | No  | -                         | CSV glob patterns for GraphQL endpoint allowlist |
 | `API_AGENT_ALLOW_ENDPOINTS_GRPC` | No     | -                         | CSV glob patterns for gRPC endpoint allowlist |
+| `API_AGENT_PROFILE`            | No       | -                         | Config profile (`local` = relax for local dev) |
+| `API_AGENT_SCHEMA_REDUCTION_PROVIDER` | No | (inherits `PROVIDER`)    | LLM provider for schema reduction  |
+| `API_AGENT_SCHEMA_REDUCTION_MODEL` | No    | (provider default)        | Model for schema reduction         |
+| `API_AGENT_SCHEMA_REDUCTION_API_KEY` | No  | (inherits `API_KEY`)     | API key for schema reduction LLM   |
+| `API_AGENT_SCHEMA_REDUCTION_BASE_URL` | No | (inherits `BASE_URL`)    | Endpoint for schema reduction LLM  |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | No       | -                         | OpenTelemetry tracing endpoint     |
 
 **Provider defaults:**
@@ -402,6 +408,24 @@ CLI arguments override environment variables.
 | `openai`        | `gpt-4o`                    | `OPENAI_API_KEY`    |
 | `anthropic`     | `claude-sonnet-4-20250514`  | `ANTHROPIC_API_KEY` |
 | `openai-compat` | `gpt-4o`                    | (optional)          |
+
+### Local development
+
+Use `PROFILE=local` (or `--profile local`) to set sensible defaults for local dev:
+
+```bash
+# All three of these are set automatically:
+#   BLOCK_PRIVATE_IPS=false    (allow localhost targets)
+#   LOG_FORMAT=console         (human-readable logs)
+#   SCHEMA_REDUCTION_ENABLED=false  (no cloud key needed)
+
+uv run api-agent --profile local \
+  --provider openai-compat \
+  --base-url http://localhost:11434/v1 \
+  --model llama3
+```
+
+Explicit env vars always override profile defaults (e.g., `BLOCK_PRIVATE_IPS=true` wins even with `PROFILE=local`).
 
 ---
 
@@ -500,7 +524,9 @@ The core architecture — FastMCP server, dynamic tool naming, agent orchestrati
 
 - **Polyglot LLM support** — Anthropic, OpenAI, and OpenAI-compatible providers via a pluggable `LLMProvider` abstraction
 - **Token-Optimized Output (TOON)** — Strips JSON punctuation noise to improve LLM attention quality with 30-60% fewer tokens
-- **Expanded test coverage** — 1236 tests covering orchestration, safety boundaries, configuration contracts, and provider SDK surfaces
+- **Schema reduction** — 3-layer pipeline (keyword ranking, TOON, AI) using any configured LLM provider, not just Anthropic
+- **Local dev profile** — `PROFILE=local` collapses three manual overrides into one env var
+- **Expanded test coverage** — 1412 tests covering orchestration, safety boundaries, configuration contracts, and provider SDK surfaces
 - **GraphQL partial success fix** — Returns both `data` and `errors` when both present, per the GraphQL specification
 
 The name **Ratatoskr** comes from the Norse squirrel who runs up and down Yggdrasil carrying messages between realms — a fitting metaphor for a universal API-to-LLM bridge.
