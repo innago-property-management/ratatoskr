@@ -162,6 +162,18 @@ class TestFactoryTimeout:
         assert p.client.timeout == 5.0
 
 
+class TestFactoryCompatRequiresBaseUrl:
+    """openai-compat without base_url should raise ValueError."""
+
+    def test_raises_when_compat_has_no_base_url(self, monkeypatch):
+        """BUG fix: openai-compat requires base_url, same as create_provider()."""
+        monkeypatch.setenv("API_AGENT_PROVIDER", "openai-compat")
+        # No BASE_URL set
+        s = Settings()
+        with pytest.raises(ValueError, match="base_url"):
+            create_schema_reduction_provider(s)
+
+
 class TestFactoryUnknownProvider:
     """Unknown provider type returns None."""
 

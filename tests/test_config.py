@@ -456,6 +456,23 @@ class TestProfileLocal:
         assert len(_profile_overrides) > 0
         assert any("BLOCK_PRIVATE_IPS" in o for o in _profile_overrides)
 
+    def test_profile_overrides_cleared_on_non_profile_settings(self, monkeypatch):
+        """Regression: _profile_overrides must be cleared when PROFILE is empty.
+
+        Without this, a previous PROFILE=local call leaves stale data.
+        """
+        from api_agent.config import _profile_overrides
+
+        # First: populate with profile=local
+        monkeypatch.setenv("API_AGENT_PROFILE", "local")
+        Settings()
+        assert len(_profile_overrides) > 0
+
+        # Second: create Settings without profile — overrides must be cleared
+        monkeypatch.delenv("API_AGENT_PROFILE")
+        Settings()
+        assert len(_profile_overrides) == 0
+
 
 # ---------------------------------------------------------------------------
 # Schema reduction provider fields (provider-generalization feature)

@@ -26,6 +26,8 @@ class Settings(BaseSettings):
         if isinstance(profile, str):
             profile = profile.strip().lower()
 
+        _profile_overrides.clear()
+
         if not profile:
             return data
 
@@ -48,7 +50,6 @@ class Settings(BaseSettings):
         if "API_AGENT_PROFILE" in data:
             data["API_AGENT_PROFILE"] = profile
 
-        _profile_overrides.clear()
         for key, value in local_defaults.items():
             prefixed = f"API_AGENT_{key}"
             if key not in data and prefixed not in data:
@@ -201,7 +202,7 @@ class Settings(BaseSettings):
         default=0,
         ge=0,
         description=(
-            "Minimum original schema size (chars) to trigger AI (Haiku) reduction. "
+            "Minimum original schema size (chars) to trigger AI reduction. "
             "0 = use MAX_SCHEMA_CHARS as the trigger (current behavior). "
             "Set higher to skip AI for medium schemas and just hard-truncate."
         ),

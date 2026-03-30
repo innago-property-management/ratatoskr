@@ -113,10 +113,15 @@ def create_schema_reduction_provider(settings: Settings) -> LLMProvider | None:
     elif provider_type == "openai-compat":
         from .openai_compat import OpenAICompatProvider
 
+        if not base_url:
+            raise ValueError(
+                "openai-compat provider requires base_url "
+                "(set API_AGENT_BASE_URL or API_AGENT_SCHEMA_REDUCTION_BASE_URL)"
+            )
         return OpenAICompatProvider(
             model=model or _DEFAULT_MODELS.get("openai-compat", "gpt-4o"),
             api_key=api_key or "not-needed",
-            base_url=base_url or None,
+            base_url=base_url,
             timeout=timeout_s,
         )
     else:

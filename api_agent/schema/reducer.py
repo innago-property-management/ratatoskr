@@ -396,11 +396,11 @@ _INJECTION_MARKERS = [
 
 
 def _flag_suspected_injection(output: str, original: str) -> str:
-    """Check Haiku output for injection markers not present in the original schema.
+    """Check AI reduction output for injection markers not present in the original schema.
 
     Returns the matched marker string if suspected injection was detected
     (output should be discarded), or empty string if clean.
-    The primary safety boundary is the zero-tools constraint on the Haiku call;
+    The primary safety boundary is the zero-tools constraint on the LLM call;
     this scanner is defense-in-depth.
     """
     output_lower = output.lower()
