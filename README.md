@@ -397,6 +397,7 @@ CLI arguments override environment variables.
 | `API_AGENT_PROFILE`            | No       | -                         | Config profile (`local` = relax for local dev) |
 | `API_AGENT_SCHEMA_REDUCTION_PROVIDER` | No | (inherits `PROVIDER`)    | LLM provider for schema reduction  |
 | `API_AGENT_SCHEMA_REDUCTION_MODEL` | No    | (provider default)        | Model for schema reduction         |
+| `API_AGENT_SCHEMA_REDUCTION_API_KEY` | No  | (inherits `API_KEY`)     | API key for schema reduction LLM   |
 | `API_AGENT_SCHEMA_REDUCTION_BASE_URL` | No | (inherits `BASE_URL`)    | Endpoint for schema reduction LLM  |
 | `OTEL_EXPORTER_OTLP_ENDPOINT`  | No       | -                         | OpenTelemetry tracing endpoint     |
 

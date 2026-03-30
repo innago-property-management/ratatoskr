@@ -149,7 +149,7 @@ Set `X-Poll-Paths` header to enable `poll_until_done` tool:
 
 ### PROFILE Preset
 
-- **`PROFILE=local`**: Sets `BLOCK_PRIVATE_IPS=false`, `LOG_FORMAT=console`, `SCHEMA_REDUCTION_ENABLED=false`. One env var for local dev.
+- **`PROFILE=local`** (or `API_AGENT_PROFILE=local`): Sets `BLOCK_PRIVATE_IPS=false`, `LOG_FORMAT=console`, `SCHEMA_REDUCTION_ENABLED=false`. One env var for local dev.
 - **CLI**: `--profile local` flag in `__main__.py`
 - **Implementation**: `model_validator(mode="before")` on `Settings` — injects defaults before field validation, explicit env vars always win
 - **`_profile_overrides`**: Module-level list in `config.py`, populated by validator, read by `__main__.py` for startup logging
@@ -200,6 +200,6 @@ Query → Agent executes → Extractor LLM → Recipe stored → MCP tool `r_{na
 | Middleware | `test_middleware_routing.py` (8 tests) |
 | Endpoint filtering | `test_filtering.py` (63 tests) |
 | Allowlist integration | `test_endpoint_allowlist.py` (9 tests) |
-| Schema reduction provider factory | `test_provider_factory.py` (15 tests) |
-| AI reduction layer | `test_haiku_layer.py` (15 tests) |
+| Schema reduction provider factory | `test_provider_factory.py` (16 tests) |
+| AI reduction layer | `test_haiku_layer.py` (14 tests) |
 
