@@ -155,7 +155,10 @@ class TestFactoryTimeout:
         s = Settings()
         p = create_schema_reduction_provider(s)
         assert p is not None
-        # Anthropic SDK stores timeout as a float (seconds)
+        # AnthropicProvider stores client as an attribute; SDK timeout is a float
+        from api_agent.llm.anthropic_provider import AnthropicProvider
+
+        assert isinstance(p, AnthropicProvider)
         assert p.client.timeout == 5.0
 
 
