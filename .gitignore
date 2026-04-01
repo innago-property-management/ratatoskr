@@ -28,3 +28,6 @@ wheels/
 .DS_Store
 Gemini_Generated_Image_*
 fnox.toml
+
+# Dex task state (local)
+.dex/

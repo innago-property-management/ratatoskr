@@ -1,4 +1,4 @@
-# Contributing to API Agent
+# Contributing to Ratatoskr
 
 Thank you for your interest in contributing!
 

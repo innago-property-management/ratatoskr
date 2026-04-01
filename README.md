@@ -5,7 +5,13 @@
 <h1 align="center">Ratatoskr</h1>
 
 <p align="center">
-  <strong>Turn any API into an MCP server. Query in English. Get results — even when the API can't.</strong>
+  <strong>No-code MCP server from any API spec. TOON compression. AI-powered response pruning.</strong>
+</p>
+
+<p align="center">
+  <a href="https://pypi.org/project/api-agent-ratatoskr/"><img src="https://img.shields.io/pypi/v/api-agent-ratatoskr?color=blue" alt="PyPI"></a>
+  <a href="https://pypi.org/project/api-agent-ratatoskr/"><img src="https://img.shields.io/pypi/pyversions/api-agent-ratatoskr" alt="Python"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green" alt="MIT License"></a>
 </p>
 
 <p align="center">
@@ -19,7 +25,21 @@
 
 ---
 
-> **Ratatoskr** is a polyglot-LLM fork of [agoda-com/api-agent](https://github.com/agoda-com/api-agent) — Agoda's universal API-to-MCP bridge. This fork adds first-class **Anthropic** and **OpenAI-compatible** (Ollama, LM Studio, vLLM) provider support alongside the original OpenAI backend. All credit for the core architecture goes to the [Agoda engineering team](https://medium.com/agoda-engineering/how-to-convert-any-api-to-mcp-with-zero-code-and-zero-deployments-using-apiagent-fa494de8eaee).
+> **Ratatoskr** is a polyglot-LLM fork of [agoda-com/api-agent](https://github.com/agoda-com/api-agent) -- Agoda's universal API-to-MCP bridge. This fork adds first-class **Anthropic** and **OpenAI-compatible** (Ollama, LM Studio, vLLM) provider support alongside the original OpenAI backend. All credit for the core architecture goes to the [Agoda engineering team](https://medium.com/agoda-engineering/how-to-convert-any-api-to-mcp-with-zero-code-and-zero-deployments-using-apiagent-fa494de8eaee).
+
+---
+
+## Why
+
+AI agents need to call APIs, but wiring each one up as an MCP server is tedious boilerplate. Worse, raw JSON responses waste tokens on structural punctuation (braces, quotes, colons) that dilute the model's attention on actual data. And when APIs return massive payloads, the agent burns context window on data it doesn't need.
+
+**Ratatoskr solves all three problems:**
+
+1. **Zero-code MCP servers** -- Point at an OpenAPI spec, GraphQL endpoint, or protobuf definition. Ratatoskr introspects the schema and exposes it as MCP tools automatically.
+2. **TOON compression** -- Reformats JSON responses into [Token-Optimized Output Notation](https://toonformat.dev/), cutting 30-60% of tokens while improving LLM reasoning quality.
+3. **AI response agent** -- For large payloads, an internal AI agent prunes the response down to just the data that answers the question asked, and flags potential prompt injection in API responses.
+
+Part of a trio of AI agent infrastructure tools: [AgentGit](https://github.com/innago-property-management/stand-sure-ai) (identity), Phlegyas (authorization), and Ratatoskr (capability/tooling).
 
 ---
 
@@ -39,7 +59,17 @@ Point at any GraphQL or REST API. Ask questions in natural language. The agent f
 
 ## Quick Start
 
-**1. Run (choose one):**
+### Install
+
+```bash
+# From PyPI
+pip install api-agent-ratatoskr
+
+# Or with uv (recommended)
+uv add api-agent-ratatoskr
+```
+
+### Run
 
 ```bash
 # OpenAI (default)
@@ -51,7 +81,7 @@ uv run api-agent --provider anthropic --api-key your_key
 # Local model (Ollama, LM Studio, vLLM)
 uv run api-agent --provider openai-compat --base-url http://localhost:11434/v1 --model llama3
 
-# Or Docker (OpenAI)
+# Or Docker
 docker build -t ratatoskr .
 docker run -p 3000:3000 -e OPENAI_API_KEY=your_key ratatoskr
 ```
@@ -488,7 +518,7 @@ Planned improvements (contributions welcome):
 git clone https://github.com/innago-property-management/ratatoskr.git
 cd ratatoskr
 uv sync --group dev
-uv run pytest tests/ -v      # Tests (1236 passing)
+uv run pytest tests/ -v      # Tests (1412 passing)
 uv run ruff check api_agent/  # Lint
 uv run ty check               # Type check
 ```
