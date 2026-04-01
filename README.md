@@ -25,7 +25,7 @@
 
 ---
 
-> **Ratatoskr** is a polyglot-LLM fork of [agoda-com/api-agent](https://github.com/agoda-com/api-agent) -- Agoda's universal API-to-MCP bridge. This fork adds first-class **Anthropic** and **OpenAI-compatible** (Ollama, LM Studio, vLLM) provider support alongside the original OpenAI backend. All credit for the core architecture goes to the [Agoda engineering team](https://medium.com/agoda-engineering/how-to-convert-any-api-to-mcp-with-zero-code-and-zero-deployments-using-apiagent-fa494de8eaee).
+> **Ratatoskr** is a polyglot-LLM fork of [agoda-com/api-agent](https://github.com/agoda-com/api-agent) — Agoda's universal API-to-MCP bridge. This fork adds first-class **Anthropic** and **OpenAI-compatible** (Ollama, LM Studio, vLLM) provider support alongside the original OpenAI backend. All credit for the core architecture goes to the [Agoda engineering team](https://medium.com/agoda-engineering/how-to-convert-any-api-to-mcp-with-zero-code-and-zero-deployments-using-apiagent-fa494de8eaee).
 
 ---
 
@@ -37,7 +37,7 @@ AI agents need to call APIs, but wiring each one up as an MCP server is tedious 
 
 1. **Zero-code MCP servers** -- Point at an OpenAPI spec, GraphQL endpoint, or protobuf definition. Ratatoskr introspects the schema and exposes it as MCP tools automatically.
 2. **TOON compression** -- Reformats JSON responses into [Token-Optimized Output Notation](https://toonformat.dev/), cutting 30-60% of tokens while improving LLM reasoning quality.
-3. **AI response agent** -- For large payloads, an internal AI agent prunes the response down to just the data that answers the question asked, and flags potential prompt injection in API responses.
+3. **AI response agent** -- For large payloads, an internal AI agent prunes the response down to just the data that answers the question asked, with untrusted-schema markers that help protect against prompt injection.
 
 Part of a trio of AI agent infrastructure tools: [AgentGit](https://github.com/innago-property-management/stand-sure-ai) (identity), Phlegyas (authorization), and Ratatoskr (capability/tooling).
 
