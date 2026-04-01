@@ -7,8 +7,8 @@ from collections.abc import Sequence
 from fastmcp.exceptions import NotFoundError, ToolError, ValidationError
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
-from fastmcp.tools.tool import Tool as FastMCPTool
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools.base import Tool as FastMCPTool
+from fastmcp.tools.base import ToolResult
 from mcp import types as mt
 from mcp.types import TextContent
 

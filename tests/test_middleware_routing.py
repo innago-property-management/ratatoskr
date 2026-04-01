@@ -213,7 +213,7 @@ class TestGrpcMiddleware:
         # 4. load_schema_and_base_url returns ("", "") for gRPC
         # 5. Should NOT raise RuntimeError
 
-        from fastmcp.tools.tool import Tool as FastMCPTool
+        from fastmcp.tools.base import Tool as FastMCPTool
 
         mock_tool = MagicMock(spec=FastMCPTool)
         mock_tool.name = "_query"

@@ -71,7 +71,7 @@ class TestToolResultEncoder:
 
         # Reset lru_cache so this test exercises the warning path
         _log_toon_unavailable.cache_clear()
-        monkeypatch.setitem(sys.modules, "toon_format", None)  # type: ignore[arg-type]
+        monkeypatch.setitem(sys.modules, "toon_format", None)
 
         data = [{"x": i} for i in range(10)]
         encoder = ToolResultEncoder()

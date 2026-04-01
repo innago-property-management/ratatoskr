@@ -66,6 +66,8 @@ packages = ["api_agent"]
 constraint-dependencies = [
     "requests>=2.33.0",  # CVE-2026-25645
     "cryptography>=46.0.6",  # CVE-2026-34073
+    "pygments>=2.20.0",  # CVE-2026-4539
+    "fastmcp>=3.2.0",  # CVE-2025-64340, CVE-2026-27124
 ]
 
 [tool.ruff]
