@@ -208,29 +208,41 @@ class TestGracefulShutdown:
     """Signal handlers trigger graceful connection draining."""
 
     def test_create_app_registers_shutdown_handler(self):
-        """create_app registers atexit and shutdown event handler."""
+        """create_app registers the synchronous fallback shutdown handler."""
         with patch("atexit.register") as mock_register:
             from api_agent.__main__ import create_app
 
             create_app()
             mock_register.assert_called()
 
-    def test_shutdown_closes_pool(self):
-        """The shutdown handler calls pool.close_all."""
+    @pytest.mark.asyncio
+    async def test_create_app_runs_startup_and_shutdown_in_lifespan(self):
+        """create_app composes custom lifecycle hooks with FastMCP's lifespan."""
         from api_agent.__main__ import create_app
 
-        app = create_app()
-        # Find the shutdown handler
-        shutdown_handlers = [h for h in app.router.on_shutdown if callable(h)]
-        assert len(shutdown_handlers) >= 1
+        with (
+            patch("api_agent.__main__.install_shutdown_signals") as mock_signals,
+            patch("api_agent.__main__.shutdown_cleanup", new_callable=AsyncMock) as mock_cleanup,
+            patch(
+                "api_agent.schema.startup.load_configured_schemas",
+                new_callable=AsyncMock,
+                return_value=0,
+            ) as mock_schema_startup,
+            patch(
+                "api_agent.recipe.store.init_recipe_store",
+                new_callable=AsyncMock,
+                return_value=0,
+            ) as mock_recipe_startup,
+            patch("atexit.register"),
+        ):
+            app = create_app()
+            async with app.router.lifespan_context(app):
+                mock_signals.assert_called_once()
+                mock_schema_startup.assert_awaited_once()
+                mock_recipe_startup.assert_awaited_once()
+                mock_cleanup.assert_not_awaited()
 
-    def test_create_app_registers_startup_with_signal_handlers(self):
-        """create_app registers a startup event handler for signal installation."""
-        from api_agent.__main__ import create_app
-
-        app = create_app()
-        startup_handlers = [h for h in app.router.on_startup if callable(h)]
-        assert len(startup_handlers) >= 1
+            mock_cleanup.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_install_signal_handlers(self):

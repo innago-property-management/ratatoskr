@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import atexit
 import os
+from contextlib import asynccontextmanager
 from typing import Literal, cast
 
 import structlog
@@ -221,8 +222,18 @@ def create_app():
     async def shutdown():
         await shutdown_cleanup(pool)
 
-    app.add_event_handler("startup", startup)
-    app.add_event_handler("shutdown", shutdown)
+    mcp_lifespan = app.router.lifespan_context
+
+    @asynccontextmanager
+    async def lifespan(lifespan_app):
+        async with mcp_lifespan(lifespan_app) as state:
+            try:
+                await startup()
+                yield state
+            finally:
+                await shutdown()
+
+    app.router.lifespan_context = lifespan
 
     def _sync_cleanup():
         try:

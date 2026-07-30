@@ -159,6 +159,28 @@ npx @modelcontextprotocol/inspector --transport http --server-url http://localho
 }
 ```
 
+**Xquik (read-only X data):**
+```json
+{
+  "mcpServers": {
+    "xquik": {
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "X-Target-URL": "https://xquik.com/openapi.json",
+        "X-API-Type": "rest",
+        "X-Target-Headers": "{\"x-api-key\": \"xq_YOUR_KEY\"}",
+        "X-Allow-Endpoints": "[\"GET /api/v1/x/*\"]"
+      }
+    }
+  }
+}
+```
+
+Create an API key in the [Xquik dashboard](https://xquik.com/dashboard).
+Ratatoskr blocks write methods unless you explicitly allow them.
+Xquik is an independent third-party service. Not affiliated with X Corp. "Twitter" and
+"X" are trademarks of X Corp.
+
 **Your own API with auth:**
 ```json
 {
