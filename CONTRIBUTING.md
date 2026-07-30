@@ -5,7 +5,7 @@ Thank you for your interest in contributing!
 ## Development Setup
 
 1. Clone the repository
-2. Install dependencies: `uv sync --group dev`
+2. Install dependencies: `uv sync --group dev --group toon`
 3. Run tests: `uv run pytest tests/ -v`
 4. Run linter: `uv run ruff check api_agent/`
 

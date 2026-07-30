@@ -179,26 +179,54 @@ def _format_params(params: list[Any]) -> str:
     return ", ".join(parts)
 
 
+def _response_json_type(resp: Any) -> str:
+    """Extract JSON schema type from one response."""
+    if not isinstance(resp, dict):
+        return ""
+    content = resp.get("content", {})
+    if not isinstance(content, dict):
+        return ""
+    for media_type, media_content in content.items():
+        if not isinstance(media_type, str) or not isinstance(media_content, dict):
+            continue
+        base_media_type = media_type.partition(";")[0].strip().lower()
+        if base_media_type != "application/json" and not (
+            base_media_type.startswith("application/") and base_media_type.endswith("+json")
+        ):
+            continue
+        schema = media_content.get("schema", {})
+        if schema:
+            return _schema_to_type(schema)
+    return ""
+
+
+def _is_no_content_response(resp: Any) -> bool:
+    """Return true when a success response explicitly has no body."""
+    return isinstance(resp, dict) and not resp.get("content")
+
+
 def _extract_response_type(responses: Any) -> str:
     """Extract return type from responses."""
     if not isinstance(responses, dict):
         return "any"
 
-    # Check 200/201 responses
+    # Prefer common success/default slots for stable output.
     for code in ["200", "201", "default"]:
         if code in responses:
-            resp = responses[code]
-            if not isinstance(resp, dict):
-                continue
-            content = resp.get("content", {})
-            if not isinstance(content, dict):
-                continue
-            json_content = content.get("application/json", {})
-            if not isinstance(json_content, dict):
-                continue
-            schema = json_content.get("schema", {})
-            if schema:
-                return _schema_to_type(schema)
+            response_type = _response_json_type(responses[code])
+            if response_type:
+                return response_type
+
+    # Fall back to other 2xx responses such as 202, 204, or 206.
+    for code, resp in responses.items():
+        if isinstance(code, str) and code.startswith("2"):
+            response_type = _response_json_type(resp)
+            if response_type:
+                return response_type
+
+    for code, resp in responses.items():
+        if isinstance(code, str) and code.startswith("2") and _is_no_content_response(resp):
+            return "None"
     return "any"
 
 

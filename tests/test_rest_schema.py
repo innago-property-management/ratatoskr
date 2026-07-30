@@ -372,3 +372,186 @@ class TestBuildSchemaContext:
         ctx = build_schema_context(spec)
         assert "PUT /update(body: Data)" in ctx
         assert "body: Data!" not in ctx  # not required
+
+    def test_any_json_2xx_response_type(self):
+        """Use JSON schemas from success responses beyond 200 and 201."""
+        spec = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/jobs": {
+                    "post": {
+                        "responses": {
+                            "202": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {"$ref": "#/components/schemas/AcceptedJob"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+            "components": {"schemas": {}},
+        }
+        ctx = build_schema_context(spec)
+        assert "POST /jobs() -> AcceptedJob" in ctx
+
+    def test_json_suffix_2xx_response_type(self):
+        """Use JSON-like media types such as application/problem+json."""
+        spec = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/jobs": {
+                    "post": {
+                        "responses": {
+                            "202": {
+                                "content": {
+                                    "application/vnd.api+json": {
+                                        "schema": {"$ref": "#/components/schemas/VendorJob"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+            "components": {"schemas": {}},
+        }
+        ctx = build_schema_context(spec)
+        assert "POST /jobs() -> VendorJob" in ctx
+
+    @pytest.mark.parametrize(
+        "media_type",
+        ["application/json; charset=utf-8", "application/problem+json; charset=utf-8"],
+    )
+    def test_parameterized_json_2xx_response_type(self, media_type):
+        """Ignore optional parameters when classifying JSON media types."""
+        spec = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/jobs": {
+                    "post": {
+                        "responses": {
+                            "202": {
+                                "content": {
+                                    media_type: {
+                                        "schema": {"$ref": "#/components/schemas/AcceptedJob"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                }
+            },
+            "components": {"schemas": {}},
+        }
+        ctx = build_schema_context(spec)
+        assert "POST /jobs() -> AcceptedJob" in ctx
+
+    def test_no_content_2xx_response_type(self):
+        """Represent explicit success responses with no body as None."""
+        spec = {
+            "openapi": "3.0.0",
+            "paths": {
+                "/jobs/{id}": {
+                    "delete": {
+                        "parameters": [
+                            {
+                                "name": "id",
+                                "in": "path",
+                                "required": True,
+                                "schema": {"type": "string"},
+                            }
+                        ],
+                        "responses": {"204": {"description": "Deleted"}},
+                    }
+                }
+            },
+        }
+        ctx = build_schema_context(spec)
+        assert "DELETE /jobs/{id}(id: str) -> None" in ctx
+
+    def test_xquik_openapi31_context(self):
+        """Xquik OpenAPI 3.1 auth and request fields stay visible."""
+        spec = {
+            "openapi": "3.1.0",
+            "info": {"title": "Xquik API", "version": "1.0.0"},
+            "servers": [{"url": "https://xquik.com"}],
+            "paths": {
+                "/api/v1/x/tweets/search": {
+                    "get": {
+                        "summary": "Search X posts",
+                        "parameters": [
+                            {
+                                "name": "q",
+                                "in": "query",
+                                "required": True,
+                                "schema": {"type": "string"},
+                            },
+                            {
+                                "name": "limit",
+                                "in": "query",
+                                "required": False,
+                                "schema": {"type": "integer"},
+                            },
+                        ],
+                        "responses": {
+                            "200": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "$ref": "#/components/schemas/TweetSearchResponse"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+                "/api/v1/webhooks": {
+                    "post": {
+                        "summary": "Create webhook",
+                        "requestBody": {
+                            "required": True,
+                            "content": {
+                                "application/json": {
+                                    "schema": {"$ref": "#/components/schemas/CreateWebhook"}
+                                }
+                            },
+                        },
+                        "responses": {
+                            "202": {
+                                "content": {
+                                    "application/json": {
+                                        "schema": {"$ref": "#/components/schemas/WebhookJob"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+            },
+            "components": {
+                "schemas": {
+                    "CreateWebhook": {
+                        "type": "object",
+                        "properties": {
+                            "url": {"type": "string", "format": "uri"},
+                            "event": {"type": "string"},
+                            "secret": {"type": ["string", "null"]},
+                        },
+                        "required": ["url", "event"],
+                    }
+                },
+                "securitySchemes": {
+                    "apiKey": {"type": "apiKey", "in": "header", "name": "x-api-key"}
+                },
+            },
+        }
+        ctx = build_schema_context(spec)
+        assert "GET /api/v1/x/tweets/search(q: str) -> TweetSearchResponse" in ctx
+        assert "limit" not in ctx
+        assert "POST /api/v1/webhooks(body: CreateWebhook!) -> WebhookJob" in ctx
+        assert "CreateWebhook { url: str(uri)!, event: str! }" in ctx
+        assert "apiKey: API key in header 'x-api-key'" in ctx
